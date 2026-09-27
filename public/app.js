@@ -1954,6 +1954,175 @@
   }
 
   /**
+   * Takes needless kinks out of the belts before they're routed, in two
+   * steps, each only where nothing else is in the way:
+   *
+   *  1. Buildings shift up or down a little (up to 4 m) where that lets more
+   *     of their belts run level with what they connect to.
+   *  2. A belt passing through columns picks one height per column, so it
+   *     changes height as few times as it can: ideally once, straight from
+   *     where it leaves to where it arrives. A belt off a splitter's or
+   *     merger's side can instead run further out before it turns.
+   */
+  function straightenBelts(layers, startY, endY, partTop, partBottom, STUB) {
+    var byKey = graph.byKey;
+    var CLEAR = px(1);        // a belt running past a building
+    var SPACE = px(2);        // two buildings in a column
+    var BELT_SPACE = px(2);   // two belts running side by side
+    var REACH = px(4);        // furthest a building moves
+    var edges = graph.edges.filter(function (e) { return !e.back; });
+    edges.forEach(function (e) { delete e.y0; delete e.y1; });
+
+    // Distance between a point and a band [y, y + h]; negative inside it.
+    function toBand(v, y, h) { return v < y ? y - v : v > y + h ? v - (y + h) : -1; }
+    function boxGap(o, y, h) { return Math.max(o.y - (y + h), y - (o.y + o.h)); }
+
+    // 1. Buildings.
+    function fits(n, y) {
+      return layers[n.col].every(function (o) {
+        if (o === n) return true;
+        if (o.dummy) {
+          var dNew = toBand(o.y, y, n.h);
+          return dNew >= CLEAR || dNew >= toBand(o.y, n.y, n.h);
+        }
+        var gNew = boxGap(o, y, n.h);
+        return gNew >= SPACE || gNew >= boxGap(o, n.y, n.h);
+      });
+    }
+    function mine(n) {
+      return n.out.concat(n.inn).filter(function (e) { return !e.back; });
+    }
+    // Level, or a splitter's or merger's side run could reach it by
+    // running further out.
+    function isLevel(e) {
+      var y0 = startY(e);
+      var y1 = endY(e);
+      if (Math.abs(y0 - y1) < 0.5) return true;
+      var ra = sideRange(byKey[e.from], e.outSide);
+      var rb = sideRange(byKey[e.to], e.inSide);
+      return (!!ra && reaches(ra, y1)) || (!!rb && reaches(rb, y0));
+    }
+    function reaches(range, y) { return range.dir < 0 ? y <= range.max + 0.5 : y >= range.min - 0.5; }
+    function level(n) {
+      return mine(n).filter(isLevel).length;
+    }
+    var sorted = graph.nodes.slice().sort(function (a, b) { return a.col - b.col; });
+    [sorted, sorted.slice().reverse(), sorted].forEach(function (order) {
+      order.forEach(function (n) {
+        var base = n.y;
+        var best = level(n);
+        var bestY = base;
+        mine(n).forEach(function (e) {
+          var d = e.from === n.key ? endY(e) - startY(e) : startY(e) - endY(e);
+          if (Math.abs(d) < 0.5 || Math.abs(d) > REACH) return;
+          var y = base + d;
+          if (!fits(n, y)) return;
+          n.y = y;
+          var c = level(n);
+          n.y = base;
+          if (c > best) { best = c; bestY = y; }
+        });
+        n.y = bestY;
+      });
+    });
+
+    // 2. Heights through the columns. Side runs that were lengthened are
+    // kept per column, so the next belt keeps clear of them.
+    var runs = layers.map(function () { return []; });   // [{ lo, hi, y }]
+
+    function beltFits(col, y, self) {
+      var ok = layers[col].every(function (o) {
+        if (o === self) return true;
+        if (o.dummy) return Math.abs(o.y - y) >= BELT_SPACE - 0.5;
+        return y <= o.y - CLEAR || y >= o.y + o.h + CLEAR;
+      });
+      return ok && runs[col].every(function (r) { return Math.abs(r.y - y) >= BELT_SPACE - 0.5; });
+    }
+    // A side run from the part's edge (edgeY) out to y: nothing in between.
+    function runFits(n, edgeY, y) {
+      var lo = Math.min(edgeY, y);
+      var hi = Math.max(edgeY, y);
+      var ok = layers[n.col].every(function (o) {
+        if (o === n) return true;
+        if (o.dummy) return o.y < lo - BELT_SPACE + 0.5 || o.y > hi + BELT_SPACE - 0.5;
+        return o.y + o.h + CLEAR <= lo || o.y - CLEAR >= hi;
+      });
+      return ok && runs[n.col].every(function (r) { return r.hi < lo || r.lo > hi; });
+    }
+    // Where a side run may end, or null for a belt fixed at its port.
+    function sideRange(n, side) {
+      if (n.kind !== 'splitter' && n.kind !== 'merger') return null;
+      if (side === 'top') return { edge: partTop(n), max: partTop(n) - STUB, dir: -1 };
+      if (side === 'bottom') return { edge: partBottom(n), min: partBottom(n) + STUB, dir: 1 };
+      return null;
+    }
+    function runOk(n, range, y) {
+      return reaches(range, y) && runFits(n, range.edge, y);
+    }
+
+    function settle(e) {
+      var a = byKey[e.from];
+      var b = byKey[e.to];
+      var orig = [startY(e)].concat(e.via.map(function (d) { return d.y; }), [endY(e)]);
+      var last = orig.length - 1;
+      var kinks = 0;
+      for (var k = 0; k < last; k++) if (Math.abs(orig[k] - orig[k + 1]) > 0.5) kinks++;
+      if (!kinks) return;
+      var outRange = sideRange(a, e.outSide);
+      var inRange = sideRange(b, e.inSide);
+      var heights = [];
+      orig.forEach(function (y) {
+        if (!heights.some(function (h) { return Math.abs(h - y) < 0.5; })) heights.push(y);
+      });
+      var cand = orig.map(function (y0, p) {
+        return heights.filter(function (y) {
+          if (Math.abs(y - y0) < 0.5) return true;
+          if (p === 0) return !!outRange && runOk(a, outRange, y);
+          if (p === last) return !!inRange && runOk(b, inRange, y);
+          return beltFits(a.col + p, y, e.via[p - 1]);
+        });
+      });
+      // Fewest changes of height; among those, closest to where it was.
+      var cost = [];
+      var from = [];
+      cand.forEach(function (list, p) {
+        cost[p] = [];
+        from[p] = [];
+        list.forEach(function (y, j) {
+          var drift = Math.abs(y - orig[p]) * 1e-6;
+          if (p === 0) { cost[p][j] = drift; return; }
+          var best = Infinity;
+          cand[p - 1].forEach(function (yp, i) {
+            var c = cost[p - 1][i] + (Math.abs(yp - y) > 0.5 ? 1 : 0);
+            if (c < best) { best = c; from[p][j] = i; }
+          });
+          cost[p][j] = best + drift;
+        });
+      });
+      var j = 0;
+      cost[last].forEach(function (c, i) { if (c < cost[last][j]) j = i; });
+      if (!(cost[last][j] < kinks - 0.5)) return;
+      var pick = [];
+      for (var p = last; p >= 0; p--) {
+        pick[p] = cand[p][j];
+        j = from[p][j];
+      }
+      e.via.forEach(function (d, i) { d.y = pick[i + 1]; });
+      if (Math.abs(pick[0] - orig[0]) > 0.5) {
+        e.y0 = pick[0];
+        runs[a.col].push({ lo: Math.min(outRange.edge, pick[0]), hi: Math.max(outRange.edge, pick[0]), y: pick[0] });
+      }
+      if (Math.abs(pick[last] - orig[last]) > 0.5) {
+        e.y1 = pick[last];
+        runs[b.col].push({ lo: Math.min(inRange.edge, pick[last]), hi: Math.max(inRange.edge, pick[last]), y: pick[last] });
+      }
+    }
+    var byLength = edges.slice().sort(function (x, y) { return y.via.length - x.via.length; });
+    byLength.forEach(settle);
+    byLength.forEach(settle);
+  }
+
+  /**
    * Finishes the machine view's layout once rows are ordered and placed:
    * snaps everything to whole metres, picks ports, runs every belt between
    * columns on its own vertical track in the gap, and sizes each gap to fit
@@ -1983,15 +2152,15 @@
         return o.y + o.h / 2;
       }
       n.out.slice().sort(function (a, b) { return yOther(a, true) - yOther(b, true); })
-        .forEach(function (e, i, all) { cardOut[edgeId(e)] = n.y + snap(n.h * (i + 1) / (all.length + 1)); });
+        .forEach(function (e, i, all) { cardOut[edgeId(e)] = snap(n.h * (i + 1) / (all.length + 1)); });
       n.inn.slice().sort(function (a, b) { return yOther(a, false) - yOther(b, false); })
         .forEach(function (e, i, all) {
           if (n.slots) {
             // Each belt into its own container, top to bottom.
-            cardIn[edgeId(e)] = n.y + n.slots[i];
+            cardIn[edgeId(e)] = n.slots[i];
             n.slotEdges[i] = e;
           } else {
-            cardIn[edgeId(e)] = n.y + snap(n.h * (i + 1) / (all.length + 1));
+            cardIn[edgeId(e)] = snap(n.h * (i + 1) / (all.length + 1));
           }
         });
     });
@@ -2000,26 +2169,30 @@
     // A splitter or merger sits in the middle of its layout box; sides are its own edges.
     function partTop(n) { return n.y + (n.h - n.part) / 2; }
     function partBottom(n) { return n.y + (n.h + n.part) / 2; }
+    // A belt off a splitter's or merger's side runs out STUB, or further
+    // (e.y0, e.y1) where that saves it a kink.
     function startY(e) {
       var a = byKey[e.from];
       if (a.kind === 'line') return a.y + a.ports.out[e.item].y;
       if (a.kind === 'splitter' || a.kind === 'merger') {
-        if (e.outSide === 'top') return partTop(a) - STUB;
-        if (e.outSide === 'bottom') return partBottom(a) + STUB;
+        if (e.outSide === 'top') return e.y0 != null ? e.y0 : partTop(a) - STUB;
+        if (e.outSide === 'bottom') return e.y0 != null ? e.y0 : partBottom(a) + STUB;
         return a.y + a.h / 2;
       }
-      return cardOut[edgeId(e)];
+      return a.y + cardOut[edgeId(e)];
     }
     function endY(e) {
       var b = byKey[e.to];
       if (b.kind === 'line') return b.y + b.ports.in[e.item].y;
       if (b.kind === 'splitter' || b.kind === 'merger') {
-        if (e.inSide === 'top') return partTop(b) - STUB;
-        if (e.inSide === 'bottom') return partBottom(b) + STUB;
+        if (e.inSide === 'top') return e.y1 != null ? e.y1 : partTop(b) - STUB;
+        if (e.inSide === 'bottom') return e.y1 != null ? e.y1 : partBottom(b) + STUB;
         return b.y + b.h / 2;
       }
-      return cardIn[edgeId(e)];
+      return b.y + cardIn[edgeId(e)];
     }
+
+    straightenBelts(layers, startY, endY, partTop, partBottom, STUB);
 
     // Every hop between neighbouring columns that changes height needs a
     // vertical track in the gap between them.
@@ -2378,6 +2551,24 @@
       } else {
         place(n);
       }
+    });
+
+    graph.edges.forEach(function (e) {
+      if (!e.route) return;
+      var fluid = isFluid(e.item);
+      var keys = [e.from, e.to];
+      var ends = [];
+      if (byKey[e.from].kind === 'line') ends.push(e.route[0]);
+      if (byKey[e.to].kind === 'line') ends.push(e.route[e.route.length - 1]);
+      ends.forEach(function (p) {
+        var d = 'M ' + (p[0] - 3) + ' ' + p[1] + ' L ' + (p[0] + 3) + ' ' + p[1];
+        if (fluid) {
+          relate(keys, svg('path', { d: d, 'class': 'belt pipe' }));
+          relate(keys, svg('path', { d: d, 'class': 'belt pipe-core' }));
+        } else {
+          relate(keys, svg('path', { d: d, 'class': 'belt' }));
+        }
+      });
     });
   }
 

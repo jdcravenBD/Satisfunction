@@ -254,6 +254,12 @@ dragging anywhere pans.
   tracks need. A splitter sends belts out its front and both sides and a merger
   takes them in at its back and both sides, each side facing where its belt
   goes. Where one belt crosses another, it's drawn passing over.
+- **Straight belts.** Before routing, kinks are taken out: a building moves up
+  or down a little (up to 4 m, never into anything) where that lets more of
+  its belts run level, and a belt passing through several columns keeps one
+  height as long as it can, so it changes height once where possible. A belt
+  off a splitter's or merger's side can run further out before it turns
+  rather than turning twice.
 - **Belt limits.** The Plan panel sets the fastest belt (Mk.1–6) and pipe
   (Mk.1–2) the build may use. A step whose manifold would need more is split
   into parallel lines. An item that needs more than one belt between steps
