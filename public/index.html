@@ -6,7 +6,7 @@
 <title>Satisfunction — Production Planner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -59,17 +59,6 @@
       <button id="import" class="btn">Import</button>
       <button id="clear" class="btn danger">Clear</button>
     </div>
-
-    <span class="bar-sep"></span>
-
-    <!-- Dev-only typeface switcher. Each button previews its own face. -->
-    <div class="group fonts" title="Typeface (dev)">
-      <button class="btn font-btn" data-font="ui">Segoe</button>
-      <button class="btn font-btn" data-font="inter">Inter</button>
-      <button class="btn font-btn" data-font="plex">Plex</button>
-      <button class="btn font-btn" data-font="grotesk">Grotesk</button>
-      <button class="btn font-btn" data-font="mono">Mono</button>
-    </div>
   </div>
 </header>
 
@@ -108,16 +97,22 @@
   </div>
 
   <div class="sum-list" id="panel-list">
-    <div class="sum-group">
-      <div class="sum-group-head">
+    <!-- What has to come in from outside; filled in after every solve. -->
+    <div id="inputs-box"></div>
+
+    <div class="sum-group" data-fold="outputs">
+      <button type="button" class="sum-group-head fold-head">
         <span class="sum-group-name">Outputs</span>
         <span class="sum-group-count">per minute</span>
+      </button>
+      <div class="fold-body">
+        <div id="targets"></div>
+        <button type="button" class="add-target" id="add-target">+ Add output</button>
       </div>
-      <div id="targets"></div>
-      <button type="button" class="add-target" id="add-target">+ Add output</button>
     </div>
 
-    <div class="sum-group">
+    <!-- How recipes are chosen. -->
+    <div class="panel-box">
       <div class="sum-group-head">
         <span class="sum-group-name">Recipes</span>
         <span class="sum-group-count" id="picker-sub"></span>
@@ -141,15 +136,16 @@
           <button type="button" class="link-btn" id="choose-alts">Choose unlocked…</button>
         </div>
         <div class="seg panel-seg" id="alts-seg">
-          <button type="button" class="seg-btn" data-alts="none">None</button>
-          <button type="button" class="seg-btn" data-alts="unlocked">Unlocked</button>
-          <button type="button" class="seg-btn" data-alts="all">All</button>
+          <button type="button" class="seg-btn" data-alts="none" title="Standard recipes only">None</button>
+          <button type="button" class="seg-btn" data-alts="unlocked" title="Standard recipes, plus the alternates you've ticked">Unlocked</button>
+          <button type="button" class="seg-btn" data-alts="all" title="Standard recipes, plus every alternate. Standard ones are still used wherever they're better.">All</button>
         </div>
         <p class="opt-note" id="opt-note"></p>
       </div>
     </div>
 
-    <div class="sum-group">
+    <!-- How the build is laid out. -->
+    <div class="panel-box">
       <div class="sum-group-head">
         <span class="sum-group-name">Clock speeds</span>
         <span class="sum-group-count">for part-machine steps</span>
@@ -158,10 +154,7 @@
         <button type="button" class="seg-btn" data-clock="even" title="2.5 machines' worth = 3 machines at 83.33%">Spread evenly</button>
         <button type="button" class="seg-btn" data-clock="fill" title="2.5 machines' worth = 2 at 100% and 1 at 50%">Underclock last</button>
       </div>
-    </div>
-
-    <div class="sum-group">
-      <div class="sum-group-head">
+      <div class="sum-group-head sub-head">
         <span class="sum-group-name">Fastest belt</span>
         <span class="sum-group-count">longer lines split in two</span>
       </div>

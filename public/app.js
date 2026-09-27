@@ -50,6 +50,7 @@
     defaultMiner: 'Build_MinerMk1_C',
     view: { x: 60, y: 40, s: 1 },
     mode: 'items', // 'items' or 'machines'
+    folds: {},     // panel sections the user has collapsed: { inputs: true }
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     panel: true
   };
@@ -267,6 +268,8 @@
     if (data.mode === 'machines' || data.mode === 'items') state.mode = data.mode;
     if (data.balance === 'balancer' || data.balance === 'manifold') state.balance = data.balance;
     if (typeof data.panel === 'boolean') state.panel = data.panel;
+    state.folds = {};
+    Object.keys(data.folds || {}).forEach(function (k) { if (data.folds[k]) state.folds[k] = true; });
     return true;
   }
 
@@ -2150,6 +2153,8 @@
           .forEach(function (b) { belt(b.pts.map(abs), isFluid(b.item), []); });
         g.machines.forEach(function (gm) {
           var shape = machineShape(n.size, n.name, gm.m.product, gm.m.sub, gm.m.clock, n.ins, n.outs);
+          // Miners and extractors bring things in rather than make them: grey.
+          if (n.key.indexOf('raw:') === 0) shape.classList.add('extractor');
           shape.style.left = n.x + px(gm.x) + 'px';
           shape.style.top = n.y + px(gm.y) + 'px';
           world.appendChild(shape);
@@ -3204,6 +3209,7 @@
 
   var panelEl = document.getElementById('panel');
   var breakdownEl = document.getElementById('breakdown');
+  var inputsBox = document.getElementById('inputs-box');
 
   function setPanelOpen(open) {
     state.panel = open;
@@ -3220,11 +3226,21 @@
     setPanelOpen(false);
   });
 
-  function group(title, sub, rows) {
+  /**
+   * A panel section. With a fold key its heading is a button that collapses
+   * the rows under it, remembered between visits.
+   */
+  function group(title, sub, rows, fold) {
     var wrap = document.createElement('div');
     wrap.className = 'sum-group';
-    var head = document.createElement('div');
+    var head = document.createElement(fold ? 'button' : 'div');
     head.className = 'sum-group-head';
+    if (fold) {
+      head.type = 'button';
+      head.classList.add('fold-head');
+      wrap.dataset.fold = fold;
+      wrap.classList.toggle('folded', !!state.folds[fold]);
+    }
     var name = document.createElement('span');
     name.className = 'sum-group-name';
     name.textContent = title;
@@ -3234,8 +3250,32 @@
     head.appendChild(name);
     head.appendChild(count);
     wrap.appendChild(head);
-    rows.forEach(function (r) { wrap.appendChild(r); });
+    var body = wrap;
+    if (fold) {
+      body = document.createElement('div');
+      body.className = 'fold-body';
+      wrap.appendChild(body);
+    }
+    rows.forEach(function (r) { body.appendChild(r); });
     return wrap;
+  }
+
+  // Any section heading that folds, whether built here or in the page.
+  document.getElementById('panel-list').addEventListener('click', function (e) {
+    var head = e.target.closest('.fold-head');
+    if (!head) return;
+    var wrap = head.parentElement;
+    var key = wrap.dataset.fold;
+    state.folds[key] = !state.folds[key];
+    if (!state.folds[key]) delete state.folds[key];
+    wrap.classList.toggle('folded', !!state.folds[key]);
+    writeNow();
+  });
+
+  function applyFolds() {
+    document.querySelectorAll('#panel-list [data-fold]').forEach(function (wrap) {
+      wrap.classList.toggle('folded', !!state.folds[wrap.dataset.fold]);
+    });
   }
 
   function row(label, note, value, onClick, warn) {
@@ -3264,6 +3304,7 @@
   /** Totals, raw inputs, machine counts and spare output. */
   function renderBreakdown() {
     breakdownEl.innerHTML = '';
+    inputsBox.innerHTML = '';
 
     var power = 0;
     var buildings = 0;
@@ -3309,7 +3350,7 @@
       .filter(function (id) { return solved.items[id].supplied > EPS; })
       .sort(function (a, b) { return solved.items[b].supplied - solved.items[a].supplied; });
     if (raws.length) {
-      breakdownEl.appendChild(group('Inputs', 'from outside', raws.map(function (id) {
+      inputsBox.appendChild(group('Inputs', 'from outside', raws.map(function (id) {
         var it = DATA.items[id];
         var e = solved.items[id];
         var short = (!it.raw && !state.imports[id] && !!producersOf[id]) || e.short > EPS;
@@ -3318,7 +3359,7 @@
           : state.imports[id] ? 'imported' : short ? 'shortfall' : 'supplied';
         return row(itemName(id), note, rateText(id, e.supplied),
           function () { focusOn('raw:' + id); }, short);
-      })));
+      }), 'inputs'));
     }
 
     var mids = Object.keys(byMachine).sort(function (a, b) {
@@ -3328,7 +3369,7 @@
       breakdownEl.appendChild(group('Machines', 'running · built', mids.map(function (mid) {
         var m = byMachine[mid];
         return row(m.name, fmtNum(m.exact) + ' · ' + fmtPower(m.power), String(m.built));
-      })));
+      }), 'machines'));
     }
 
     var spare = Object.keys(solved.items)
@@ -3758,40 +3799,7 @@
   });
   document.getElementById('alt-done').addEventListener('click', closeAltPicker);
 
-  /* ------------------------------------------------------------ typeface */
-
-  var FONT_KEY = 'satisfunction.font';
-  var fontButtons = [].slice.call(document.querySelectorAll('.font-btn'));
-
-  function setFont(id, persist) {
-    document.documentElement.setAttribute('data-font', id);
-    fontButtons.forEach(function (b) {
-      b.classList.toggle('on', b.dataset.font === id);
-    });
-    if (persist) {
-      try {
-        localStorage.setItem(FONT_KEY, id);
-      } catch (e) {
-        console.warn('Could not save font choice:', e);
-      }
-    }
-    // Node heights depend on the face, so lay the plan out again.
-    if (solved) recompute();
-  }
-
-  fontButtons.forEach(function (b) {
-    b.addEventListener('click', function () { setFont(b.dataset.font, true); });
-  });
-
   /* ----------------------------------------------------------------- boot */
-
-  var savedFont = 'ui';
-  try {
-    savedFont = localStorage.getItem(FONT_KEY) || 'ui';
-  } catch (e) {
-    // storage unavailable; stay on the default
-  }
-  setFont(savedFont, false);
 
   load();
   boardNameInput.value = state.name || '';
@@ -3802,6 +3810,7 @@
   buildTierSegs();
   refreshTierSegs();
   refreshRecipeControls();
+  applyFolds();
   renderTargets();
   applyView();
   recompute();

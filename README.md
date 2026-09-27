@@ -185,6 +185,10 @@ which saved and imported plans keep.
 | Fit the plan to the window | Click the zoom percentage |
 | Pan / zoom | Drag the background / scroll |
 
+The Plan panel lists Inputs, Outputs and Machines, each folding away from
+its heading, with recipe settings and layout settings in a box each. The
+whole app is set in Space Grotesk.
+
 Hovering a node lights up its own lines and fades the rest. Outputs are tinted
 green.
 

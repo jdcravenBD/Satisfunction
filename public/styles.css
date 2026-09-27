@@ -52,14 +52,8 @@
   --frame: 13px;
   --inner-radius: 12px;
 
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
 }
-
-/* Typeface options, switched by the dev buttons in the bar. */
-:root[data-font="inter"]   { --font: "Inter", "Segoe UI", system-ui, sans-serif; }
-:root[data-font="plex"]    { --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
-:root[data-font="grotesk"] { --font: "Space Grotesk", "Segoe UI", system-ui, sans-serif; }
-:root[data-font="mono"]    { --font: "JetBrains Mono", ui-monospace, Consolas, monospace; }
 
 * { box-sizing: border-box; }
 
@@ -77,19 +71,6 @@ html, body {
   background: var(--panel);
   color: var(--ink);
   font: 14px/1.45 var(--font);
-}
-
-/* Each button renders in the face it selects, so the bar doubles as a specimen. */
-.font-btn { font-size: 12px; padding: 6px 8px; }
-.font-btn[data-font="ui"]      { font-family: "Segoe UI", system-ui, sans-serif; }
-.font-btn[data-font="inter"]   { font-family: "Inter", sans-serif; }
-.font-btn[data-font="plex"]    { font-family: "IBM Plex Sans", sans-serif; }
-.font-btn[data-font="grotesk"] { font-family: "Space Grotesk", sans-serif; }
-.font-btn[data-font="mono"]    { font-family: "JetBrains Mono", monospace; }
-.font-btn.on {
-  background: var(--bright);
-  color: var(--bright-ink);
-  border-color: var(--bright);
 }
 
 /* ---------- top bar ---------- */
@@ -161,14 +142,6 @@ html, body {
 
 .bar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .group { display: flex; gap: 4px; }
-
-/* Divides the board actions from the dev typeface switcher. */
-.bar-sep {
-  width: 1px;
-  align-self: stretch;
-  margin: 2px 2px;
-  background: var(--edge);
-}
 
 .btn {
   background: var(--panel-2);
@@ -1244,3 +1217,58 @@ html, body {
 .alt-row.on::before { background: var(--bright); border-color: var(--bright); }
 .alt-row.on .ctx-main { color: var(--ink); font-weight: 600; }
 .alt-row .ctx-main, .alt-row .ctx-note { grid-column: 2; }
+
+/* ---------- panel sections ---------- */
+
+/* Related settings share a rounded box, so the panel reads as a few groups
+   rather than one long run of controls. */
+.panel-box {
+  margin: 4px 0 12px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .02);
+}
+.panel-box .sum-group-head {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding: 2px 2px 5px;
+}
+.panel-box .sub-head { margin-top: 10px; }
+.panel-box .panel-seg { margin: 0; }
+
+/* Inputs, Outputs and Machines fold away from their heading. */
+.fold-head {
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--edge);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+}
+.fold-head:hover .sum-group-name { color: var(--ink); }
+.fold-head::before {
+  content: "";
+  flex: 0 0 auto;
+  align-self: center;
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--ink-faint);
+  transition: transform .15s ease;
+}
+.folded > .fold-head::before { transform: rotate(-90deg); }
+.folded > .fold-body { display: none; }
+.folded > .fold-head { margin-bottom: 0; }
+
+/* Miners and extractors: inputs, so grey like inputs elsewhere, not orange. */
+.machine.extractor { background: #262626; border-color: #7a7a7a; }
+.machine.extractor.under { background: #212121; border-color: #5c5c5c; }
+.machine.extractor .m-name { color: var(--ink); }
+.machine.extractor .m-product { color: var(--ink-dim); }
+.machine.extractor .m-sub { color: var(--ink-faint); }
+.machine.extractor .m-port { background: var(--ink-dim); }
+.machine.extractor .m-port.fluid { background: var(--bg); border-color: var(--ink-dim); }
