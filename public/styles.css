@@ -1082,98 +1082,56 @@ html, body {
 
 /* ---------- machine view ---------- */
 
-/* Nothing in the machine view moves, so nothing looks grabbable. */
-.node.block,
-.node.logi,
+/* The build at 8 px to the metre. Nothing in it moves, so nothing looks
+   grabbable; dragging anywhere pans. */
 #world.machines .node { cursor: inherit; }
 
-/* A block: a production step's buildings on their manifolds. The header sits
-   in flow at the top; the buildings are placed under it by position. */
-.node.block { justify-content: flex-start; }
+.sub-head { margin-top: 10px; }
 
-/* Manifolds sit above their block, so the belts read over its background. */
-#belts {
-  position: absolute;
-  left: 0; top: 0;
-  width: 1px; height: 1px;
-  overflow: visible;
-  pointer-events: none;
-  z-index: 3;
-}
-#belts .wire { stroke-linejoin: round; }
-#belts .wire.pipe-core { stroke: var(--panel); }
-#world.focusing #belts .wire { opacity: 1; }
-.belt-node {
-  fill: var(--panel-2);
-  stroke: var(--wire);
-  stroke-width: 1.5;
-}
-.belt-node.fluid { stroke: #8a8a8a; }
-#belts .belt-node { pointer-events: auto; }
+/* Where things start and end: not buildings, so kept compact. */
+.node.endpoint { padding: 7px 9px 8px; gap: 2px; }
+.node.endpoint .n-title { font-size: 12.5px; }
+.node.endpoint .n-rate { font-size: 12px; }
+.node.endpoint .n-recipe { font-size: 11.5px; }
 
-/* Splitters, mergers and pipeline junctions between blocks. */
-.node.logi {
-  padding: 0;
-  border-radius: 5px;
-  background: var(--panel-2);
-  border-color: var(--edge-focus);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .45);
-  align-items: center;
-  justify-content: center;
-}
-.node.logi svg { width: 100%; height: 100%; display: block; }
-.node.logi path {
+/* Belts and pipes, about a metre wide, over a dark casing so a belt that
+   crosses another reads as passing over it. */
+.belt-casing {
   fill: none;
-  stroke: var(--ink);
-  stroke-width: 2;
-  stroke-linecap: round;
+  stroke: var(--bg);
+  stroke-width: 10;
   stroke-linejoin: round;
 }
-.node.logi.fluid { border-radius: 50%; }
-
-/* The slowest belt or pipe tier that carries a line. */
-.flow-label .fl-tier {
-  margin-left: 5px;
-  padding-left: 5px;
-  border-left: 1px solid var(--edge-hi);
-  color: var(--ink-faint);
+.belt {
+  fill: none;
+  stroke: #cdcdcd;
+  stroke-width: 6;
+  stroke-linejoin: round;
 }
-.flow-label .fl-tier.warn { color: var(--warn); }
+.belt.pipe { stroke: #a9a9a9; stroke-width: 8; }
+.belt.pipe-core { stroke: var(--bg); stroke-width: 3.5; }
 
 /* One building, top-down at its in-game footprint, tinted orange. Belts run
    left to right through it, so its length is across and its width is down. */
 .machine {
   position: absolute;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 1px;
-  padding: 3px 5px;
-  background: rgba(var(--machine), .14);
-  border: 1px solid rgba(var(--machine), .6);
-  border-radius: 4px;
+  padding: 2px 5px;
+  background: rgb(47, 35, 24);
+  border: 1px solid rgba(var(--machine), .7);
+  border-radius: 3px;
   overflow: hidden;
+  line-height: 1.15;
 }
-.m-name {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #f6cfa4;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.m-sub {
-  font-size: 10px;
-  color: #d1a275;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.machine span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-name { font-size: 10px; font-weight: 600; color: #f6cfa4; }
+.m-product { font-size: 9.5px; color: #e3b98c; }
+.m-sub { font-size: 9.5px; color: #c49468; font-variant-numeric: tabular-nums; }
 /* Underclocked buildings read quieter than ones at full speed. */
-.machine.under { background: rgba(var(--machine), .08); border-color: rgba(var(--machine), .38); }
+.machine.under { background: rgb(38, 30, 23); border-color: rgba(var(--machine), .45); }
 .machine.under .m-sub { color: #a27e5c; }
 
 /* Conveyor and pipe ports on the building's ends. */
@@ -1187,8 +1145,40 @@ html, body {
 .m-port.in { left: -1px; }
 .m-port.out { right: -1px; }
 .m-port.fluid {
-  background: var(--panel);
+  background: var(--bg);
   border: 1.5px solid #f6cfa4;
   border-radius: 50%;
 }
 
+/* Splitters (S) and mergers (M) at their real 4 m, and pipeline junctions
+   doing either job at their 2.4 m, round. */
+.part {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: #2b2b2b;
+  border: 1px solid #a0a0a0;
+  color: var(--bright);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+.part.junction { border-radius: 50%; font-size: 10px; }
+
+/* The slowest belt or pipe tier that carries a belt. */
+.flow-label .fl-tier {
+  margin-left: 5px;
+  padding-left: 5px;
+  border-left: 1px solid var(--edge-hi);
+  color: var(--ink-faint);
+}
+.flow-label .fl-tier.warn { color: var(--warn); }
+#world.machines .flow-label { z-index: 4; font-size: 10.5px; padding: 0 6px 1px; color: #c4c4c4; }
+#world.machines .flow-label .fl-tier { color: #a8a8a8; }
+#world.machines .flow-label .fl-tier.warn { color: var(--warn); }
+#world.machines .flow-label .fl-item { color: #a8a8a8; }
+#world.machines #labels { z-index: 4; }

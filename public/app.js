@@ -39,10 +39,13 @@
     imports: {},   // item -> true, when it comes from outside this factory
     supply: {},    // raw item -> { nodes: ['pure', ...], miner }
     clock: 'even', // how part-machines are split: 'even' or 'fill'
+    belt: 6,       // fastest conveyor tier the build may use, 1–6
+    pipe: 2,       // fastest pipeline tier, 1–2
     pins: {},      // node key -> { x, y }, for nodes moved in the item view
     defaultMiner: 'Build_MinerMk1_C',
     view: { x: 60, y: 40, s: 1 },
     mode: 'items', // 'items' or 'machines'
+    balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     panel: true
   };
 
@@ -92,9 +95,15 @@
   }
 
   /** The user's supply setting for a raw input, with plan defaults filled in. */
+  // A resource the user hasn't set up is assumed to come from one normal node.
+  var DEFAULT_NODES = ['normal'];
+
   function supplyOf(id) {
-    var s = state.supply[id] || {};
-    return { nodes: s.nodes || [], miner: s.miner || state.defaultMiner };
+    var s = state.supply[id];
+    return {
+      nodes: s ? s.nodes || [] : DEFAULT_NODES.slice(),
+      miner: (s && s.miner) || state.defaultMiner
+    };
   }
 
   function supplyInfo(id) {
@@ -102,9 +111,11 @@
   }
 
   /** Most each raw input can supply, for the ones with resource nodes set. */
+  var RAW_ITEMS = Object.keys(DATA.items).filter(function (id) { return DATA.items[id].raw; });
+
   function currentCaps() {
     var caps = {};
-    Object.keys(state.supply).forEach(function (id) {
+    RAW_ITEMS.forEach(function (id) {
       var info = supplyInfo(id);
       if (info && info.capacity != null) caps[id] = info.capacity;
     });
@@ -213,10 +224,13 @@
       };
     });
     state.clock = data.clock === 'fill' ? 'fill' : 'even';
+    state.belt = clamp(Math.round(Number(data.belt)) || DATA.logistics.belts.length, 1, DATA.logistics.belts.length);
+    state.pipe = clamp(Math.round(Number(data.pipe)) || DATA.logistics.pipes.length, 1, DATA.logistics.pipes.length);
     state.pins = data.pins && typeof data.pins === 'object' ? data.pins : {};
     if (DATA.extractors[data.defaultMiner]) state.defaultMiner = data.defaultMiner;
     if (data.view && isFinite(data.view.s)) state.view = data.view;
     if (data.mode === 'machines' || data.mode === 'items') state.mode = data.mode;
+    if (data.balance === 'balancer' || data.balance === 'manifold') state.balance = data.balance;
     if (typeof data.panel === 'boolean') state.panel = data.panel;
     return true;
   }
@@ -247,7 +261,7 @@
   var commitTimer = null;
   var MAX_HISTORY = 80;
 
-  var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'pins'];
+  var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe', 'pins'];
 
   function snapshot() {
     var snap = {};
@@ -279,9 +293,10 @@
 
   function applySnapshot(json) {
     var d = JSON.parse(json);
-    UNDOABLE.forEach(function (k) { state[k] = d[k]; });
+    UNDOABLE.forEach(function (k) { if (k in d) state[k] = d[k]; });
     boardNameInput.value = state.name || '';
     refreshClockSeg();
+    refreshTierSegs();
     renderTargets();
     recompute();
     writeNow();
@@ -318,7 +333,8 @@
 
   /* ----------------------------------------------------------------- view */
 
-  var CELL = 44; // must match --cell in styles.css
+  var CELL = 44;           // must match --cell in styles.css
+  var FOUNDATION_PX = 64;  // machine view: one 8 m foundation at 8 px/m
 
   function applyView() {
     var v = state.view;
@@ -326,10 +342,13 @@
       'translate(' + v.x + 'px,' + v.y + 'px) scale(' + v.s + ')';
 
     // Drag the plus field along with the nodes, and scale it with the zoom,
-    // so the canvas reads as one surface rather than a fixed backdrop.
-    var cell = CELL * v.s;
+    // so the canvas reads as one surface rather than a fixed backdrop. In the
+    // machine view the pluses mark the corners of 8 m foundations.
+    var machines = state.mode === 'machines';
+    var cell = (machines ? FOUNDATION_PX : CELL) * v.s;
+    var shift = machines ? cell / 2 : 0;
     stage.style.backgroundSize = cell + 'px ' + cell + 'px';
-    stage.style.backgroundPosition = v.x + 'px ' + v.y + 'px';
+    stage.style.backgroundPosition = (v.x - shift) + 'px ' + (v.y - shift) + 'px';
 
     document.getElementById('zoom-fit').textContent =
       Math.round(v.s * 100) + '%';
@@ -412,14 +431,16 @@
     if (state.mode === 'machines') {
       buildMachineGraph();
       mountMachineNodes();
+      layout();
+      renderMachineView();
     } else {
+      world.querySelectorAll('.machine, .part').forEach(function (el) { el.remove(); });
       buildGraph();
       mountNodes();
+      layout();
+      graph.nodes.forEach(place);
+      renderWires();
     }
-    layout();
-    if (state.mode === 'machines') assignPorts();
-    graph.nodes.forEach(place);
-    renderWires();
     renderBreakdown();
     refreshMaxRates();
     refreshEmptyHint();
@@ -497,8 +518,10 @@
     if (!nodes.length) return;
     var byKey = graph.byKey;
     var machines = state.mode === 'machines';
-    var colGap = machines ? 110 : COL_GAP;
-    var rowGap = machines ? 44 : ROW_GAP;
+    var colGap = COL_GAP;
+    // In the machine view a line passing through a column is one belt, 2 m.
+    var rowGap = machines ? 32 : ROW_GAP;
+    var dummyH = machines ? 16 : DUMMY_H;
 
     // Loops (Recycled Plastic and Rubber feeding each other) are cut at the
     // line that closes them, found by a depth-first walk from the sources.
@@ -516,7 +539,8 @@
     nodes.forEach(function (n) { if (!n.inn.length) walk(n); });
     nodes.forEach(function (n) { if (!mark[n.key]) walk(n); });
 
-    var fwd = graph.edges.filter(function (e) { return !back.has(e); });
+    graph.edges.forEach(function (e) { e.back = back.has(e); });
+    var fwd = graph.edges.filter(function (e) { return !e.back; });
     var succ = {};
     var pred = {};
     nodes.forEach(function (n) { succ[n.key] = []; pred[n.key] = []; });
@@ -567,7 +591,7 @@
 
     // 2. Waypoints for lines that skip columns. Each hop between neighbouring
     // columns is a link that remembers where on each node it attaches, as an
-    // offset from the node's middle: machine blocks take belts in at the top
+    // offset from the node's middle: machine lines take belts in at the top
     // and send them out at the bottom, and placement lines those ports up.
     function portOffset(n, side, item) {
       var p = n.ports && n.ports[side][item];
@@ -586,7 +610,7 @@
       var prev = a;
       var prevOff = portOffset(a, 'out', e.item);
       for (var c2 = a.col + 1; c2 < b.col; c2++) {
-        var d = { key: 'via' + seq++, dummy: true, col: c2, w: 0, h: DUMMY_H, lo: [], li: [] };
+        var d = { key: 'via' + seq++, dummy: true, col: c2, w: 0, h: dummyH, lo: [], li: [] };
         layers[c2].push(d);
         e.via.push(d);
         hop(prev, d, prevOff, 0);
@@ -723,7 +747,13 @@
       }
     }
 
-    // Columns are as wide as their widest node: machine blocks vary a lot.
+    // The machine view sizes its columns around the belts it routes.
+    if (machines) {
+      routeMachineView(layers);
+      return;
+    }
+
+    // Columns are as wide as their widest node.
     var colX = [];
     var colW = [];
     var x = 0;
@@ -897,9 +927,6 @@
       machine.textContent = label;
     }
 
-    el.addEventListener('pointerenter', function () { focusNode(n.key, true); });
-    el.addEventListener('pointerleave', function () { focusNode(n.key, false); });
-
     // The machine view is a picture of the build: nothing on it is edited or
     // moved. Recipes and nodes are changed in the Items view.
     if (readOnly) {
@@ -907,6 +934,9 @@
       recipeBtn.removeAttribute('title');
       return el;
     }
+
+    el.addEventListener('pointerenter', function () { focusNode(n.key, true); });
+    el.addEventListener('pointerleave', function () { focusNode(n.key, false); });
 
     recipeBtn.addEventListener('click', function () {
       if (recipeBtn.disabled) return;
@@ -950,84 +980,63 @@
     return text;
   }
 
-  /* ------------------------------------------------------------- machines */
+  /* ---------------------------------------------------------- machine view */
 
-  var PX_PER_M = 8;                // machine view scale: pixels per metre in game
-  var LANE = 14;                   // spacing between side-by-side manifold belts
-  var BRANCH = 26;                 // belt run between a manifold and a machine port
-  var BLOCK_PAD = 14;
-  var MACHINE_GAP = 2 * PX_PER_M;  // 2 m between neighbouring machines
-  var LOGI = 32;                   // splitters and mergers: 4 m square
-
-  // Throughput of each belt and pipe tier, per minute.
-  var BELTS = [60, 120, 270, 480, 780, 1200];
-  var PIPES = [300, 600];
-
-  /** "Mk.2": the slowest belt or pipe that carries this rate, or null if none does. */
-  function beltTier(id, rate) {
-    var tiers = isFluid(id) ? PIPES : BELTS;
-    for (var i = 0; i < tiers.length; i++) {
-      if (rate <= tiers[i] + 1e-6) return 'Mk.' + (i + 1);
-    }
-    return null;
-  }
-
-  /** On-screen size of a building: its length across, its width down. */
-  function machineSize(size) {
-    return {
-      w: Math.max(46, Math.round((size ? size.l : 10) * PX_PER_M)),
-      h: Math.max(34, Math.round((size ? size.w : 8) * PX_PER_M))
-    };
-  }
-
-  /**
-   * One building, drawn top-down at its real footprint with belts running
-   * left to right through it. Input ports sit on the left edge and outputs on
-   * the right, hollow for pipes.
+  /*
+   * The machine view is the build itself: every building, splitter, merger
+   * and belt at its real size, where it would go. Everything is measured in
+   * metres and drawn at PX_PER_M, on whole metres, over the canvas's 8 m
+   * foundation grid.
+   *
+   * Each production step becomes one or more lines: its machines stacked with
+   * belts running through them left to right, on a manifold. An input belt
+   * comes in at the top left and runs down the machines' input side, where a
+   * splitter feeds each machine and the belt's end turns into the last one.
+   * Outputs merge in machine by machine on the other side and leave at the
+   * bottom right. A step splits into several lines when one line's belts
+   * would need more than the fastest belt the plan allows.
    */
-  function machineShape(size, name, sub, clock, ins, outs) {
-    var m = document.createElement('div');
-    m.className = 'machine';
-    if (clock < 1 - 1e-6) m.classList.add('under');
-    var px = machineSize(size);
-    m.style.width = px.w + 'px';
-    m.style.height = px.h + 'px';
-    m.title = name + ' · ' + Number((clock * 100).toFixed(4)) + '% clock' +
-      (size ? ' · ' + size.l + ' × ' + size.w + ' m' : '');
 
-    var label = document.createElement('span');
-    label.className = 'm-name';
-    label.textContent = name;
-    var clockEl = document.createElement('span');
-    clockEl.className = 'm-sub';
-    clockEl.textContent = sub;
-    m.appendChild(label);
-    m.appendChild(clockEl);
+  var PX_PER_M = 8;
+  var LOG = DATA.logistics;
+  var SPLIT_M = LOG.splitter;        // splitters and mergers are 4 m square
+  var JUNCTION_M = LOG.junction;     // pipeline junctions, 2.4 m
+  var LANE_M = SPLIT_M + 1;          // side-by-side manifold belts, centre to centre
+  var BRANCH_M = 2;                  // belt from a manifold to the machine it feeds
+  var GAP_M = 2;                     // between neighbouring machines in a line
+  var TRACK_M = 2;                   // between parallel belts running through a gap
+  var STUB_M = 2;                    // belt run straight off a splitter or merger side
+  var MIN_GAP_M = 10;                // between columns, with room for rate labels
+  var CARD_W = 176;                  // start and end markers: not buildings, so compact
 
-    function ports(list, side) {
-      list.forEach(function (id, i) {
-        var dot = document.createElement('span');
-        dot.className = 'm-port ' + side + (isFluid(id) ? ' fluid' : '');
-        dot.style.top = ((i + 1) / (list.length + 1)) * 100 + '%';
-        m.appendChild(dot);
-      });
+  function px(m) { return m * PX_PER_M; }
+  function snap(v) { return Math.round(v / PX_PER_M) * PX_PER_M; }
+
+  /** Most one belt (or pipe) may carry, given the fastest tier the plan allows. */
+  function capacity(id) {
+    return isFluid(id) ? LOG.pipes[state.pipe - 1] : LOG.belts[state.belt - 1];
+  }
+
+  /** Slowest tier that carries a rate, 1-based, or 0 if none does. */
+  function tierFor(id, rate) {
+    var tiers = isFluid(id) ? LOG.pipes : LOG.belts;
+    for (var i = 0; i < tiers.length; i++) {
+      if (rate <= tiers[i] + 1e-6) return i + 1;
     }
-    ports(ins, 'in');
-    ports(outs, 'out');
-    return m;
+    return 0;
   }
 
   /**
-   * The machine view's graph. Each production step becomes a block of its
-   * buildings, and each resource with known nodes a block of its miners or
-   * extractors. Between blocks every item runs on one belt or pipe: where
-   * several blocks make it, mergers join them; where several use it,
-   * splitters share it out. Unused byproducts run to a "spare" end.
+   * The machine view's graph. Lines of machines, splitters and mergers
+   * between them, and cards for where things start and end: raw resources
+   * whose nodes aren't set, imports, outputs, and spare byproducts.
    */
   function buildMachineGraph() {
     var nodes = [];
     var byKey = {};
     var edges = [];
+    var linesOf = {};   // solver node key -> [{ key, share }]
+    var seq = 0;
 
     function add(n) {
       nodes.push(n);
@@ -1043,17 +1052,68 @@
       byKey[to].inn.push(e);
     }
 
+    /**
+     * A step's machines, split into as few lines as keep every belt on each
+     * line within the fastest tier allowed. Each machine carries its own
+     * belt load, since miners on different purities differ.
+     */
+    function addLines(baseKey, spec) {
+      var chunks = [];
+      var cur = [];
+      var load = {};
+      // A balancer's looped-back outputs ride the input belt a second time,
+      // so its first belt carries more than the machines use.
+      var balanced = state.balance === 'balancer';
+      function boost(id, count) {
+        if (!balanced || spec.ins.indexOf(id) < 0 || count < 2) return 1;
+        return balancePlan(count).m / count;
+      }
+      spec.machines.forEach(function (m) {
+        var fits = !cur.length || Object.keys(m.load).every(function (id) {
+          return ((load[id] || 0) + m.load[id]) * boost(id, cur.length + 1) <= capacity(id) + 1e-6;
+        });
+        if (!fits) {
+          chunks.push(cur);
+          cur = [];
+          load = {};
+        }
+        cur.push(m);
+        Object.keys(m.load).forEach(function (id) { load[id] = (load[id] || 0) + m.load[id]; });
+      });
+      if (cur.length) chunks.push(cur);
+
+      function made(list) {
+        return list.reduce(function (s, m) { return s + (m.load[spec.item] || 0); }, 0);
+      }
+      var total = made(spec.machines);
+      linesOf[baseKey] = chunks.map(function (chunk, i) {
+        var key = chunks.length > 1 ? baseKey + '#' + i : baseKey;
+        add({
+          key: key, kind: 'line', item: spec.item, name: spec.name, size: spec.size,
+          ins: spec.ins.slice(), outs: spec.outs.slice(), machines: chunk
+        });
+        return { key: key, share: total > EPS ? made(chunk) / total : 1 / chunks.length };
+      });
+    }
+
+    function endpoint(n) {
+      add(n);
+      linesOf[n.key] = [{ key: n.key, share: 1 }];
+    }
+
     Object.keys(solved.recipes).forEach(function (rid) {
       var r = DATA.recipes[rid];
       var s = solved.recipes[rid];
       var spec = DATA.machines[r.machine];
-      add({
-        key: 'r:' + rid, kind: 'bank', rid: rid, item: s.item, count: s.count,
+      var k = 60 / r.time;
+      addLines('r:' + rid, {
+        item: s.item, name: spec.name, size: spec.size,
         ins: r.in.map(function (p) { return p[0]; }),
         outs: r.out.map(function (p) { return p[0]; }),
-        size: spec.size,
         machines: SOLVER.clocks(s.count, state.clock).map(function (c) {
-          return { name: spec.name, clock: c, sub: fmtClock(c) };
+          var load = {};
+          r.in.concat(r.out).forEach(function (p) { load[p[0]] = (load[p[0]] || 0) + p[1] * k * c; });
+          return { clock: c, product: itemName(s.item), sub: fmtClock(c), load: load };
         })
       });
     });
@@ -1064,178 +1124,477 @@
         var ex = DATA.items[id].raw ? extractorsFor(id, e.supplied) : null;
         if (ex) {
           var spec = DATA.extractors[ex.info.extractor];
-          add({
-            key: 'raw:' + id, kind: 'extract', item: id, rate: e.supplied,
-            ins: [], outs: [id], size: spec.size,
+          addLines('raw:' + id, {
+            item: id, name: spec.name, size: spec.size, ins: [], outs: [id],
             machines: ex.list.map(function (m) {
+              var rate = (m.purity ? ex.info.perNode(m.purity) : ex.info.baseRate) * m.clock;
+              var load = {};
+              load[id] = rate;
               return {
-                name: spec.name,
                 clock: m.clock,
-                sub: (m.purity ? titleCase(m.purity) + ' · ' : '') + fmtClock(m.clock)
+                product: itemName(id),
+                sub: (m.purity ? titleCase(m.purity) + ' · ' : '') + fmtClock(m.clock),
+                load: load
               };
             })
           });
         } else {
-          add({ key: 'raw:' + id, kind: 'raw', item: id, rate: e.supplied });
+          endpoint({ key: 'raw:' + id, kind: 'raw', item: id, rate: e.supplied });
         }
       }
-      if (e.surplus > EPS) add({ key: 'spare:' + id, kind: 'spare', item: id, rate: e.surplus });
+      if (e.surplus > EPS) endpoint({ key: 'spare:' + id, kind: 'spare', item: id, rate: e.surplus });
     });
 
     Object.keys(solved.targets).forEach(function (id) {
       var rate = solved.targets[id];
-      if (rate > EPS) add({ key: 'out:' + id, kind: 'output', item: id, rate: rate });
+      if (rate > EPS) endpoint({ key: 'out:' + id, kind: 'output', item: id, rate: rate });
     });
 
-    // One belt per item: merge every source, then split to every user.
-    var seq = 0;
+    function isEndpoint(key) { return byKey[key].kind !== 'line'; }
+
+    /** Joins belts on mergers (three in each, chained past that); returns the last. */
+    function mergeInto(id, feeds) {
+      if (feeds.length === 1) return feeds[0].key;
+      var fluid = isFluid(id);
+      var carry = null;
+      var carried = 0;
+      var waiting = feeds.slice();
+      while (waiting.length) {
+        var m = add({ key: 'mrg:' + id + ':' + seq++, kind: 'merger', item: id, fluid: fluid });
+        if (carry) link(carry, m.key, id, carried);
+        waiting.splice(0, carry ? 2 : 3).forEach(function (f) {
+          link(f.key, m.key, id, f.rate);
+          carried += f.rate;
+        });
+        carry = m.key;
+      }
+      return carry;
+    }
+
+    /**
+     * Splits one belt into several (three ways each, chained past that).
+     * Returns, for each rate, the node that sends it on.
+     */
+    function splitFrom(id, from, rates) {
+      if (rates.length === 1) return [from];
+      var fluid = isFluid(id);
+      var emit = [];
+      var left = rates.reduce(function (s, r) { return s + r; }, 0);
+      var prev = from;
+      var i = 0;
+      while (i < rates.length) {
+        var sp = add({ key: 'spl:' + id + ':' + seq++, kind: 'splitter', item: id, fluid: fluid });
+        link(prev, sp.key, id, left);
+        var take = rates.length - i <= 3 ? rates.length - i : 2;
+        for (var t = 0; t < take; t++) {
+          emit[i] = sp.key;
+          left -= rates[i];
+          i++;
+        }
+        prev = sp.key;
+      }
+      return emit;
+    }
+
     Object.keys(solved.items).forEach(function (id) {
       var e = solved.items[id];
-      function tally(list) {
+      function expand(list) {
         var sums = {};
         list.forEach(function (p) {
-          if (byKey[p.node] && p.rate > EPS) sums[p.node] = (sums[p.node] || 0) + p.rate;
+          (linesOf[p.node] || []).forEach(function (l) {
+            sums[l.key] = (sums[l.key] || 0) + p.rate * l.share;
+          });
         });
-        return Object.keys(sums).map(function (k) { return { key: k, rate: sums[k] }; });
+        return Object.keys(sums)
+          .filter(function (k) { return sums[k] > EPS; })
+          .map(function (k) { return { key: k, rate: sums[k] }; });
       }
-      var src = tally(e.producers);
-      var dst = tally(e.consumers.concat(e.surplus > EPS ? [{ node: 'spare:' + id, rate: e.surplus }] : []))
+      var src = expand(e.producers);
+      var dst = expand(e.consumers.concat(e.surplus > EPS ? [{ node: 'spare:' + id, rate: e.surplus }] : []))
         .filter(function (d) {
           // A step that feeds on its own output keeps that loop internal.
           return !src.some(function (s) { return s.key === d.key; });
         });
       if (!src.length || !dst.length) return;
-      var fluid = isFluid(id);
-      var total = dst.reduce(function (sum, d) { return sum + d.rate; }, 0);
+      var total = dst.reduce(function (s, d) { return s + d.rate; }, 0);
 
-      var head = src[0].key;
-      if (src.length > 1) {
-        // Mergers take three belts in; a chain of them takes any number.
-        var carry = null;
-        var carried = 0;
-        var waiting = src.slice();
-        while (waiting.length) {
-          var m = add({ key: 'mrg:' + id + ':' + seq++, kind: 'merger', item: id, fluid: fluid });
-          if (carry) link(carry, m.key, id, carried);
-          waiting.splice(0, carry ? 2 : 3).forEach(function (s) {
-            link(s.key, m.key, id, s.rate);
-            carried += s.rate;
-          });
-          carry = m.key;
-        }
-        head = carry;
-      }
-
-      if (dst.length === 1) {
-        link(head, dst[0].key, id, total);
+      if (total <= capacity(id) + 1e-6) {
+        // It all fits on one belt: merge every source, then split to every user.
+        var head = mergeInto(id, src);
+        var emit = splitFrom(id, head, dst.map(function (d) { return d.rate; }));
+        dst.forEach(function (d, i) { link(emit[i], d.key, id, d.rate); });
         return;
       }
-      // Splitters send three ways; past three users they chain.
-      var from = head;
-      var left = total;
-      var rest = dst.slice();
-      while (rest.length) {
-        var sp = add({ key: 'spl:' + id + ':' + seq++, kind: 'splitter', item: id, fluid: fluid });
-        link(from, sp.key, id, left);
-        rest.splice(0, rest.length <= 3 ? rest.length : 2).forEach(function (d) {
-          link(sp.key, d.key, id, d.rate);
-          left -= d.rate;
-        });
-        from = sp.key;
+
+      // Too much for one belt. Pair sources with users in order, each pair on
+      // its own belt, and only split or merge where a line meets more than
+      // one partner. Starts and ends take several belts as they are.
+      var alloc = [];
+      var sLeft = src.map(function (s) { return s.rate; });
+      var dLeft = dst.map(function (d) { return d.rate; });
+      var i = 0;
+      var j = 0;
+      while (i < src.length && j < dst.length) {
+        var a = Math.min(sLeft[i], dLeft[j]);
+        if (a > 1e-6) alloc.push({ s: i, d: j, rate: a });
+        sLeft[i] -= a;
+        dLeft[j] -= a;
+        if (sLeft[i] <= 1e-6) i++;
+        if (dLeft[j] <= 1e-6) j++;
       }
+      src.forEach(function (s, si) {
+        var mine = alloc.filter(function (x) { return x.s === si; });
+        var from = isEndpoint(s.key)
+          ? mine.map(function () { return s.key; })
+          : splitFrom(id, s.key, mine.map(function (x) { return x.rate; }));
+        mine.forEach(function (x, k) { x.from = from[k]; });
+      });
+      dst.forEach(function (d, di) {
+        var mine = alloc.filter(function (x) { return x.d === di; });
+        if (mine.length === 1 || isEndpoint(d.key)) {
+          mine.forEach(function (x) { link(x.from, d.key, id, x.rate); });
+        } else {
+          var sum = mine.reduce(function (s, x) { return s + x.rate; }, 0);
+          link(mergeInto(id, mine.map(function (x) { return { key: x.from, rate: x.rate }; })), d.key, id, sum);
+        }
+      });
     });
 
     graph = { nodes: nodes, edges: edges, byKey: byKey };
   }
 
+  /**
+   * How to split one belt exactly evenly between `n` machines. Splitters go
+   * two or three ways, so a tree of them reaches 2^a·3^b outputs. For any
+   * other count the tree is built for the next such number up, and the spare
+   * outputs loop back to a merger at its start — the standard in-game fix,
+   * e.g. five machines on a 1→6 balancer with one output looped back.
+   */
+  function balancePlan(n) {
+    var best = null;
+    for (var a = 0; Math.pow(2, a) < n * 2; a++) {
+      for (var b = 0; Math.pow(2, a) * Math.pow(3, b) < n * 3; b++) {
+        var m = Math.pow(2, a) * Math.pow(3, b);
+        if (m >= n && (!best || m < best.m || (m === best.m && a + b < best.a + best.b))) {
+          best = { m: m, a: a, b: b };
+        }
+      }
+    }
+    var factors = [];
+    for (var i = 0; i < best.b; i++) factors.push(3);
+    for (var j = 0; j < best.a; j++) factors.push(2);
+    return { m: best.m, loops: best.m - n, factors: factors };
+  }
+
+  /**
+   * Balancer trees feeding a line's inputs, one per input item, side by side
+   * with the innermost input nearest the machines. Built in metres against
+   * the machines' tops; returns the belts and parts, where the machines must
+   * start (mx), and how far down it all reaches.
+   *
+   * Leaves of each tree run straight to the machine ports, top to bottom.
+   * Splitters sit level with the middle of what they feed, nudged clear of the
+   * belts from outer trees that run past them to the machines. Spare leaves
+   * drop to a floor belt under everything that runs back to the tree's merger.
+   */
+  function balancerInputs(n, tops, w, pitch) {
+    var N = tops.length;
+    var nIn = n.ins.length;
+    var half = SPLIT_M / 2;
+    var LEVEL_W = SPLIT_M + 3;
+    var plan = balancePlan(N);
+    var depth = plan.factors.length;
+    var L = plan.loops;
+    var out = { belts: [], parts: [], trees: [] };
+    function portY(k, i) { return tops[k] + w * (i + 1) / (nIn + 1); }
+
+    // Bands, outermost input on the left.
+    var x = 0;
+    for (var i = nIn - 1; i >= 0; i--) {
+      var t = { i: i, item: n.ins[i], fluid: isFluid(n.ins[i]) };
+      t.entryX = x + 1;
+      var cx = t.entryX + 1.5 + half;
+      if (L) {
+        t.mergerX = cx;
+        cx += SPLIT_M + 2;
+      }
+      t.levelX = [];
+      for (var d = 0; d < depth; d++) t.levelX.push(cx + d * LEVEL_W);
+      t.lastX = t.levelX[depth - 1];
+      // Loop lanes: the first spare leaf takes the rightmost, so no spare
+      // belt crosses another on its way down. Each lane ends in a merger on
+      // the floor, so they're a merger's width apart.
+      t.laneX = function (tree) {
+        return function (k) { return tree.lastX + half + 1.5 + (L - 1 - k) * LANE_M; };
+      }(t);
+      x = (L ? t.laneX(0) : t.lastX + half) + BRANCH_M + 1;
+      out.trees[i] = t;
+    }
+    out.mx = x;
+
+    var bottom = tops[N - 1] + w;
+    out.trees.forEach(function (t) {
+      var i = t.i;
+      // Belts from outer trees cross this band level with their ports.
+      var avoid = [];
+      for (var j = i + 1; j < nIn; j++) {
+        for (var k = 0; k < N; k++) avoid.push(portY(k, j));
+      }
+      function nudge(want, lo, hi) {
+        var min = lo + half + 0.5;
+        var max = hi - half - 0.5;
+        var snapHalf = function (v) { return Math.round(v * 2) / 2; };
+        if (min > max) return snapHalf(want);
+        for (var step = 0; step <= (max - min) * 2; step++) {
+          var tries = [want + step / 2, want - step / 2];
+          for (var q = 0; q < 2; q++) {
+            var y = snapHalf(tries[q]);
+            if (y < min || y > max) continue;
+            if (avoid.every(function (f) { return Math.abs(y - f) > half + 0.5; })) return y;
+          }
+        }
+        return snapHalf(want);
+      }
+
+      var leaves = [];
+      for (var k = 0; k < N; k++) leaves.push({ y: portY(k, i), machine: k });
+      for (var s = 0; s < L; s++) leaves.push({ y: portY(N - 1, i) + (s + 1) * pitch, loop: s });
+      leaves.forEach(function (lf) { bottom = Math.max(bottom, lf.y + half); });
+
+      // Build up from the leaves: each level groups its children by that
+      // level's factor under one splitter.
+      var level = leaves;
+      var splitters = [];
+      for (var d = depth - 1; d >= 0; d--) {
+        var f = plan.factors[d];
+        var next = [];
+        for (var c = 0; c < level.length; c += f) {
+          var kids = level.slice(c, c + f);
+          var mean = kids.reduce(function (sum, q) { return sum + q.y; }, 0) / kids.length;
+          var sp = { x: t.levelX[d], y: nudge(mean, kids[0].y, kids[kids.length - 1].y), kids: kids };
+          next.push(sp);
+          splitters.push(sp);
+        }
+        level = next;
+      }
+      t.root = level[0];
+      t.splitters = splitters;
+      t.leaves = leaves;
+    });
+
+    out.minY = Infinity;
+    out.trees.forEach(function (t) {
+      t.splitters.forEach(function (sp) { out.minY = Math.min(out.minY, sp.y - half); });
+    });
+    out.floorY = Math.ceil(bottom) + 2;
+    out.bottom = L ? out.floorY + 1 : bottom;
+
+    /** Corner points from a splitter's port to a point, leaving as a belt would. */
+    function leave(sp, side, tx, ty) {
+      if (side === 'top') return [[sp.x, sp.y - half], [sp.x, ty], [tx, ty]];
+      if (side === 'bottom') return [[sp.x, sp.y + half], [sp.x, ty], [tx, ty]];
+      if (Math.abs(ty - sp.y) < 0.01) return [[sp.x + half, sp.y], [tx, ty]];
+      var jog = sp.x + half + 1.5;
+      return [[sp.x + half, sp.y], [jog, sp.y], [jog, ty], [tx, ty]];
+    }
+
+    out.trees.forEach(function (t) {
+      var item = t.item;
+      var ratio = N + ' machines on a 1→' + plan.m + ' balancer' +
+        (L ? ', ' + L + ' output' + (L > 1 ? 's' : '') + ' looped back' : '');
+      t.splitters.forEach(function (sp) {
+        out.parts.push({ role: 'splitter', fluid: t.fluid, item: item, x: sp.x, y: sp.y,
+          note: sp === t.root ? ratio : null });
+        var sides = sp.kids.length === 3 ? ['top', 'front', 'bottom'] : ['top', 'bottom'];
+        sp.kids.forEach(function (kid, q) {
+          var pts;
+          if (kid.kids) {
+            pts = leave(sp, sides[q], kid.x - half, kid.y);
+          } else if (kid.machine != null) {
+            pts = leave(sp, sides[q], out.mx, kid.y);
+          } else {
+            // A spare output: over to its lane, down to the floor, and for the
+            // first one along the floor and up into the merger.
+            var lane = t.laneX(kid.loop);
+            pts = leave(sp, sides[q], lane, kid.y).concat([[lane, out.floorY]]);
+            if (kid.loop === 0) {
+              pts.push([t.mergerX, out.floorY], [t.mergerX, t.root.y + half]);
+            } else {
+              out.parts.push({ role: 'merger', fluid: t.fluid, item: item, x: lane, y: out.floorY,
+                note: 'Joins the looped-back outputs' });
+            }
+          }
+          out.belts.push({ item: item, pts: pts, branch: !kid.kids });
+        });
+      });
+      if (L) {
+        out.parts.push({ role: 'merger', fluid: t.fluid, item: item, x: t.mergerX, y: t.root.y,
+          note: 'Feeds the looped-back outputs in again' });
+        out.belts.push({ item: item, pts: [[t.mergerX + half, t.root.y], [t.root.x - half, t.root.y]] });
+      }
+    });
+    return out;
+  }
+
+  /**
+   * Where everything in a line sits, in metres from its top-left corner:
+   * machines, belts (as corner points), and the splitters and mergers on
+   * them, plus where belts join it from outside. Inputs arrive on a manifold
+   * or a balancer; outputs always leave on a manifold, since merging needs
+   * no balancing.
+   */
+  function lineGeometry(n) {
+    var N = n.machines.length;
+    var nIn = n.ins.length;
+    var nOut = n.outs.length;
+    var l = n.size ? n.size.l : 10;
+    var w = n.size ? n.size.w : 8;
+    var g = { machines: [], belts: [], parts: [], ports: { in: {}, out: {} }, l: l, w: w };
+    function inAt(top, i) { return top + w * (i + 1) / (nIn + 1); }
+    function outAt(top, j) { return top + w * (j + 1) / (nOut + 1); }
+
+    // A lone machine needs no manifold: belts run straight in and out.
+    if (N === 1) {
+      var mx1 = nIn ? 3 : 0;
+      g.machines.push({ x: mx1, y: 0, m: n.machines[0] });
+      n.ins.forEach(function (id, i) {
+        var y = inAt(0, i);
+        g.belts.push({ item: id, pts: [[0, y], [mx1, y]] });
+        g.ports.in[id] = { x: 0, y: y };
+      });
+      var w1 = mx1 + l + (nOut ? 3 : 0);
+      n.outs.forEach(function (id, j) {
+        var y = outAt(0, j);
+        g.belts.push({ item: id, pts: [[mx1 + l, y], [w1, y]] });
+        g.ports.out[id] = { x: w1, y: y };
+      });
+      g.w = w1;
+      g.h = w;
+      return g;
+    }
+
+    var half = SPLIT_M / 2;
+    var pitch = Math.ceil(w + GAP_M);
+    var last = N - 1;
+    // Input belts arrive above everything, the innermost highest, so an
+    // arriving belt never crosses one that's already running.
+    function entry(i) { return 1 + i * 2; }
+    var entryFloor = nIn ? entry(nIn - 1) + 1 : 0;
+    var mx;
+    var tops;
+    var bottom;
+
+    if (state.balance === 'balancer' && nIn) {
+      // Built once to see how high the trees reach, then again moved down
+      // clear of the arriving belts.
+      var tops0 = n.machines.map(function (_, k) { return k * pitch; });
+      var probe = balancerInputs(n, tops0, w, pitch);
+      var y0 = Math.max(0, Math.ceil(entryFloor + 1 - probe.minY));
+      tops = tops0.map(function (t) { return t + y0; });
+      var bal = balancerInputs(n, tops, w, pitch);
+      mx = bal.mx;
+      bottom = bal.bottom;
+      bal.trees.forEach(function (t) {
+        // Into the loop-back merger if there is one, else straight to the tree.
+        var target = t.mergerX != null ? [t.mergerX - half, t.root.y] : [t.root.x - half, t.root.y];
+        g.belts.push({ item: t.item, pts: [[0, entry(t.i)], [t.entryX, entry(t.i)], [t.entryX, t.root.y], target] });
+        g.ports.in[t.item] = { x: 0, y: entry(t.i) };
+      });
+      g.belts = g.belts.concat(bal.belts);
+      g.parts = g.parts.concat(bal.parts);
+    } else {
+      var inX = function (i) { return half + (nIn - 1 - i) * LANE_M; };
+      mx = nIn ? inX(0) + half + BRANCH_M : 0;
+      var y1 = 0;
+      n.ins.forEach(function (_, i) {
+        y1 = Math.max(y1, entry(i) + 1 + half - w * (i + 1) / (nIn + 1));
+      });
+      tops = n.machines.map(function (_, k) { return Math.ceil(y1) + k * pitch; });
+      bottom = tops[last] + w;
+      n.ins.forEach(function (id, i) {
+        var x = inX(i);
+        var fluid = isFluid(id);
+        var ys = tops.map(function (t) { return inAt(t, i); });
+        g.belts.push({ item: id, pts: [[0, entry(i)], [x, entry(i)], [x, ys[last]], [mx, ys[last]]] });
+        for (var k = 0; k < last; k++) {
+          g.belts.push({ item: id, pts: [[x, ys[k]], [mx, ys[k]]], branch: true });
+          g.parts.push({ role: 'splitter', fluid: fluid, item: id, x: x, y: ys[k] });
+        }
+        g.ports.in[id] = { x: 0, y: entry(i) };
+      });
+    }
+
+    n.machines.forEach(function (m, k) { g.machines.push({ x: mx, y: tops[k], m: m }); });
+
+    function outX(j) { return mx + l + BRANCH_M + half + j * LANE_M; }
+    var width = nOut ? outX(nOut - 1) + half : mx + l;
+    var outBottom = tops[last] + w;
+    n.outs.forEach(function (_, j) { outBottom = Math.max(outBottom, outAt(tops[last], j) + half); });
+    // Output belts leave below the last merger, the innermost lowest, so a
+    // leaving belt never crosses a manifold that's still running.
+    function exit(j) { return Math.ceil(outBottom) + 1 + (nOut - 1 - j) * 2; }
+
+    n.outs.forEach(function (id, j) {
+      var x = outX(j);
+      var fluid = isFluid(id);
+      var ys = tops.map(function (t) { return outAt(t, j); });
+      g.belts.push({ item: id, pts: [[mx + l, ys[0]], [x, ys[0]], [x, exit(j)], [width, exit(j)]] });
+      for (var k = 1; k <= last; k++) {
+        g.belts.push({ item: id, pts: [[mx + l, ys[k]], [x, ys[k]]], branch: true });
+        g.parts.push({ role: 'merger', fluid: fluid, item: id, x: x, y: ys[k] });
+      }
+      g.ports.out[id] = { x: width, y: exit(j) };
+    });
+
+    g.w = width;
+    g.h = Math.max(nOut ? exit(0) + 1 : outBottom, bottom);
+    return g;
+  }
+
+  /** Measures everything before layout: lines from their geometry, cards from the page. */
   function mountMachineNodes() {
-    world.querySelectorAll('.node').forEach(function (el) { el.remove(); });
+    world.querySelectorAll('.node, .machine, .part').forEach(function (el) { el.remove(); });
     graph.nodes.forEach(function (n) {
-      if (n.kind === 'bank' || n.kind === 'extract') {
-        buildBlock(n);
+      if (n.kind === 'line') {
+        setLineGeometry(n);
       } else if (n.kind === 'splitter' || n.kind === 'merger') {
-        buildLogistic(n);
+        var size = px(n.fluid ? JUNCTION_M : SPLIT_M);
+        n.w = size;
+        // Room above and below for belts leaving or joining at the sides.
+        n.part = size;
+        n.h = size + 2 * px(STUB_M + 1);
       } else {
         n.el = buildNode(n);
-        n.el.style.width = NODE_W + 'px';
+        n.el.classList.add('endpoint');
+        n.el.style.width = CARD_W + 'px';
         world.appendChild(n.el);
-        n.w = NODE_W;
-        n.h = n.el.offsetHeight;
+        n.w = CARD_W;
+        // Tall enough that every belt it sends or takes has its own 2 m.
+        var belts = Math.max(n.out.length, n.inn.length);
+        n.h = Math.max(n.el.offsetHeight, snap(px(TRACK_M) * (belts + 1)));
+        n.el.style.height = n.h + 'px';
       }
     });
   }
 
-  /**
-   * A block of identical buildings on a manifold. Machines stand in one
-   * column. Each input comes in at the top left and runs down its own belt
-   * beside the column, with a splitter feeding each machine and the last one
-   * fed by the belt's end. Outputs run the same way on the right, merged in
-   * machine by machine, and leave at the bottom right.
-   */
-  function buildBlock(n) {
-    var el = buildNode(n);
-    el.classList.add('block');
-    var nIn = n.ins.length;
-    var nOut = n.outs.length;
-    var px = machineSize(n.size);
-    var mx = BLOCK_PAD + (nIn ? nIn * LANE + BRANCH : 0);
-    var laneOut0 = mx + px.w + BRANCH;
-    var inner = nOut ? laneOut0 + (nOut - 1) * LANE + BLOCK_PAD + 6 : mx + px.w + BLOCK_PAD;
-    var W = Math.max(NODE_W, inner);
-    el.style.width = W + 'px';
-    world.appendChild(el);
-
-    // The header decides where the first machine can start.
-    var head = el.offsetHeight + 6;
-    var rows = n.machines.map(function (_, k) { return head + k * (px.h + MACHINE_GAP); });
-    var H = rows[rows.length - 1] + px.h + BLOCK_PAD;
-    el.style.height = H + 'px';
-
-    n.machines.forEach(function (m, k) {
-      var shape = machineShape(n.size, m.name, m.sub, m.clock, n.ins, n.outs);
-      shape.style.left = mx + 'px';
-      shape.style.top = rows[k] + 'px';
-      el.appendChild(shape);
-    });
-
-    function inY(k, i) { return rows[k] + px.h * (i + 1) / (nIn + 1); }
-    function outY(k, j) { return rows[k] + px.h * (j + 1) / (nOut + 1); }
-    var last = rows.length - 1;
-
-    n.el = el;
-    n.w = W;
-    n.h = H;
-    // Any input port takes any input, so the order items meet the ports in
-    // is free. It starts as the recipe's, and assignPorts can reorder it to
-    // match where the belts arrive from.
-    n.setPorts = function () {
-      n.ports = { in: {}, out: {} };
-      n.ins.forEach(function (id, i) { n.ports.in[id] = { x: 0, y: inY(0, i) }; });
-      n.outs.forEach(function (id, j) { n.ports.out[id] = { x: W, y: outY(last, j) }; });
-      el.querySelectorAll('.machine').forEach(function (shape) {
-        shape.querySelectorAll('.m-port.in').forEach(function (dot, i) {
-          dot.classList.toggle('fluid', isFluid(n.ins[i]));
-        });
-        shape.querySelectorAll('.m-port.out').forEach(function (dot, j) {
-          dot.classList.toggle('fluid', isFluid(n.outs[j]));
-        });
+  function setLineGeometry(n) {
+    n.geo = lineGeometry(n);
+    n.w = px(n.geo.w);
+    n.h = px(n.geo.h);
+    n.ports = { in: {}, out: {} };
+    ['in', 'out'].forEach(function (side) {
+      Object.keys(n.geo.ports[side]).forEach(function (id) {
+        var p = n.geo.ports[side][id];
+        n.ports[side][id] = { x: px(p.x), y: px(p.y) };
       });
-    };
-    n.setPorts();
-    n.geo = {
-      W: W, mx: mx, mw: px.w, rows: rows, inY: inY, outY: outY,
-      // The top port's belt runs nearest the machines, so a belt entering
-      // lower down never has to cross one that's already running.
-      laneIn: function (i) { return BLOCK_PAD + (nIn - 1 - i) * LANE; },
-      laneOut: function (j) { return laneOut0 + j * LANE; }
-    };
+    });
   }
 
   /**
-   * Once blocks are placed, give each item the port that faces where its belt
-   * goes: outputs in the order of what they feed, top to bottom, then inputs
-   * in the order of where they come from. Belts then fan in and out without
-   * crossing at the block.
+   * Once rows are placed, give each item the port that faces where its belt
+   * goes: any input port takes any input. Outputs are ordered by what they
+   * feed, then inputs by where they come from, so belts fan in and out of a
+   * line without crossing.
    */
   function assignPorts() {
     var byKey = graph.byKey;
@@ -1248,47 +1607,470 @@
       list.forEach(function (id) { ys[id] = yOf(id); });
       return list.slice().sort(function (a, b) { return ys[a] - ys[b]; });
     }
-    var blocks = graph.nodes.filter(function (n) { return n.setPorts; });
-    blocks.forEach(function (n) {
+    var lines = graph.nodes.filter(function (n) { return n.kind === 'line'; });
+    lines.forEach(function (n) {
       n.outs = rank(n.outs, function (id) {
         var e = n.out.filter(function (o) { return o.item === id; })[0];
         if (!e) return Infinity;
         return e.via.length ? e.via[0].y : portY(byKey[e.to], 'in', id);
       });
-      n.setPorts();
+      setLineGeometry(n);
     });
-    blocks.forEach(function (n) {
+    lines.forEach(function (n) {
       n.ins = rank(n.ins, function (id) {
         var e = n.inn.filter(function (o) { return o.item === id; })[0];
         if (!e) return Infinity;
         return e.via.length ? e.via[e.via.length - 1].y : portY(byKey[e.from], 'out', id);
       });
-      n.setPorts();
+      setLineGeometry(n);
     });
   }
 
-  var LOGI_ICONS = {
-    splitter: 'M5 16 H14 M14 16 L27 7 M14 16 H27 M14 16 L27 25',
-    merger: 'M5 7 L18 16 M5 16 H18 M5 25 L18 16 M18 16 H27',
-    junction: 'M5 16 H27 M16 5 V27'
-  };
+  /**
+   * A splitter sends belts out its front and both sides; a merger takes them
+   * in at its back and both sides. Each belt gets the side facing where it
+   * goes, top to bottom.
+   */
+  function assignSides() {
+    var byKey = graph.byKey;
+    function sides(n, ys) {
+      if (ys.length === 1) return ['front'];
+      if (ys.length === 3) return ['top', 'front', 'bottom'];
+      var mid = n.y + n.h / 2;
+      if (ys[0] >= mid) return ['front', 'bottom'];
+      if (ys[1] <= mid) return ['top', 'front'];
+      return ['top', 'bottom'];
+    }
+    graph.nodes.forEach(function (n) {
+      if (n.kind === 'splitter') {
+        var outs = n.out.map(function (e) {
+          var t = byKey[e.to];
+          return { e: e, y: e.via.length ? e.via[0].y : t.y + (t.ports && t.ports.in[e.item] ? t.ports.in[e.item].y : t.h / 2) };
+        }).sort(function (a, b) { return a.y - b.y; });
+        var s = sides(n, outs.map(function (o) { return o.y; }));
+        outs.forEach(function (o, i) { o.e.outSide = s[i]; });
+      } else if (n.kind === 'merger') {
+        var ins = n.inn.map(function (e) {
+          var f = byKey[e.from];
+          return { e: e, y: e.via.length ? e.via[e.via.length - 1].y : f.y + (f.ports && f.ports.out[e.item] ? f.ports.out[e.item].y : f.h / 2) };
+        }).sort(function (a, b) { return a.y - b.y; });
+        var s2 = sides(n, ins.map(function (o) { return o.y; }));
+        ins.forEach(function (o, i) { o.e.inSide = s2[i]; });
+      }
+    });
+  }
 
-  /** A splitter, merger, or for pipes a junction: a 4 m square with its glyph. */
-  function buildLogistic(n) {
-    var kind = n.fluid ? 'junction' : n.kind;
+  /**
+   * Finishes the machine view's layout once rows are ordered and placed:
+   * snaps everything to whole metres, picks ports, runs every belt between
+   * columns on its own vertical track in the gap, and sizes each gap to fit
+   * its tracks. Belts end up as corner points in e.route.
+   */
+  function routeMachineView(layers) {
+    var byKey = graph.byKey;
+    var nodes = graph.nodes;
+
+    nodes.forEach(function (n) { n.y = snap(n.cy - n.h / 2); });
+    layers.forEach(function (layer) {
+      layer.forEach(function (d) { if (d.dummy) d.y = snap(d.cy); });
+    });
+
+    assignPorts();
+    assignSides();
+
+    // Card ports spread along the edge, in the order of what's at the other end.
+    var cardOut = {};
+    var cardIn = {};
+    nodes.forEach(function (n) {
+      if (n.kind === 'line' || n.kind === 'splitter' || n.kind === 'merger') return;
+      function yOther(e, outward) {
+        var v = e.via;
+        if (v.length) return outward ? v[0].y : v[v.length - 1].y;
+        var o = byKey[outward ? e.to : e.from];
+        return o.y + o.h / 2;
+      }
+      n.out.slice().sort(function (a, b) { return yOther(a, true) - yOther(b, true); })
+        .forEach(function (e, i, all) { cardOut[edgeId(e)] = n.y + snap(n.h * (i + 1) / (all.length + 1)); });
+      n.inn.slice().sort(function (a, b) { return yOther(a, false) - yOther(b, false); })
+        .forEach(function (e, i, all) { cardIn[edgeId(e)] = n.y + snap(n.h * (i + 1) / (all.length + 1)); });
+    });
+
+    var STUB = px(STUB_M);
+    // A splitter or merger sits in the middle of its layout box; sides are its own edges.
+    function partTop(n) { return n.y + (n.h - n.part) / 2; }
+    function partBottom(n) { return n.y + (n.h + n.part) / 2; }
+    function startY(e) {
+      var a = byKey[e.from];
+      if (a.kind === 'line') return a.y + a.ports.out[e.item].y;
+      if (a.kind === 'splitter' || a.kind === 'merger') {
+        if (e.outSide === 'top') return partTop(a) - STUB;
+        if (e.outSide === 'bottom') return partBottom(a) + STUB;
+        return a.y + a.h / 2;
+      }
+      return cardOut[edgeId(e)];
+    }
+    function endY(e) {
+      var b = byKey[e.to];
+      if (b.kind === 'line') return b.y + b.ports.in[e.item].y;
+      if (b.kind === 'splitter' || b.kind === 'merger') {
+        if (e.inSide === 'top') return partTop(b) - STUB;
+        if (e.inSide === 'bottom') return partBottom(b) + STUB;
+        return b.y + b.h / 2;
+      }
+      return cardIn[edgeId(e)];
+    }
+
+    // Every hop between neighbouring columns that changes height needs a
+    // vertical track in the gap between them.
+    var gaps = layers.map(function () { return []; });
+    graph.edges.forEach(function (e) {
+      if (e.back) return;
+      var a = byKey[e.from];
+      e.ys = [startY(e)].concat(e.via.map(function (d) { return d.y; }), [endY(e)]);
+      e.tracks = [];
+      for (var k = 0; k + 1 < e.ys.length; k++) {
+        if (Math.abs(e.ys[k] - e.ys[k + 1]) > 0.5) {
+          var hop = { e: e, k: k, ya: e.ys[k], yb: e.ys[k + 1] };
+          gaps[a.col + k].push(hop);
+          e.tracks[k] = hop;
+        }
+      }
+    });
+
+    /** Crossings if `left` takes a track left of `right`. */
+    function between(y, a, b) { return y > Math.min(a, b) + 0.5 && y < Math.max(a, b) - 0.5; }
+    function cost(left, right) {
+      // Where the left belt leaves its track at the height the right one
+      // arrives at, the two would run on top of each other: far worse than
+      // a crossing.
+      var same = function (a, b) { return Math.abs(a - b) < 0.5; };
+      return (between(left.yb, right.ya, right.yb) ? 1 : 0) +
+        (between(right.ya, left.ya, left.yb) ? 1 : 0) +
+        (same(left.yb, right.ya) ? 5 : 0) +
+        (same(left.ya, right.ya) || same(left.yb, right.yb) ? 5 : 0);
+    }
+    function total(order) {
+      var c = 0;
+      for (var i = 0; i < order.length; i++) {
+        for (var j = i + 1; j < order.length; j++) c += cost(order[i], order[j]);
+      }
+      return c;
+    }
+    gaps.forEach(function (hops, g) {
+      if (hops.length < 2) {
+        gaps[g] = hops;
+        return;
+      }
+      // Try a few natural orders, keep the one with fewest crossings, then
+      // swap neighbours while that helps.
+      var keys = [
+        function (h) { return h.ya; },
+        function (h) { return -h.ya; },
+        function (h) { return h.yb; },
+        function (h) { return -h.yb; },
+        function (h) { return h.yb > h.ya ? -h.ya : 1e6 + h.ya; },
+        function (h) { return h.yb > h.ya ? h.yb : -1e6 - h.yb; }
+      ];
+      var best = null;
+      var bestCost = Infinity;
+      keys.forEach(function (key) {
+        var order = hops.slice().sort(function (a, b) { return key(a) - key(b); });
+        var c = total(order);
+        if (c < bestCost) { bestCost = c; best = order; }
+      });
+      // Then swap any two tracks while that lowers the total. A swap only
+      // changes how the pair sits against each other and against the tracks
+      // between them, so that's all that's counted.
+      function swapGain(order, i, j) {
+        var a = order[i];
+        var b = order[j];
+        var before = cost(a, b);
+        var after = cost(b, a);
+        for (var k = i + 1; k < j; k++) {
+          var m = order[k];
+          before += cost(a, m) + cost(m, b);
+          after += cost(m, a) + cost(b, m);
+        }
+        return before - after;
+      }
+      var improved = true;
+      var rounds = 0;
+      var reach = best.length > 120 ? 8 : best.length;  // very wide gaps: nearby swaps only
+      while (improved && bestCost > 0 && rounds++ < 12) {
+        improved = false;
+        for (var i = 0; i < best.length; i++) {
+          for (var j = i + 1; j < best.length && j - i <= reach; j++) {
+            var gain = swapGain(best, i, j);
+            if (gain > 0) {
+              var t = best[i];
+              best[i] = best[j];
+              best[j] = t;
+              bestCost -= gain;
+              improved = true;
+            }
+          }
+        }
+      }
+      gaps[g] = best;
+    });
+
+    // Columns, snapped to whole foundations; each gap as wide as its tracks need.
+    var FOUNDATION = px(8);
+    var colX = [];
+    var colW = [];
+    var x = 0;
+    layers.forEach(function (layer, c) {
+      colX[c] = Math.ceil(x / FOUNDATION) * FOUNDATION;
+      colW[c] = snap(layer.reduce(function (w, n) { return Math.max(w, n.w); }, 0));
+      var tracks = gaps[c] ? gaps[c].length : 0;
+      var gapW = px(Math.max(MIN_GAP_M, 4 + tracks * TRACK_M));
+      var first = colX[c] + colW[c] + (gapW - px((tracks - 1) * TRACK_M)) / 2;
+      (gaps[c] || []).forEach(function (hop, t) { hop.x = snap(first + px(t * TRACK_M)); });
+      x = colX[c] + colW[c] + gapW;
+    });
+
+    nodes.forEach(function (n) { n.x = colX[n.col]; });
+    layers.forEach(function (layer, c) {
+      layer.forEach(function (d) { if (d.dummy) d.x = colX[c] + colW[c] / 2; });
+    });
+
+    // Corner points for every belt.
+    var lowest = nodes.reduce(function (m, n) { return Math.max(m, n.y + n.h); }, 0);
+    var loops = 0;
+    graph.edges.forEach(function (e) {
+      var a = byKey[e.from];
+      var b = byKey[e.to];
+      var pts = [];
+      var ax = a.x + a.w;
+      var acx = a.x + a.w / 2;
+      var bcx = b.x + b.w / 2;
+
+      if (e.back) {
+        // A loop back upstream runs round underneath everything, on its own
+        // lanes, and joins at whichever side it was given like any other belt.
+        var k = loops++;
+        var y0 = startY(e);
+        var y1 = endY(e);
+        var low = lowest + px(4 + 2 * k);
+        var back = [];
+        if (e.outSide === 'top') back.push([acx, partTop(a)], [acx, y0]);
+        else if (e.outSide === 'bottom') back.push([acx, partBottom(a)], [acx, y0]);
+        else back.push([ax, y0]);
+        var xr = ax + px(2 + 2 * k);
+        var xl = b.x - px(2 + 2 * k);
+        back.push([xr, y0], [xr, low], [xl, low], [xl, y1]);
+        if (e.inSide === 'top') back.push([bcx, y1], [bcx, partTop(b)]);
+        else if (e.inSide === 'bottom') back.push([bcx, y1], [bcx, partBottom(b)]);
+        else back.push([b.x, y1]);
+        e.route = simplify(back);
+        return;
+      }
+
+      // Off a splitter's side, the belt runs straight out before turning.
+      if (e.outSide === 'top') pts.push([acx, partTop(a)], [acx, e.ys[0]]);
+      else if (e.outSide === 'bottom') pts.push([acx, partBottom(a)], [acx, e.ys[0]]);
+      else pts.push([ax, e.ys[0]]);
+
+      for (var k = 0; k + 1 < e.ys.length; k++) {
+        var hop = e.tracks[k];
+        if (hop) pts.push([hop.x, e.ys[k]], [hop.x, e.ys[k + 1]]);
+      }
+
+      if (e.inSide === 'top') pts.push([bcx, e.ys[e.ys.length - 1]], [bcx, partTop(b)]);
+      else if (e.inSide === 'bottom') pts.push([bcx, e.ys[e.ys.length - 1]], [bcx, partBottom(b)]);
+      else pts.push([b.x, e.ys[e.ys.length - 1]]);
+
+      e.route = simplify(pts);
+    });
+  }
+
+  /** Drops repeated and in-line corner points. */
+  function simplify(pts) {
+    var out = [];
+    pts.forEach(function (p) {
+      var last = out[out.length - 1];
+      if (last && last[0] === p[0] && last[1] === p[1]) return;
+      if (out.length >= 2) {
+        var a = out[out.length - 2];
+        var b = last;
+        if ((a[0] === b[0] && b[0] === p[0]) || (a[1] === b[1] && b[1] === p[1])) {
+          out[out.length - 1] = p;
+          return;
+        }
+      }
+      out.push(p);
+    });
+    return out;
+  }
+
+  /**
+   * One building, drawn top-down at its real footprint with belts running
+   * left to right through it: its name, what it makes, and its clock.
+   */
+  function machineShape(size, name, product, sub, clock, ins, outs) {
+    var m = document.createElement('div');
+    m.className = 'machine';
+    if (clock < 1 - 1e-6) m.classList.add('under');
+    m.style.width = px(size ? size.l : 10) + 'px';
+    m.style.height = px(size ? size.w : 8) + 'px';
+    m.title = name + ' · ' + product + ' · ' + Number((clock * 100).toFixed(4)) + '% clock' +
+      (size ? ' · ' + size.l + ' × ' + size.w + ' m' : '');
+
+    [['m-name', name], ['m-product', product], ['m-sub', sub]].forEach(function (pair) {
+      var s = document.createElement('span');
+      s.className = pair[0];
+      s.textContent = pair[1];
+      m.appendChild(s);
+    });
+
+    function ports(list, side) {
+      list.forEach(function (id, i) {
+        var dot = document.createElement('span');
+        dot.className = 'm-port ' + side + (isFluid(id) ? ' fluid' : '');
+        dot.style.top = ((i + 1) / (list.length + 1)) * 100 + '%';
+        m.appendChild(dot);
+      });
+    }
+    ports(ins, 'in');
+    ports(outs, 'out');
+    return m;
+  }
+
+  /**
+   * A splitter or merger at its real size, centred on (x, y) px, marked S or
+   * M. On a pipe it's a Pipeline Junction doing the same job: round, and the
+   * game's 2.4 m.
+   */
+  function partShape(role, fluid, item, x, y, note) {
+    var size = px(fluid ? JUNCTION_M : SPLIT_M);
     var el = document.createElement('div');
-    el.className = 'node logi' + (n.fluid ? ' fluid' : '');
-    el.dataset.key = n.key;
-    el.style.width = LOGI + 'px';
-    el.style.height = LOGI + 'px';
-    el.title = (n.fluid ? 'Pipeline Junction' : titleCase(n.kind)) + ' · ' + itemName(n.item);
-    el.innerHTML = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="' + LOGI_ICONS[kind] + '"/></svg>';
-    el.addEventListener('pointerenter', function () { focusNode(n.key, true); });
-    el.addEventListener('pointerleave', function () { focusNode(n.key, false); });
-    world.appendChild(el);
-    n.el = el;
-    n.w = LOGI;
-    n.h = LOGI;
+    el.className = 'part ' + role + (fluid ? ' junction' : '');
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+    el.style.left = x - size / 2 + 'px';
+    el.style.top = y - size / 2 + 'px';
+    el.textContent = role === 'merger' ? 'M' : 'S';
+    el.title = (fluid ? 'Pipeline Junction, ' + (role === 'merger' ? 'joining' : 'splitting') : 'Conveyor ' + titleCase(role)) +
+      ' · ' + itemName(item) + (note ? '\n' + note : '');
+    return el;
+  }
+
+  var CORNER_M = 1.5;   // radius a belt turns on
+
+  /**
+   * SVG path along corner points, with each corner rounded: the radius
+   * shrinks where the runs either side are too short to take it.
+   */
+  function roundedPath(pts) {
+    var r = px(CORNER_M);
+    var d = 'M ' + pts[0][0] + ' ' + pts[0][1];
+    for (var i = 1; i < pts.length - 1; i++) {
+      var p = pts[i - 1], c = pts[i], q = pts[i + 1];
+      var inLen = Math.abs(c[0] - p[0]) + Math.abs(c[1] - p[1]);
+      var outLen = Math.abs(q[0] - c[0]) + Math.abs(q[1] - c[1]);
+      var k = Math.min(r, inLen / 2, outLen / 2);
+      if (k < 0.5) {
+        d += ' L ' + c[0] + ' ' + c[1];
+        continue;
+      }
+      var a = [c[0] - Math.sign(c[0] - p[0]) * k, c[1] - Math.sign(c[1] - p[1]) * k];
+      var b = [c[0] + Math.sign(q[0] - c[0]) * k, c[1] + Math.sign(q[1] - c[1]) * k];
+      d += ' L ' + a[0] + ' ' + a[1] + ' Q ' + c[0] + ' ' + c[1] + ' ' + b[0] + ' ' + b[1];
+    }
+    var last = pts[pts.length - 1];
+    return d + ' L ' + last[0] + ' ' + last[1];
+  }
+
+  /** A belt (or pipe) along corner points, over a dark casing so crossings read. */
+  function belt(pts, fluid, keys) {
+    var d = roundedPath(pts);
+    svg('path', { d: d, 'class': 'belt-casing' });
+    if (fluid) {
+      relate(keys, svg('path', { d: d, 'class': 'belt pipe' }));
+      relate(keys, svg('path', { d: d, 'class': 'belt pipe-core' }));
+    } else {
+      relate(keys, svg('path', { d: d, 'class': 'belt' }));
+    }
+  }
+
+  function renderMachineView() {
+    while (wires.firstChild) wires.removeChild(wires.firstChild);
+    labelsEl.innerHTML = '';
+    related = {};
+    var byKey = graph.byKey;
+
+    // Belts between lines first, so the lines' own belts sit over them.
+    graph.edges.forEach(function (e) {
+      if (!e.route) return;
+      belt(e.route, isFluid(e.item), [e.from, e.to]);
+      labelBelt(e, byKey[e.from]);
+    });
+
+    graph.nodes.forEach(function (n) {
+      if (n.kind === 'line') {
+        var g = n.geo;
+        var abs = function (p) { return [n.x + px(p[0]), n.y + px(p[1])]; };
+        // Manifolds, then the branches that cross over them.
+        g.belts.filter(function (b) { return !b.branch; })
+          .concat(g.belts.filter(function (b) { return b.branch; }))
+          .forEach(function (b) { belt(b.pts.map(abs), isFluid(b.item), []); });
+        g.machines.forEach(function (gm) {
+          var shape = machineShape(n.size, n.name, gm.m.product, gm.m.sub, gm.m.clock, n.ins, n.outs);
+          shape.style.left = n.x + px(gm.x) + 'px';
+          shape.style.top = n.y + px(gm.y) + 'px';
+          world.appendChild(shape);
+        });
+        g.parts.forEach(function (p) {
+          var at = abs([p.x, p.y]);
+          world.appendChild(partShape(p.role, p.fluid, p.item, at[0], at[1], p.note));
+        });
+      } else if (n.kind === 'splitter' || n.kind === 'merger') {
+        world.appendChild(partShape(n.kind, n.fluid, n.item, n.x + n.w / 2, n.y + n.h / 2));
+      } else {
+        place(n);
+      }
+    });
+  }
+
+  /** Rate and belt tier, on the belt's longest straight run. */
+  function labelBelt(e, from) {
+    var pts = e.route;
+    var best = null;
+    for (var i = 0; i + 1 < pts.length; i++) {
+      var len = Math.abs(pts[i + 1][0] - pts[i][0]) + Math.abs(pts[i + 1][1] - pts[i][1]);
+      var flat = pts[i][1] === pts[i + 1][1];
+      if (!best || (flat && !best.flat) || (flat === best.flat && len > best.len)) {
+        best = { len: len, flat: flat, x: (pts[i][0] + pts[i + 1][0]) / 2, y: (pts[i][1] + pts[i + 1][1]) / 2 };
+      }
+    }
+    if (!best) return;
+    var fluid = isFluid(e.item);
+    var label = document.createElement('div');
+    label.className = 'flow-label';
+    label.style.left = best.x + 'px';
+    label.style.top = best.y + 'px';
+    var b = document.createElement('b');
+    b.textContent = fmtNum(e.rate);
+    label.appendChild(b);
+    label.appendChild(document.createTextNode((fluid ? ' m³' : '') + '/min'));
+    if (from.item !== e.item) {
+      var name = document.createElement('span');
+      name.className = 'fl-item';
+      name.textContent = itemName(e.item);
+      label.appendChild(name);
+    }
+    var tier = tierFor(e.item, e.rate);
+    var allowed = fluid ? state.pipe : state.belt;
+    var t = document.createElement('span');
+    var over = !tier || tier > allowed;
+    t.className = 'fl-tier' + (over ? ' warn' : '');
+    t.textContent = tier ? 'Mk.' + tier : 'too fast';
+    t.title = over
+      ? 'Needs a faster ' + (fluid ? 'pipe' : 'belt') + ' than the plan allows'
+      : (fluid ? 'Pipeline ' : 'Conveyor Belt ') + 'Mk.' + tier + ' or faster';
+    label.appendChild(t);
+    labelsEl.appendChild(label);
+    relate([e.from, e.to], label);
   }
 
   function place(n) {
@@ -1301,7 +2083,6 @@
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var wires = document.getElementById('wires');
-  var belts = document.getElementById('belts');  // manifolds, drawn over their blocks
   var related = {};   // node key -> elements to light up on hover
 
   /** Cubic bezier that leaves both ends along their outward normals. */
@@ -1366,12 +2147,10 @@
 
   function renderWires() {
     while (wires.firstChild) wires.removeChild(wires.firstChild);
-    while (belts.firstChild) belts.removeChild(belts.firstChild);
     labelsEl.innerHTML = '';
     related = {};
 
     var byKey = graph.byKey;
-    var machines = state.mode === 'machines';
 
     // A moved node breaks the route layout planned, so its lines go direct.
     function viaOf(e) {
@@ -1382,25 +2161,18 @@
     function nextY(e) { var v = viaOf(e); return v.length ? v[0].y : centerY(e.to); }
     function prevY(e) { var v = viaOf(e); return v.length ? v[v.length - 1].y : centerY(e.from); }
 
-    // Machine blocks have a fixed port for each item. Everything else spreads
-    // its lines along its edge, in the order of whatever is at the other end,
-    // so they leave and arrive without crossing each other.
+    // Each node spreads its lines along its edge, in the order of whatever is
+    // at the other end, so they leave and arrive without crossing each other.
     var outPos = {};
     var inPos = {};
     graph.nodes.forEach(function (n) {
       var outs = n.out.slice().sort(function (a, b) { return nextY(a) - nextY(b); });
       outs.forEach(function (e, i) {
-        var p = n.ports && n.ports.out[e.item];
-        outPos[edgeId(e)] = p
-          ? { x: n.x + p.x, y: n.y + p.y }
-          : { x: n.x + n.w, y: n.y + n.h * (i + 1) / (outs.length + 1) };
+        outPos[edgeId(e)] = { x: n.x + n.w, y: n.y + n.h * (i + 1) / (outs.length + 1) };
       });
       var ins = n.inn.slice().sort(function (a, b) { return prevY(a) - prevY(b); });
       ins.forEach(function (e, i) {
-        var p = n.ports && n.ports.in[e.item];
-        inPos[edgeId(e)] = p
-          ? { x: n.x + p.x, y: n.y + p.y }
-          : { x: n.x, y: n.y + n.h * (i + 1) / (ins.length + 1) };
+        inPos[edgeId(e)] = { x: n.x, y: n.y + n.h * (i + 1) / (ins.length + 1) };
       });
     });
 
@@ -1432,69 +2204,11 @@
         name.textContent = itemName(e.item);
         label.appendChild(name);
       }
-      // In the machine view, the slowest belt or pipe that will carry it.
-      if (machines) {
-        var tier = beltTier(e.item, e.rate);
-        var t = document.createElement('span');
-        t.className = 'fl-tier' + (tier ? '' : ' warn');
-        t.textContent = tier || (fluid ? 'over one pipe' : 'over one belt');
-        t.title = tier
-          ? (fluid ? 'Pipeline ' : 'Conveyor Belt ') + tier + ' or faster'
-          : 'More than the fastest ' + (fluid ? 'pipe' : 'belt') + ' carries; it needs a second line';
-        label.appendChild(t);
-      }
       labelsEl.appendChild(label);
       relate(keys, label);
     });
 
-    if (machines) {
-      graph.nodes.forEach(function (n) { if (n.geo) drawManifold(n); });
-    }
-
     if (hovered) focusNode(hovered, true);
-  }
-
-  /**
-   * A block's manifolds, over its machines. Inputs: in at the top left, down a
-   * belt beside the machines, a splitter at each machine and the belt's end
-   * turning into the last one. Outputs: each machine merged onto a belt on the
-   * right, which leaves at the bottom right.
-   */
-  function drawManifold(n) {
-    var g = n.geo;
-    var bx = n.x;
-    var by = n.y;
-    var last = g.rows.length - 1;
-
-    function marker(x, y, fluid, what, id) {
-      var el = fluid
-        ? svg('circle', { cx: x, cy: y, r: 4.5, 'class': 'belt-node fluid' }, belts)
-        : svg('rect', { x: x - 5, y: y - 5, width: 10, height: 10, rx: 1.5, 'class': 'belt-node' }, belts);
-      var title = document.createElementNS(SVG_NS, 'title');
-      title.textContent = (fluid ? 'Pipeline Junction' : what) + ' · ' + itemName(id);
-      el.appendChild(title);
-    }
-
-    n.ins.forEach(function (id, i) {
-      var fluid = isFluid(id);
-      var lx = bx + g.laneIn(i);
-      var ys = g.rows.map(function (_, k) { return by + g.inY(k, i); });
-      var d = 'M ' + bx + ' ' + ys[0] + ' H ' + lx + ' V ' + ys[last];
-      ys.forEach(function (y) { d += ' M ' + lx + ' ' + y + ' H ' + (bx + g.mx); });
-      line(d, fluid, [], belts);
-      for (var k = 0; k < last; k++) marker(lx, ys[k], fluid, 'Splitter', id);
-    });
-
-    n.outs.forEach(function (id, j) {
-      var fluid = isFluid(id);
-      var lx = bx + g.laneOut(j);
-      var ys = g.rows.map(function (_, k) { return by + g.outY(k, j); });
-      var d = '';
-      ys.forEach(function (y) { d += 'M ' + (bx + g.mx + g.mw) + ' ' + y + ' H ' + lx + ' '; });
-      d += 'M ' + lx + ' ' + ys[0] + ' V ' + ys[last] + ' H ' + (bx + g.W);
-      line(d, fluid, [], belts);
-      for (var k = 1; k <= last; k++) marker(lx, ys[k], fluid, 'Merger', id);
-    });
   }
 
   function edgeId(e) { return e.from + '>' + e.to + '>' + e.item; }
@@ -1579,13 +2293,15 @@
 
   /** Centre the canvas on a node and pulse it, so a panel row points somewhere. */
   function focusOn(key) {
-    var n = graph.byKey[key];
+    // A step split into several machine lines is found by its first.
+    var n = graph.byKey[key] || graph.byKey[key + '#0'];
     if (!n) return;
     var v = state.view;
     v.x = usableWidth() / 2 - (n.x + n.w / 2) * v.s;
     v.y = stage.clientHeight / 2 - (n.y + n.h / 2) * v.s;
     applyView();
     writeNow();
+    if (!n.el) return;
     n.el.classList.add('flash');
     setTimeout(function () { n.el.classList.remove('flash'); }, 850);
   }
@@ -2195,21 +2911,24 @@
     openItemPicker(anchor, addTarget, x, y);
   }
 
-  /** Adds an output (or finds the existing one) and puts the caret in its rate. */
+  /** Adds an output (or finds the existing one) and shows it in the panel. */
   function addTarget(id) {
     var wasEmpty = !state.targets.length;
     var index = -1;
     state.targets.forEach(function (t, i) { if (t.item === id) index = i; });
     if (index < 0) {
-      state.targets.push({ item: id, rate: NEW_TARGET_RATE });
+      // New outputs make as much as the resource nodes allow; the rate is
+      // what switching to a fixed rate starts from.
+      state.targets.push({ item: id, rate: NEW_TARGET_RATE, max: true });
       index = state.targets.length - 1;
       renderTargets();
       changed();
       if (wasEmpty) fitView();
     }
     setPanelOpen(true);
+    // A max output's figure isn't typed, so only a fixed rate gets the caret.
     var input = targetsEl.querySelectorAll('.t-rate')[index];
-    if (input) {
+    if (input && !input.disabled) {
       input.focus();
       input.select();
     }
@@ -2503,7 +3222,11 @@
       btn.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
       btn.addEventListener('click', function () {
         emptyPlan();
-        state.targets = ex.targets.map(function (t) { return { item: t.item, rate: t.rate }; });
+        state.targets = ex.targets.map(function (t) {
+          var out = { item: t.item, rate: t.rate || NEW_TARGET_RATE };
+          if (t.max) out.max = true;
+          return out;
+        });
         if (!state.name) {
           state.name = ex.name;
           boardNameInput.value = state.name;
@@ -2592,9 +3315,12 @@
       imports: state.imports,
       supply: state.supply,
       clock: state.clock,
+      belt: state.belt,
+      pipe: state.pipe,
       defaultMiner: state.defaultMiner,
       pins: state.pins,
       mode: state.mode,
+      balance: state.balance,
       view: state.view
     };
     var blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
@@ -2619,6 +3345,7 @@
       boardNameInput.value = state.name;
       refreshModeSeg();
       refreshClockSeg();
+      refreshTierSegs();
       renderTargets();
       changed();
       fitView();
@@ -2644,7 +3371,24 @@
     modeSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.mode === state.mode);
     });
+    // How inputs are fed only means something in the machine view.
+    balanceSeg.hidden = state.mode !== 'machines';
+    balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.balance === state.balance);
+    });
   }
+
+  // Manifold: one belt past every machine, a splitter at each. Balancer: a
+  // tree of splitters giving every machine exactly the same share.
+  var balanceSeg = document.getElementById('balance');
+  balanceSeg.addEventListener('click', function (e) {
+    var btn = e.target.closest('.seg-btn');
+    if (!btn || btn.dataset.balance === state.balance) return;
+    state.balance = btn.dataset.balance;
+    refreshModeSeg();
+    recompute();
+    fitView();
+  });
 
   modeSeg.addEventListener('click', function (e) {
     var btn = e.target.closest('.seg-btn');
@@ -2671,6 +3415,44 @@
     refreshClockSeg();
     changed();
   });
+
+  // The fastest belt and pipe the build may use. A line of machines whose
+  // belts would need more is split into parallel lines.
+  var beltSeg = document.getElementById('belt-seg');
+  var pipeSeg = document.getElementById('pipe-seg');
+
+  function buildTierSegs() {
+    [[beltSeg, DATA.logistics.belts, 'belt'], [pipeSeg, DATA.logistics.pipes, 'pipe']].forEach(function (set) {
+      set[0].innerHTML = '';
+      set[1].forEach(function (rate, i) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'seg-btn';
+        b.dataset.tier = i + 1;
+        b.textContent = 'Mk.' + (i + 1);
+        b.title = fmtNum(rate) + (set[2] === 'pipe' ? ' m³' : '') + '/min';
+        set[0].appendChild(b);
+      });
+      set[0].addEventListener('click', function (e) {
+        var btn = e.target.closest('.seg-btn');
+        if (!btn) return;
+        var tier = Number(btn.dataset.tier);
+        if (state[set[2]] === tier) return;
+        state[set[2]] = tier;
+        refreshTierSegs();
+        changed();
+      });
+    });
+  }
+
+  function refreshTierSegs() {
+    beltSeg.querySelectorAll('.seg-btn').forEach(function (b) {
+      b.classList.toggle('on', Number(b.dataset.tier) === state.belt);
+    });
+    pipeSeg.querySelectorAll('.seg-btn').forEach(function (b) {
+      b.classList.toggle('on', Number(b.dataset.tier) === state.pipe);
+    });
+  }
 
   /* ------------------------------------------------------------ typeface */
 
@@ -2713,6 +3495,8 @@
   document.getElementById('panel-toggle').classList.toggle('primary', state.panel);
   refreshModeSeg();
   refreshClockSeg();
+  buildTierSegs();
+  refreshTierSegs();
   renderTargets();
   applyView();
   recompute();

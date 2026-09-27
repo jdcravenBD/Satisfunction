@@ -250,6 +250,37 @@ const version = (() => {
   }
 })();
 
+/* ------------------------------------------------------------ logistics */
+
+// Belt and pipe throughput per tier, and the sizes of the pieces that join
+// them. A belt's mSpeed is twice its items per minute; a pipe's mFlowLimit is
+// m³ per second.
+const tierOf = (c) => Number((/Mk\.?(\d)/i.exec(c.mDisplayName) || [])[1] || 1);
+const belts = classesOf(/FGBuildableConveyorBelt'/)
+  .map((c) => ({ tier: tierOf(c), rate: num(c.mSpeed) / 2 }))
+  .sort((a, b) => a.tier - b.tier)
+  .map((b) => b.rate);
+const pipes = classesOf(/FGBuildablePipeline'/)
+  .filter((c) => !/NoIndicator/.test(c.ClassName))
+  .map((c) => ({ tier: tierOf(c), rate: num(c.mFlowLimit) * 60 }))
+  .sort((a, b) => a.tier - b.tier)
+  .map((p) => p.rate);
+
+/** Width of a soft clearance box, in metres: splitters and junctions only have those. */
+function squareSize(className) {
+  const c = docs.flatMap((g) => g.Classes).find((k) => k.ClassName === className);
+  const m = c && /Min=\(X=([-\d.]+).*?Max=\(X=([-\d.]+)/.exec(c.mClearanceData || '');
+  return m ? Math.round(Number(m[2]) - Number(m[1])) / 100 : null;
+}
+
+const logistics = {
+  belts,
+  pipes,
+  splitter: squareSize('Build_ConveyorAttachmentSplitter_C') || 4,
+  merger: squareSize('Build_ConveyorAttachmentMerger_C') || 4,
+  junction: squareSize('Build_PipelineJunction_Cross_C') || 2.4
+};
+
 const data = {
   source: path.basename(src),
   build: version,
@@ -258,7 +289,8 @@ const data = {
   recipes,
   defaults,
   machines,
-  extractors
+  extractors,
+  logistics
 };
 
 const banner =

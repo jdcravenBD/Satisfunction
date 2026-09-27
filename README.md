@@ -154,29 +154,41 @@ with what it connects to.
 
 ### Machine view
 
-A picture of the build, following a manifold layout. It can't be edited or
-rearranged: recipes, nodes and positions are all set in the Items view, and
+The build itself, following a manifold layout: every building, splitter,
+merger and belt at its real size, where it would go. It can't be edited or
+rearranged. Recipes, nodes and positions are all set in the Items view, and
 dragging anywhere pans.
 
-- **Blocks.** Each step is a block of its buildings, tinted orange and drawn
-  top-down at their in-game footprints (8 px to the metre) with their clock
-  speeds.
-- **Manifolds.** Each input comes in at the block's top left and runs down a
-  belt beside the machines. A splitter feeds each machine, and the belt's end
-  feeds the last one. Outputs merge onto a belt on the right, which leaves at
-  the bottom right. Pipes use junctions (circles) instead of splitters and
-  mergers.
-- **Ports.** Any input port takes any input, so items are matched to ports in
-  the order their belts arrive from. That keeps belts from crossing at the
-  block.
-- **Between blocks.** Every item runs on one belt. Mergers join several sources
-  and splitters share it between several users, chaining past three. Unused
-  byproducts run to a **Spare** end.
-- **Belt tiers.** Each belt is labelled with the slowest belt or pipe that
-  carries it (belts Mk.1–6: 60, 120, 270, 480, 780 and 1,200/min; pipes Mk.1–2:
-  300 and 600 m³/min). Anything faster is flagged.
-- **Extractors.** Miners and extractors appear as blocks once a resource has
-  nodes set. Water always shows its extractors.
+- **Scale.** Everything is measured in metres and drawn at 8 px to the metre,
+  on whole metres. The canvas grid marks the corners of 8 m foundations, and
+  columns start on foundation lines.
+- **Buildings.** Each is drawn on its own at its in-game footprint, tinted
+  orange, with what it makes and its clock speed. There are no containers
+  around a step's machines.
+- **Manifolds.** A step's machines stand in a line with belts running through
+  them left to right. Each input belt arrives above the first machine and runs
+  down beside the line: a splitter feeds each machine, and the belt's end turns
+  into the last one. Outputs merge in machine by machine and leave below the
+  last one. A single machine is fed straight, with no manifold.
+- **Real parts.** Splitters and mergers are 4 m square and Pipeline Junctions
+  2.4 m, as in the game. Their icons face the way the belt runs.
+- **Between lines.** Belts run on real routes: out of a port, along a vertical
+  track in the gap between columns, and into the next port. Each belt in a gap
+  gets its own track, ordered to cut crossings, and each gap is as wide as its
+  tracks need. A splitter sends belts out its front and both sides and a merger
+  takes them in at its back and both sides, each side facing where its belt
+  goes. Where one belt crosses another, it's drawn passing over.
+- **Belt limits.** The Plan panel sets the fastest belt (Mk.1–6) and pipe
+  (Mk.1–2) the build may use. A step whose manifold would need more is split
+  into parallel lines. An item that needs more than one belt between steps
+  runs on several, with sources paired to users so no belt goes over the
+  limit. Every belt is labelled with its rate and the slowest tier that
+  carries it. A single machine that puts out more than the limit (an Aluminum
+  Scrap refinery, say) is flagged.
+- **Starts and ends.** Unused byproducts run to a **Spare** marker; outputs
+  (green) and raw resources without nodes set are compact markers too. Miners
+  and extractors appear as buildings once a resource has nodes set, and water
+  always shows its extractors.
 
 Belts are drawn as solid lines and pipes as hollow double lines. Each line is
 labelled with its rate, plus the item name when the source makes more than one
@@ -205,10 +217,8 @@ wrangler.toml
 1. ~~Recipe data and solver, item-flow view~~
 2. ~~Machine view: each step expanded into its real buildings at real
    footprints, with clock speeds; max outputs; resource node purity~~
-3. ~~Manifold logistics: splitters and mergers wired to every machine, with
-   belt tiers~~
-   Still to do: splitting a manifold that's over one belt's capacity into
-   parallel lines, and snapping blocks to the 8 m foundation grid
+3. ~~Manifold logistics: every machine, splitter, merger and belt at real
+   size and position; belt limits with parallel lines; foundation grid~~
 4. Load-balancer logistics as an alternative, including advice for machine
    counts that don't balance cleanly (5, 7, …)
 5. Collapsible machine banks, and choosing recipes by optimisation
