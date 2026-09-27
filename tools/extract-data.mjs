@@ -273,12 +273,24 @@ function squareSize(className) {
   return m ? Math.round(Number(m[2]) - Number(m[1])) / 100 : null;
 }
 
+// Where finished goods and spare byproducts end up: a Storage Container for
+// items, a Fluid Buffer for fluids, and the AWESOME Sink for anything spare.
+function building(className) {
+  const c = docs.flatMap((g) => g.Classes).find((k) => k.ClassName === className);
+  return c ? { name: c.mDisplayName, size: footprint(c) } : null;
+}
+
 const logistics = {
   belts,
   pipes,
   splitter: squareSize('Build_ConveyorAttachmentSplitter_C') || 4,
   merger: squareSize('Build_ConveyorAttachmentMerger_C') || 4,
-  junction: squareSize('Build_PipelineJunction_Cross_C') || 2.4
+  junction: squareSize('Build_PipelineJunction_Cross_C') || 2.4,
+  storage: {
+    items: building('Build_StorageContainerMk1_C'),
+    fluids: building('Build_PipeStorageTank_C'),
+    sink: building('Build_ResourceSink_C')
+  }
 };
 
 const data = {

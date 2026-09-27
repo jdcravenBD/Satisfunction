@@ -119,6 +119,38 @@
 
     <div class="sum-group">
       <div class="sum-group-head">
+        <span class="sum-group-name">Recipes</span>
+        <span class="sum-group-count" id="picker-sub"></span>
+      </div>
+      <div class="seg panel-seg" id="picker-seg">
+        <button type="button" class="seg-btn" data-picker="manual" title="Each item uses its standard recipe unless you pick another on its node">I pick</button>
+        <button type="button" class="seg-btn" data-picker="optimise" title="The best mix of recipes for your outputs, redone as the plan changes">Optimise</button>
+      </div>
+      <div id="opt-settings" hidden>
+        <div class="sum-group-head sub-head">
+          <span class="sum-group-name">Aim for</span>
+          <span class="sum-group-count">once max outputs are as high as they go</span>
+        </div>
+        <div class="seg panel-seg" id="goal-seg">
+          <button type="button" class="seg-btn" data-goal="resources" title="Least raw resource, weighted by how rare the game rates each">Fewest resources</button>
+          <button type="button" class="seg-btn" data-goal="power" title="Least power drawn">Least power</button>
+          <button type="button" class="seg-btn" data-goal="machines" title="Fewest buildings">Fewest machines</button>
+        </div>
+        <div class="sum-group-head sub-head">
+          <span class="sum-group-name">Alternates</span>
+          <button type="button" class="link-btn" id="choose-alts">Choose unlocked…</button>
+        </div>
+        <div class="seg panel-seg" id="alts-seg">
+          <button type="button" class="seg-btn" data-alts="none">None</button>
+          <button type="button" class="seg-btn" data-alts="unlocked">Unlocked</button>
+          <button type="button" class="seg-btn" data-alts="all">All</button>
+        </div>
+        <p class="opt-note" id="opt-note"></p>
+      </div>
+    </div>
+
+    <div class="sum-group">
+      <div class="sum-group-head">
         <span class="sum-group-name">Clock speeds</span>
         <span class="sum-group-count">for part-machine steps</span>
       </div>
@@ -155,6 +187,20 @@
   <div class="ip-list"></div>
 </div>
 
+<!-- Which alternate recipes the user has unlocked: search, tick, done. -->
+<div id="alt-pop" class="ctx item-pop alt-pop">
+  <div class="ap-head">
+    <strong>Unlocked alternates</strong>
+    <span class="ap-actions">
+      <button type="button" class="link-btn" data-all="1">All</button>
+      <button type="button" class="link-btn" data-all="0">None</button>
+      <button type="button" class="link-btn" id="alt-done">Done</button>
+    </span>
+  </div>
+  <input class="ip-input" type="text" placeholder="Search recipes or items" spellcheck="false" autocomplete="off">
+  <div class="ip-list"></div>
+</div>
+
 <!-- Shared right-click menu, filled in per context when opened. -->
 <div id="ctx" class="ctx"></div>
 
@@ -185,6 +231,8 @@
 
 <script src="data.js"></script>
 <script src="solver.js"></script>
+<script src="lp.js"></script>
+<script src="optimise.js"></script>
 <script src="examples.js"></script>
 <script src="app.js"></script>
 </body>

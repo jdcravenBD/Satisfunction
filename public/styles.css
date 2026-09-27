@@ -1182,3 +1182,65 @@ html, body {
 #world.machines .flow-label .fl-tier.warn { color: var(--warn); }
 #world.machines .flow-label .fl-item { color: #a8a8a8; }
 #world.machines #labels { z-index: 4; }
+
+/* ---------- storage ---------- */
+
+/* Outputs end in real storage, tinted green like outputs elsewhere; spare
+   byproducts go to an AWESOME Sink, left grey. */
+.machine.storage.output {
+  background: rgb(22, 42, 31);
+  border-color: rgba(var(--output), .7);
+}
+.machine.storage.output .m-name { color: #bff0d2; }
+.machine.storage.output .m-product { color: #93e5b3; }
+.machine.storage.output .m-sub { color: #7fc79c; }
+.machine.storage.output .m-port { background: #bff0d2; }
+.machine.storage.output .m-port.fluid { background: var(--bg); border-color: #bff0d2; }
+.machine.storage.spare {
+  background: #242424;
+  border-color: #6a6a6a;
+  border-style: dashed;
+}
+.machine.storage.spare .m-name { color: var(--ink-dim); }
+.machine.storage.spare .m-product,
+.machine.storage.spare .m-sub { color: var(--ink-faint); }
+.machine.storage.spare .m-port { background: var(--ink-dim); }
+
+/* ---------- recipe picker ---------- */
+
+.opt-note {
+  margin: 8px 2px 0;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  line-height: 1.4;
+}
+.opt-note:empty { display: none; }
+.sum-group-head .link-btn { margin-left: auto; font-size: 11px; }
+
+.alt-pop { width: 320px; }
+.ap-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 3px 4px;
+}
+.ap-head strong { font-size: 12.5px; }
+.ap-actions { margin-left: auto; display: flex; gap: 10px; }
+.alt-pop .ip-list { max-height: 360px; }
+/* One alternate per row, ticked when unlocked. */
+.alt-row {
+  display: grid !important;
+  grid-template-columns: 16px 1fr;
+  column-gap: 6px;
+  align-items: center;
+}
+.alt-row::before {
+  content: "";
+  grid-row: 1 / span 2;
+  width: 10px; height: 10px;
+  border: 1.5px solid var(--edge-hi);
+  border-radius: 3px;
+}
+.alt-row.on::before { background: var(--bright); border-color: var(--bright); }
+.alt-row.on .ctx-main { color: var(--ink); font-weight: 600; }
+.alt-row .ctx-main, .alt-row .ctx-note { grid-column: 2; }

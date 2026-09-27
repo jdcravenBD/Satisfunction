@@ -9,6 +9,7 @@
 
   var DATA = window.SF_DATA;
   var SOLVER = window.SF_SOLVER;
+  var OPTIMISE = window.SF_OPTIMISE;
 
   var KEY = 'satisfunction.plan.v1';
   var EPS = 1e-9;
@@ -41,6 +42,10 @@
     clock: 'even', // how part-machines are split: 'even' or 'fill'
     belt: 6,       // fastest conveyor tier the build may use, 1–6
     pipe: 2,       // fastest pipeline tier, 1–2
+    picker: 'manual',     // who picks recipes: 'manual' or 'optimise'
+    goal: 'resources',    // what the optimiser minimises after max outputs
+    alts: 'unlocked',     // alternates it may use: 'none', 'unlocked', 'all'
+    unlocked: [],         // alternate (and converter) recipes the user has
     pins: {},      // node key -> { x, y }, for nodes moved in the item view
     defaultMiner: 'Build_MinerMk1_C',
     view: { x: 60, y: 40, s: 1 },
@@ -88,10 +93,33 @@
   }
 
   /** The recipe the plan uses for an item right now, or null. */
+  /** Recipes the game makes you unlock: alternates, and the Converter's. */
+  function unlockable(rid) {
+    var r = DATA.recipes[rid];
+    return !!r && (!!r.alt || r.machine === 'Build_Converter_C');
+  }
+
+  /** Whether the optimiser may use a recipe, given the alternates setting. */
+  function recipeAllowed(rid) {
+    if (!unlockable(rid)) return true;
+    if (state.alts === 'all') return true;
+    return state.alts === 'unlocked' && state.unlocked.indexOf(rid) >= 0;
+  }
+
+  /**
+   * The recipes an item uses as picked: a recipe id, or a mix of them, or in
+   * optimise mode only what the user pinned (null: the optimiser decides).
+   */
   function currentRecipe(id) {
     if (state.imports[id]) return null;
-    var rid = state.recipes[id];
-    return rid && DATA.recipes[rid] ? rid : DATA.defaults[id] || null;
+    var pick = state.recipes[id];
+    if (pick) return pick;
+    return state.picker === 'optimise' ? null : DATA.defaults[id] || null;
+  }
+
+  function isPicked(pick, rid) {
+    if (!pick) return false;
+    return typeof pick === 'string' ? pick === rid : pick[rid] > 0;
   }
 
   /** The user's supply setting for a raw input, with plan defaults filled in. */
@@ -206,7 +234,14 @@
       });
     state.recipes = {};
     Object.keys(data.recipes || {}).forEach(function (id) {
-      if (DATA.recipes[data.recipes[id]]) state.recipes[id] = data.recipes[id];
+      // A recipe id, or a mix of them: { recipeId: share }.
+      if (DATA.items[id] && SOLVER.readMix(DATA, id, data.recipes[id])) state.recipes[id] = data.recipes[id];
+    });
+    state.picker = data.picker === 'optimise' ? 'optimise' : 'manual';
+    state.goal = ['resources', 'power', 'machines'].indexOf(data.goal) >= 0 ? data.goal : 'resources';
+    state.alts = ['none', 'unlocked', 'all'].indexOf(data.alts) >= 0 ? data.alts : 'unlocked';
+    state.unlocked = (Array.isArray(data.unlocked) ? data.unlocked : []).filter(function (rid) {
+      return DATA.recipes[rid] && unlockable(rid);
     });
     state.imports = {};
     Object.keys(data.imports || {}).forEach(function (id) {
@@ -261,7 +296,8 @@
   var commitTimer = null;
   var MAX_HISTORY = 80;
 
-  var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe', 'pins'];
+  var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe',
+    'picker', 'goal', 'alts', 'unlocked', 'pins'];
 
   function snapshot() {
     var snap = {};
@@ -297,6 +333,7 @@
     boardNameInput.value = state.name || '';
     refreshClockSeg();
     refreshTierSegs();
+    refreshRecipeControls();
     renderTargets();
     recompute();
     writeNow();
@@ -417,12 +454,24 @@
    * survives any change that doesn't remove that step outright.
    */
   function recompute() {
-    solved = SOLVER.solve(DATA, {
+    var plan = {
       targets: state.targets,
       recipes: state.recipes,
       imports: state.imports,
       caps: currentCaps()
-    });
+    };
+    solved = null;
+    if (state.picker === 'optimise') {
+      // Recipes picked on a node become pins the optimiser has to keep.
+      plan.pins = state.recipes;
+      solved = OPTIMISE.solveOptimised(DATA, plan, { goal: state.goal, allowed: recipeAllowed });
+      if (!solved) {
+        solved = SOLVER.solve(DATA, plan);
+        solved.error = 'The optimiser couldn’t settle this plan, so it’s showing your own recipe picks.';
+      }
+    } else {
+      solved = SOLVER.solve(DATA, plan);
+    }
 
     errorEl.hidden = !solved.error;
     errorEl.textContent = solved.error || '';
@@ -443,6 +492,7 @@
     }
     renderBreakdown();
     refreshMaxRates();
+    refreshOptNote();
     refreshEmptyHint();
   }
 
@@ -1563,6 +1613,17 @@
         // Room above and below for belts leaving or joining at the sides.
         n.part = size;
         n.h = size + 2 * px(STUB_M + 1);
+      } else if (n.kind === 'output' || n.kind === 'spare') {
+        // One building per belt that arrives: a container takes one belt.
+        var b = storageFor(n);
+        var k = Math.max(1, n.inn.length);
+        n.store = { building: b, w: px(b.size.l), h: px(b.size.w), gap: px(GAP_M) };
+        n.el = null;
+        n.w = n.store.w;
+        n.h = k * n.store.h + (k - 1) * n.store.gap;
+        n.slots = [];
+        for (var i = 0; i < k; i++) n.slots.push(i * (n.store.h + n.store.gap) + n.store.h / 2);
+        n.slotEdges = [];
       } else {
         n.el = buildNode(n);
         n.el.classList.add('endpoint');
@@ -1575,6 +1636,39 @@
         n.el.style.height = n.h + 'px';
       }
     });
+  }
+
+  /**
+   * Where finished goods and spares end up: a Storage Container for items, a
+   * Fluid Buffer for fluids, and spare items into an AWESOME Sink.
+   */
+  function storageFor(n) {
+    var st = DATA.logistics.storage;
+    if (isFluid(n.item)) return st.fluids;
+    return n.kind === 'spare' ? st.sink : st.items;
+  }
+
+  function storageShape(n, rate) {
+    var b = n.store.building;
+    var el = document.createElement('div');
+    el.className = 'machine storage ' + n.kind;
+    el.style.width = n.store.w + 'px';
+    el.style.height = n.store.h + 'px';
+    el.title = b.name + ' · ' + itemName(n.item) + ' · ' + rateText(n.item, rate) +
+      ' · ' + b.size.l + ' × ' + b.size.w + ' m' +
+      (n.kind === 'spare' ? ' · made but not used' : '');
+    // What's in it matters most here, so the item leads and the building follows.
+    [['m-name', itemName(n.item)], ['m-product', b.name], ['m-sub', rateText(n.item, rate)]].forEach(function (pair) {
+      var sp = document.createElement('span');
+      sp.className = pair[0];
+      sp.textContent = pair[1];
+      el.appendChild(sp);
+    });
+    var dot = document.createElement('span');
+    dot.className = 'm-port in' + (isFluid(n.item) ? ' fluid' : '');
+    dot.style.top = '50%';
+    el.appendChild(dot);
+    return el;
   }
 
   function setLineGeometry(n) {
@@ -1692,7 +1786,15 @@
       n.out.slice().sort(function (a, b) { return yOther(a, true) - yOther(b, true); })
         .forEach(function (e, i, all) { cardOut[edgeId(e)] = n.y + snap(n.h * (i + 1) / (all.length + 1)); });
       n.inn.slice().sort(function (a, b) { return yOther(a, false) - yOther(b, false); })
-        .forEach(function (e, i, all) { cardIn[edgeId(e)] = n.y + snap(n.h * (i + 1) / (all.length + 1)); });
+        .forEach(function (e, i, all) {
+          if (n.slots) {
+            // Each belt into its own container, top to bottom.
+            cardIn[edgeId(e)] = n.y + n.slots[i];
+            n.slotEdges[i] = e;
+          } else {
+            cardIn[edgeId(e)] = n.y + snap(n.h * (i + 1) / (all.length + 1));
+          }
+        });
     });
 
     var STUB = px(STUB_M);
@@ -1738,12 +1840,15 @@
     });
 
     /** Crossings if `left` takes a track left of `right`. */
-    function between(y, a, b) { return y > Math.min(a, b) + 0.5 && y < Math.max(a, b) - 0.5; }
+    // Heights closer than a belt and a bit apart count as the same: two belts
+    // there would be drawn on top of each other.
+    var NEAR = px(1.25);
+    function between(y, a, b) { return y > Math.min(a, b) + NEAR && y < Math.max(a, b) - NEAR; }
     function cost(left, right) {
       // Where the left belt leaves its track at the height the right one
       // arrives at, the two would run on top of each other: far worse than
       // a crossing.
-      var same = function (a, b) { return Math.abs(a - b) < 0.5; };
+      var same = function (a, b) { return Math.abs(a - b) < NEAR; };
       return (between(left.yb, right.ya, right.yb) ? 1 : 0) +
         (between(right.ya, left.ya, left.yb) ? 1 : 0) +
         (same(left.yb, right.ya) ? 5 : 0) +
@@ -1811,7 +1916,36 @@
           }
         }
       }
-      gaps[g] = best;
+      // Finally, the one rule that must hold: a belt arriving at a height
+      // another belt leaves at takes the track to its left, or the two
+      // would share a stretch of belt. Keeps the order above wherever the
+      // rule allows (a topological sort that always picks the earliest).
+      var mustPrecede = best.map(function () { return []; });
+      var waitingOn = best.map(function () { return 0; });
+      best.forEach(function (x, xi) {
+        best.forEach(function (y, yi) {
+          if (xi !== yi && Math.abs(x.yb - y.ya) < NEAR) {
+            mustPrecede[yi].push(xi);  // y left of x
+            waitingOn[xi]++;
+          }
+        });
+      });
+      var placed = [];
+      var done = best.map(function () { return false; });
+      while (placed.length < best.length) {
+        var pick = -1;
+        for (var q = 0; q < best.length; q++) {
+          if (!done[q] && waitingOn[q] === 0) { pick = q; break; }
+        }
+        if (pick < 0) {
+          // A loop of such pairs can't all be met; keep the rest as they were.
+          for (var r = 0; r < best.length; r++) if (!done[r]) { pick = r; break; }
+        }
+        done[pick] = true;
+        placed.push(best[pick]);
+        mustPrecede[pick].forEach(function (x) { waitingOn[x]--; });
+      }
+      gaps[g] = placed;
     });
 
     // Columns, snapped to whole foundations; each gap as wide as its tracks need.
@@ -2026,6 +2160,14 @@
         });
       } else if (n.kind === 'splitter' || n.kind === 'merger') {
         world.appendChild(partShape(n.kind, n.fluid, n.item, n.x + n.w / 2, n.y + n.h / 2));
+      } else if (n.store) {
+        n.slots.forEach(function (_, i) {
+          var e = n.slotEdges[i];
+          var el = storageShape(n, e ? e.rate : n.rate);
+          el.style.left = n.x + 'px';
+          el.style.top = n.y + i * (n.store.h + n.store.gap) + 'px';
+          world.appendChild(el);
+        });
       } else {
         place(n);
       }
@@ -2603,15 +2745,17 @@
     closeCtx();
     closeConfirm();
     closeItemPicker();
+    if (typeof closeAltPicker === 'function') closeAltPicker();
   }
 
   // Any press outside the popups dismisses them. Right-clicks land here first
   // and the contextmenu event that follows reopens the menu in the new place.
   document.addEventListener('pointerdown', function (e) {
-    if (confirmEl.contains(e.target) || itemPop.contains(e.target)) return;
+    if (confirmEl.contains(e.target) || itemPop.contains(e.target) || altPop.contains(e.target)) return;
     if (!ctx.contains(e.target)) closeCtx();
     closeConfirm();
     closeItemPicker();
+    closeAltPicker();
   }, true);
 
   document.addEventListener('keydown', function (e) {
@@ -2656,16 +2800,40 @@
         return rank(a) - rank(b) || DATA.recipes[a].name.localeCompare(DATA.recipes[b].name);
       });
 
+      var optimising = state.picker === 'optimise';
       items.push({ head: 'Recipe for ' + itemName(id) });
+      if (optimising) {
+        // In optimise mode a pick is a pin: the optimiser has to use it.
+        items.push({
+          label: 'Let the optimiser choose',
+          note: 'Picking a recipe below pins it',
+          on: !current && !state.imports[id],
+          run: function () {
+            delete state.recipes[id];
+            delete state.imports[id];
+            changed();
+          }
+        });
+      } else if (current && typeof current !== 'string') {
+        items.push({
+          label: 'Mixed',
+          note: Object.keys(current).map(function (rid) {
+            return Math.round(current[rid] * 100) + '% ' + DATA.recipes[rid].name;
+          }).join(', '),
+          on: true,
+          run: function () {}
+        });
+      }
       list.forEach(function (rid) {
         var r = DATA.recipes[rid];
+        var locked = optimising && unlockable(rid) && !recipeAllowed(rid);
         items.push({
           label: r.name,
           tag: r.alt ? 'ALT' : (r.out[0][0] !== id ? 'SIDE' : null),
-          note: recipeSummary(rid),
-          on: rid === current,
+          note: recipeSummary(rid) + (locked ? ' · not unlocked' : ''),
+          on: typeof current === 'string' ? current === rid : false,
           run: function () {
-            if (rid === def) delete state.recipes[id];
+            if (rid === def && !optimising) delete state.recipes[id];
             else state.recipes[id] = rid;
             delete state.imports[id];
             changed();
@@ -3317,6 +3485,10 @@
       clock: state.clock,
       belt: state.belt,
       pipe: state.pipe,
+      picker: state.picker,
+      goal: state.goal,
+      alts: state.alts,
+      unlocked: state.unlocked,
       defaultMiner: state.defaultMiner,
       pins: state.pins,
       mode: state.mode,
@@ -3346,6 +3518,7 @@
       refreshModeSeg();
       refreshClockSeg();
       refreshTierSegs();
+      refreshRecipeControls();
       renderTargets();
       changed();
       fitView();
@@ -3454,6 +3627,137 @@
     });
   }
 
+  /* ------------------------------------------------------------- recipes */
+
+  // Who picks recipes. By hand: the standard recipe unless one is picked on
+  // its node. Optimise: the best mix for the outputs, redone on every change,
+  // with any recipe picked on a node pinned.
+  var pickerSeg = document.getElementById('picker-seg');
+  var goalSeg = document.getElementById('goal-seg');
+  var altsSeg = document.getElementById('alts-seg');
+  var optSettings = document.getElementById('opt-settings');
+  var optNote = document.getElementById('opt-note');
+  var chooseAlts = document.getElementById('choose-alts');
+  var UNLOCKABLE = Object.keys(DATA.recipes).filter(unlockable).sort(function (a, b) {
+    return DATA.recipes[a].name.localeCompare(DATA.recipes[b].name);
+  });
+
+  function markSeg(seg, attr, value) {
+    seg.querySelectorAll('.seg-btn').forEach(function (b) {
+      b.classList.toggle('on', b.dataset[attr] === value);
+    });
+  }
+
+  function refreshRecipeControls() {
+    var optimising = state.picker === 'optimise';
+    markSeg(pickerSeg, 'picker', state.picker);
+    markSeg(goalSeg, 'goal', state.goal);
+    markSeg(altsSeg, 'alts', state.alts);
+    optSettings.hidden = !optimising;
+    document.getElementById('picker-sub').textContent = optimising ? 'picked for you' : 'picked by you';
+    chooseAlts.textContent = 'Choose unlocked (' + state.unlocked.length + ')…';
+  }
+
+  /** After a solve: what the optimiser ended up using. */
+  function refreshOptNote() {
+    if (state.picker !== 'optimise' || !solved) {
+      optNote.textContent = '';
+      return;
+    }
+    var used = Object.keys(solved.recipes).filter(unlockable);
+    var items = {};
+    var mixed = 0;
+    Object.keys(solved.recipes).forEach(function (rid) {
+      var main = DATA.recipes[rid].out[0][0];
+      items[main] = (items[main] || 0) + 1;
+      if (items[main] === 2) mixed++;
+    });
+    var bits = [];
+    bits.push(used.length ? used.length + ' alternate' + (used.length === 1 ? '' : 's') + ' in use' : 'Standard recipes only');
+    if (mixed) bits.push(mixed + ' item' + (mixed === 1 ? '' : 's') + ' made more than one way');
+    var pinned = Object.keys(state.recipes).length;
+    if (pinned) bits.push(pinned + ' pinned by you');
+    optNote.textContent = bits.join(' · ') + '.';
+  }
+
+  function segClick(seg, attr, key) {
+    seg.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn || btn.dataset[attr] === state[key]) return;
+      state[key] = btn.dataset[attr];
+      refreshRecipeControls();
+      changed();
+    });
+  }
+  segClick(pickerSeg, 'picker', 'picker');
+  segClick(goalSeg, 'goal', 'goal');
+  segClick(altsSeg, 'alts', 'alts');
+
+  // The unlocked-alternates checklist.
+  var altPop = document.getElementById('alt-pop');
+  var altInput = altPop.querySelector('.ip-input');
+  var altList = altPop.querySelector('.ip-list');
+
+  function renderAltList() {
+    var q = altInput.value.trim().toLowerCase();
+    var keep = altList.scrollTop;
+    altList.innerHTML = '';
+    UNLOCKABLE.forEach(function (rid) {
+      var r = DATA.recipes[rid];
+      var makes = r.out.map(function (p) { return itemName(p[0]); }).join(', ');
+      if (q && (r.name + ' ' + makes).toLowerCase().indexOf(q) < 0) return;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'alt-row' + (state.unlocked.indexOf(rid) >= 0 ? ' on' : '');
+      var main = document.createElement('span');
+      main.className = 'ctx-main';
+      main.textContent = r.name;
+      var note = document.createElement('span');
+      note.className = 'ctx-note';
+      note.textContent = makes + ' · ' + machineName(rid);
+      b.appendChild(main);
+      b.appendChild(note);
+      b.addEventListener('click', function () {
+        var at = state.unlocked.indexOf(rid);
+        state.unlocked = at >= 0
+          ? state.unlocked.filter(function (x) { return x !== rid; })
+          : state.unlocked.concat([rid]);
+        if (state.alts === 'none') state.alts = 'unlocked';
+        b.classList.toggle('on', at < 0);
+        refreshRecipeControls();
+        changed();
+      });
+      altList.appendChild(b);
+    });
+    altList.scrollTop = keep;
+  }
+
+  function closeAltPicker() { altPop.classList.remove('show'); }
+
+  chooseAlts.addEventListener('click', function () {
+    closeCtx();
+    closeConfirm();
+    altInput.value = '';
+    renderAltList();
+    placePopup(altPop, chooseAlts, false, false);
+    altPop.classList.add('show');
+    setTimeout(function () { altInput.focus(); }, 20);
+  });
+  altInput.addEventListener('input', renderAltList);
+  altInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeAltPicker(); }
+  });
+  altPop.querySelectorAll('[data-all]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      state.unlocked = b.dataset.all === '1' ? UNLOCKABLE.slice() : [];
+      if (state.alts === 'none' && state.unlocked.length) state.alts = 'unlocked';
+      renderAltList();
+      refreshRecipeControls();
+      changed();
+    });
+  });
+  document.getElementById('alt-done').addEventListener('click', closeAltPicker);
+
   /* ------------------------------------------------------------ typeface */
 
   var FONT_KEY = 'satisfunction.font';
@@ -3497,6 +3801,7 @@
   refreshClockSeg();
   buildTierSegs();
   refreshTierSegs();
+  refreshRecipeControls();
   renderTargets();
   applyView();
   recompute();

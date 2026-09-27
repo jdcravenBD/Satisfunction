@@ -99,14 +99,15 @@ and only sends the rest to the screw line.
 
 ### Max outputs and resource nodes
 
-A raw input can be left as **any node**, supplying whatever the plan needs. It
-can also be tied to specific resource nodes (impure, normal or pure, as many as
-you like), which caps it. Miners give 30/60/120 per minute on
+A raw input starts on **one normal node**, which caps it. It can be tied to
+other resource nodes instead (impure, normal or pure, as many as you like), or
+set to **any node**, which supplies whatever the plan needs. Miners give 30/60/120 per minute on
 impure/normal/pure nodes for Mk.1, twice that for Mk.2, and four times for
 Mk.3. Oil Extractors and resource wells work the same way. Water Extractors go
 anywhere, so water is never capped.
 
-Outputs set to **max** share one unknown rate. The system is linear, so every
+New outputs start on **max**; click the unit to set a fixed rate instead.
+Outputs set to max share one unknown rate. The system is linear, so every
 recipe's rate is a fixed part plus that rate times a max part, and so is the
 draw on every raw input. The solver takes the largest rate that keeps every
 capped input within its nodes. Several max outputs all get the same rate. If
@@ -121,14 +122,60 @@ clock^1.32 of full power, so the choice changes the total. Particle
 Accelerators, Converters and Quantum Encoders use each recipe's average draw.
 Miners and extractors are counted once their nodes are known.
 
+## Picking recipes
+
+The Plan panel's **Recipes** switch decides who picks.
+
+**I pick.** Every item uses its standard recipe unless you pick another on its
+node. The solver above does the rest.
+
+**Optimise.** A linear program (`public/lp.js`, a two-phase simplex) picks
+recipe rates for you, and redoes it on every change, in tens of milliseconds.
+Every allowed recipe becomes a variable. Every item gets a row requiring that
+what's made of it, plus what comes in from outside, covers what's used and
+asked for. It then solves three times, each holding on to the last result:
+
+1. Least shortfall, for fixed outputs the resource nodes can't cover.
+2. Most output: every max output as high as it goes.
+3. The goal you pick: **Fewest resources** (weighted by the game's sink
+   points, which track rarity; water is free), **Least power**, or **Fewest
+   machines**.
+
+Its answer is used as it is, so it can do what one recipe per item can't: make
+screws partly from iron and partly from steel, or run a recipe purely for its
+byproduct. With every alternate it takes a Motor from 1.9/min to 61/min on the
+default nodes.
+
+- **Alternates.** **None**, **Unlocked**, or **All**. The unlocked list is
+  ticked off in a searchable checklist, and Converter recipes count as
+  unlockable too. Items with no standard recipe (Heavy Oil Residue, Polymer
+  Resin, Compacted Coal…) always keep their game default.
+- **Pins.** Picking a recipe on a node pins it: the optimiser has to make that
+  item that way. **Let the optimiser choose** unpins it.
+- **Hand-gathered things.** Power slugs, leaves and creature parts, and waste
+  from power generators, are held back and only used when a chain can't do
+  without them, or makes at least a quarter more with them. So optimising
+  never does worse than picking by hand.
+- **Robustness.** The solver rebuilds its tableau from the original rows every
+  50 pivots, nudges right-hand sides to break degeneracy, and checks its
+  answer against the original rows before trusting it. If it ever can't
+  settle a plan, the plan falls back to your own picks and says so. It's
+  tested on every craftable item as a max output, with each goal and
+  alternate setting (780 runs): none fail, none do worse than picking by hand,
+  and the slowest takes about 0.1 s.
+
+The solver also accepts a recipe mix for an item (`{ recipeId: share }`),
+which saved and imported plans keep.
+
 ## Using it
 
 | Action | How |
 | --- | --- |
 | Add an output | **+ Add output**, then type to search |
 | Set its rate | Type in the Plan panel; the plan re-solves as you type. 0 keeps it listed but makes none |
-| Make as much as possible | Click an output's **/min** to switch it to **max** |
-| Choose resource nodes | Click "Mined · any node" on an ore, oil or gas node |
+| Make as much as possible | Outputs start on **max**; click **max** / **/min** to switch |
+| Choose resource nodes | Click "Normal node · Mk.1" on an ore, oil or gas node |
+| Manifold or balancer | **Manifold** / **Balancer** in the header, in the Machines view |
 | See every building | **Machines** in the header; **Items** goes back to one card per step |
 | Change a recipe | Click the machine line on a node (e.g. "Smelter ×2") |
 | Import an item instead of making it | Same menu, **Import from elsewhere** |
@@ -154,8 +201,8 @@ with what it connects to.
 
 ### Machine view
 
-The build itself, following a manifold layout: every building, splitter,
-merger and belt at its real size, where it would go. It can't be edited or
+The build itself: every building, splitter, merger and belt at its real size,
+where it would go, fed by manifolds or balancers. It can't be edited or
 rearranged. Recipes, nodes and positions are all set in the Items view, and
 dragging anywhere pans.
 
@@ -170,8 +217,20 @@ dragging anywhere pans.
   down beside the line: a splitter feeds each machine, and the belt's end turns
   into the last one. Outputs merge in machine by machine and leave below the
   last one. A single machine is fed straight, with no manifold.
-- **Real parts.** Splitters and mergers are 4 m square and Pipeline Junctions
-  2.4 m, as in the game. Their icons face the way the belt runs.
+- **Balancers.** Switch to **Balancer** and each line's inputs arrive on a tree
+  of splitters instead, so every machine gets exactly the same share. Splitters
+  go two or three ways, so a tree reaches 2^a·3^b outputs (2, 3, 4, 6, 8, 9,
+  12…). For any other count it's built for the next such number up, and the
+  spare outputs loop back underneath to a merger at the tree's start: five
+  machines on a 1→6 with one looped back. Hovering the first splitter says
+  which. Each splitter sits level with the middle of what it feeds, nudged
+  clear of belts running past from other inputs' trees. Outputs still merge on
+  a manifold, since merging needs no balancing. The looped-back share rides
+  the input belt twice, which counts toward the belt limit.
+- **Real parts.** Splitters (**S**) and mergers (**M**) are 4 m square. On
+  pipes the same jobs are done by Pipeline Junctions, round and 2.4 m, as in
+  the game.
+- **Belts.** Drawn light grey, about a metre wide, with rounded corners.
 - **Between lines.** Belts run on real routes: out of a port, along a vertical
   track in the gap between columns, and into the next port. Each belt in a gap
   gets its own track, ordered to cut crossings, and each gap is as wide as its
@@ -185,10 +244,14 @@ dragging anywhere pans.
   limit. Every belt is labelled with its rate and the slowest tier that
   carries it. A single machine that puts out more than the limit (an Aluminum
   Scrap refinery, say) is flagged.
-- **Starts and ends.** Unused byproducts run to a **Spare** marker; outputs
-  (green) and raw resources without nodes set are compact markers too. Miners
-  and extractors appear as buildings once a resource has nodes set, and water
-  always shows its extractors.
+- **Storage.** Each output ends in real storage at its real size: a Storage
+  Container (11 × 5 m) for items, a Fluid Buffer (6 × 6 m) for fluids, tinted
+  green. A container takes one belt, so an output arriving on several belts
+  gets one container per belt. Unused byproducts go to an AWESOME Sink
+  (14 × 16 m), or a Fluid Buffer for fluids.
+- **Starts.** Raw resources without nodes set, and imports, are compact
+  markers. Miners and extractors appear as buildings once a resource has nodes
+  set, and water always shows its extractors.
 
 Belts are drawn as solid lines and pipes as hollow double lines. Each line is
 labelled with its rate, plus the item name when the source makes more than one
@@ -205,6 +268,8 @@ public/            static site (no build step)
   styles.css
   app.js           canvas, nodes, menus, panel
   solver.js        rates and flows; no DOM, runs under Node
+  lp.js            linear-programming solver (two-phase simplex)
+  optimise.js      recipe optimiser, built on lp.js; same output as solver.js
   data.js          generated from the game — don't edit by hand
   examples.js      starter plans on the empty canvas
 tools/
@@ -219,6 +284,8 @@ wrangler.toml
    footprints, with clock speeds; max outputs; resource node purity~~
 3. ~~Manifold logistics: every machine, splitter, merger and belt at real
    size and position; belt limits with parallel lines; foundation grid~~
-4. Load-balancer logistics as an alternative, including advice for machine
-   counts that don't balance cleanly (5, 7, …)
-5. Collapsible machine banks, and choosing recipes by optimisation
+4. ~~Load-balancer logistics as an alternative, with loop-backs for machine
+   counts that don't balance cleanly (5, 7, …)~~
+5. ~~Choosing recipes by optimisation; outputs into real storage~~
+   (Collapsible machine banks were dropped: the Items / Machines switch
+   already shows every step either collapsed or expanded, all at once.)
