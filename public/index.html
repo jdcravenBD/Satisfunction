@@ -167,18 +167,24 @@
           <span class="sum-group-count">once max outputs are as high as they go</span>
         </div>
         <div class="seg panel-seg" id="goal-seg">
+          <button type="button" class="seg-btn" data-goal="machines" title="Fewest buildings">Fewest machines</button>
           <button type="button" class="seg-btn" data-goal="resources" title="Least raw resource, weighted by how rare the game rates each">Fewest resources</button>
           <button type="button" class="seg-btn" data-goal="power" title="Least power drawn">Least power</button>
-          <button type="button" class="seg-btn" data-goal="machines" title="Fewest buildings">Fewest machines</button>
         </div>
-        <div class="sum-group-head sub-head">
-          <span class="sum-group-name">Alternates</span>
-          <button type="button" class="link-btn" id="choose-alts">Choose unlocked…</button>
-        </div>
-        <div class="seg panel-seg" id="alts-seg">
-          <button type="button" class="seg-btn" data-alts="none" title="Standard recipes only">None</button>
-          <button type="button" class="seg-btn" data-alts="unlocked" title="Standard recipes, plus the alternates you've ticked">Unlocked</button>
-          <button type="button" class="seg-btn" data-alts="all" title="Standard recipes, plus every alternate. Standard ones are still used wherever they're better.">All</button>
+        <!-- The alternates you've unlocked, as a ticked list that folds away. -->
+        <div class="alt-fold" id="alt-fold" data-fold="alternates">
+          <div class="sum-group-head sub-head">
+            <button type="button" class="fold-head fold-inline" title="Alternates the optimiser may use, alongside the standard recipes">
+              <span class="sum-group-name">Alternates</span>
+              <span class="sum-group-count" id="alts-count"></span>
+            </button>
+            <button type="button" class="link-btn" data-all="1" title="Tick every alternate">All</button>
+            <button type="button" class="link-btn" data-all="0" title="Untick every alternate: standard recipes only">None</button>
+          </div>
+          <div class="fold-body">
+            <input class="ip-input alt-search" id="alt-search" type="text" placeholder="Search recipes or items" spellcheck="false" autocomplete="off">
+            <div class="alt-list" id="alt-list"></div>
+          </div>
         </div>
         <p class="opt-note" id="opt-note"></p>
       </div>
@@ -191,6 +197,7 @@
         <span class="sum-group-count">how work is split</span>
       </div>
       <div class="seg panel-seg" id="clock-seg">
+        <button type="button" class="seg-btn" data-clock="none" title="Nothing under- or overclocked: 2.5 machines' worth = 3 at 100%, the last one idling half the time. Every machine left as it's built.">All at 100%</button>
         <button type="button" class="seg-btn" data-clock="even" title="2.5 machines' worth = 3 machines at 83.33%. Least power.">Spread evenly</button>
         <button type="button" class="seg-btn" data-clock="fill" title="2.5 machines' worth = 2 at 100% and 1 at 50%">Underclock last</button>
         <button type="button" class="seg-btn" data-clock="max" title="Fewest machines: 2.5 machines' worth = 1 at 250%, using Power Shards (one per 50% over 100%). Held lower where a belt couldn't keep up. Miners on resource nodes stay at 100%.">Overclock</button>
@@ -218,20 +225,6 @@
 <!-- Item search: an input over a filtered list, in the context menu's shell. -->
 <div id="item-pop" class="ctx item-pop">
   <input class="ip-input" type="text" placeholder="Search items" spellcheck="false" autocomplete="off">
-  <div class="ip-list"></div>
-</div>
-
-<!-- Which alternate recipes the user has unlocked: search, tick, done. -->
-<div id="alt-pop" class="ctx item-pop alt-pop">
-  <div class="ap-head">
-    <strong>Unlocked alternates</strong>
-    <span class="ap-actions">
-      <button type="button" class="link-btn" data-all="1">All</button>
-      <button type="button" class="link-btn" data-all="0">None</button>
-      <button type="button" class="link-btn" id="alt-done">Done</button>
-    </span>
-  </div>
-  <input class="ip-input" type="text" placeholder="Search recipes or items" spellcheck="false" autocomplete="off">
   <div class="ip-list"></div>
 </div>
 

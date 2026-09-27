@@ -39,13 +39,12 @@
     recipes: {},   // item -> recipe id, where the user overrode the default
     imports: {},   // item -> true, when it comes from outside this factory
     supply: {},    // raw item -> { nodes: ['pure', ...], miner }
-    clock: 'even', // how work is split over machines: 'even', 'fill' or 'max'
+    clock: 'even', // how work is split over machines: 'none', 'even', 'fill' or 'max'
     unavailable: [], // buildings the user doesn't have yet
     belt: 6,       // fastest conveyor tier the build may use, 1–6
     pipe: 2,       // fastest pipeline tier, 1–2
     picker: 'manual',     // who picks recipes: 'manual' or 'optimise'
     goal: 'resources',    // what the optimiser minimises after max outputs
-    alts: 'unlocked',     // alternates it may use: 'none', 'unlocked', 'all'
     unlocked: [],         // alternate (and converter) recipes the user has
     pins: {},      // node key -> { x, y }, for nodes moved in the item view
     defaultMiner: 'Build_MinerMk1_C',
@@ -105,8 +104,7 @@
   /** Whether the optimiser may use a recipe, given the alternates setting. */
   function recipeAllowed(rid) {
     if (!unlockable(rid)) return true;
-    if (state.alts === 'all') return true;
-    return state.alts === 'unlocked' && state.unlocked.indexOf(rid) >= 0;
+    return state.unlocked.indexOf(rid) >= 0;
   }
 
   /**
@@ -336,6 +334,18 @@
 
   function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+  /**
+   * A machine's clock label for `c` machines' worth of work. With "All at
+   * 100%" nothing is clocked: a machine with less to do idles part-time.
+   */
+  function clockLabel(c) {
+    if (state.clock !== 'none') return fmtClock(c);
+    return c < 1 - 1e-6 ? '100% · ' + fmtClock(c) + ' busy' : '100%';
+  }
+
+  /** What the clock is set to in game: the work share, or 100% when unclocked. */
+  function clockSetting(c) { return state.clock === 'none' ? 1 : c; }
+
   /** "83.33%": clock speeds to two places, which is plenty to set in game. */
   function fmtClock(c) {
     return Number((c * 100).toFixed(2)) + '%';
@@ -398,10 +408,12 @@
     });
     state.picker = data.picker === 'optimise' ? 'optimise' : 'manual';
     state.goal = ['resources', 'power', 'machines'].indexOf(data.goal) >= 0 ? data.goal : 'resources';
-    state.alts = ['none', 'unlocked', 'all'].indexOf(data.alts) >= 0 ? data.alts : 'unlocked';
     state.unlocked = (Array.isArray(data.unlocked) ? data.unlocked : []).filter(function (rid) {
       return DATA.recipes[rid] && unlockable(rid);
     });
+    // Older plans had a None / Unlocked / All switch over the ticked list.
+    if (data.alts === 'all') state.unlocked = Object.keys(DATA.recipes).filter(unlockable);
+    if (data.alts === 'none') state.unlocked = [];
     state.imports = {};
     Object.keys(data.imports || {}).forEach(function (id) {
       if (data.imports[id] && DATA.items[id]) state.imports[id] = true;
@@ -417,7 +429,7 @@
         miner: DATA.extractors[s.miner] ? s.miner : undefined
       };
     });
-    state.clock = ['even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'even';
+    state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'even';
     state.unavailable = (Array.isArray(data.unavailable) ? data.unavailable : []).filter(function (id) {
       return BUILDINGS.indexOf(id) >= 0;
     });
@@ -432,7 +444,9 @@
     if (data.balance === 'balancer' || data.balance === 'manifold') state.balance = data.balance;
     if (typeof data.panel === 'boolean') state.panel = data.panel;
     state.folds = {};
-    Object.keys(data.folds || {}).forEach(function (k) { if (data.folds[k]) state.folds[k] = true; });
+    Object.keys(data.folds || {}).forEach(function (k) {
+      if (typeof data.folds[k] === 'boolean') state.folds[k] = data.folds[k];
+    });
     return true;
   }
 
@@ -463,7 +477,7 @@
   var MAX_HISTORY = 80;
 
   var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe',
-    'picker', 'goal', 'alts', 'unlocked', 'unavailable', 'pins'];
+    'picker', 'goal', 'unlocked', 'unavailable', 'pins'];
 
   function snapshot() {
     var snap = {};
@@ -500,6 +514,7 @@
     refreshClockSeg();
     refreshTierSegs();
     refreshRecipeControls();
+    renderAltList();
     renderTargets();
     recompute();
     writeNow();
@@ -1346,7 +1361,7 @@
         machines: recipeClocks(rid, s.count).map(function (c) {
           var load = {};
           r.in.concat(r.out).forEach(function (p) { load[p[0]] = (load[p[0]] || 0) + p[1] * k * c; });
-          return { clock: c, product: itemName(s.item), sub: fmtClock(c), load: load };
+          return { clock: clockSetting(c), product: itemName(s.item), sub: clockLabel(c), load: load };
         })
       });
     });
@@ -1364,9 +1379,9 @@
               var load = {};
               load[id] = rate;
               return {
-                clock: m.clock,
+                clock: clockSetting(m.clock),
                 product: itemName(id),
-                sub: (m.purity ? titleCase(m.purity) + ' · ' : '') + fmtClock(m.clock),
+                sub: (m.purity ? titleCase(m.purity) + ' · ' : '') + clockLabel(m.clock),
                 load: load
               };
             })
@@ -2937,17 +2952,15 @@
     closeCtx();
     closeConfirm();
     closeItemPicker();
-    if (typeof closeAltPicker === 'function') closeAltPicker();
   }
 
   // Any press outside the popups dismisses them. Right-clicks land here first
   // and the contextmenu event that follows reopens the menu in the new place.
   document.addEventListener('pointerdown', function (e) {
-    if (confirmEl.contains(e.target) || itemPop.contains(e.target) || altPop.contains(e.target)) return;
+    if (confirmEl.contains(e.target) || itemPop.contains(e.target)) return;
     if (!ctx.contains(e.target)) closeCtx();
     closeConfirm();
     closeItemPicker();
-    closeAltPicker();
   }, true);
 
   document.addEventListener('keydown', function (e) {
@@ -3436,7 +3449,7 @@
       head.type = 'button';
       head.classList.add('fold-head');
       wrap.dataset.fold = fold;
-      wrap.classList.toggle('folded', !!state.folds[fold]);
+      wrap.classList.toggle('folded', isFolded(fold));
     }
     var name = document.createElement('span');
     name.className = 'sum-group-name';
@@ -3461,17 +3474,24 @@
   document.getElementById('panel-list').addEventListener('click', function (e) {
     var head = e.target.closest('.fold-head');
     if (!head) return;
-    var wrap = head.parentElement;
+    var wrap = head.closest('[data-fold]');
     var key = wrap.dataset.fold;
-    state.folds[key] = !state.folds[key];
-    if (!state.folds[key]) delete state.folds[key];
-    wrap.classList.toggle('folded', !!state.folds[key]);
+    state.folds[key] = !isFolded(key);
+    if (state.folds[key] === !!FOLDED_AT_FIRST[key]) delete state.folds[key];
+    wrap.classList.toggle('folded', isFolded(key));
     writeNow();
   });
 
+  // Sections that start folded: the long alternates list.
+  var FOLDED_AT_FIRST = { alternates: true };
+
+  function isFolded(key) {
+    return key in state.folds ? state.folds[key] : !!FOLDED_AT_FIRST[key];
+  }
+
   function applyFolds() {
     document.querySelectorAll('#panel-list [data-fold]').forEach(function (wrap) {
-      wrap.classList.toggle('folded', !!state.folds[wrap.dataset.fold]);
+      wrap.classList.toggle('folded', isFolded(wrap.dataset.fold));
     });
   }
 
@@ -3535,7 +3555,7 @@
       tally(ex.info.extractor, DATA.extractors[ex.info.extractor].name,
         clocksList.reduce(function (s, c) { return s + c; }, 0),
         clocksList.length,
-        SOLVER.extractorPower(DATA, ex.info.extractor, clocksList));
+        SOLVER.extractorPower(DATA, ex.info.extractor, clocksList, state.clock));
     });
 
     var steps = Object.keys(solved.recipes).length;
@@ -3741,8 +3761,8 @@
       pipe: state.pipe,
       picker: state.picker,
       goal: state.goal,
-      alts: state.alts,
       unlocked: state.unlocked,
+      unavailable: state.unavailable,
       defaultMiner: state.defaultMiner,
       pins: state.pins,
       mode: state.mode,
@@ -3931,10 +3951,8 @@
   // with any recipe picked on a node pinned.
   var pickerSeg = document.getElementById('picker-seg');
   var goalSeg = document.getElementById('goal-seg');
-  var altsSeg = document.getElementById('alts-seg');
   var optSettings = document.getElementById('opt-settings');
   var optNote = document.getElementById('opt-note');
-  var chooseAlts = document.getElementById('choose-alts');
   var UNLOCKABLE = Object.keys(DATA.recipes).filter(unlockable).sort(function (a, b) {
     return DATA.recipes[a].name.localeCompare(DATA.recipes[b].name);
   });
@@ -3949,10 +3967,9 @@
     var optimising = state.picker === 'optimise';
     markSeg(pickerSeg, 'picker', state.picker);
     markSeg(goalSeg, 'goal', state.goal);
-    markSeg(altsSeg, 'alts', state.alts);
     optSettings.hidden = !optimising;
     document.getElementById('picker-sub').textContent = optimising ? 'picked for you' : 'picked by you';
-    chooseAlts.textContent = 'Choose unlocked (' + state.unlocked.length + ')…';
+    altCount.textContent = state.unlocked.length + ' of ' + UNLOCKABLE.length + ' ticked';
   }
 
   /** After a solve: what the optimiser ended up using. */
@@ -3988,16 +4005,16 @@
   }
   segClick(pickerSeg, 'picker', 'picker');
   segClick(goalSeg, 'goal', 'goal');
-  segClick(altsSeg, 'alts', 'alts');
 
-  // The unlocked-alternates checklist.
-  var altPop = document.getElementById('alt-pop');
-  var altInput = altPop.querySelector('.ip-input');
-  var altList = altPop.querySelector('.ip-list');
+  // The alternates the user has unlocked: a ticked list in the panel,
+  // folded away until wanted, with a search over recipe and item names.
+  var altFold = document.getElementById('alt-fold');
+  var altCount = document.getElementById('alts-count');
+  var altInput = document.getElementById('alt-search');
+  var altList = document.getElementById('alt-list');
 
   function renderAltList() {
     var q = altInput.value.trim().toLowerCase();
-    var keep = altList.scrollTop;
     altList.innerHTML = '';
     UNLOCKABLE.forEach(function (rid) {
       var r = DATA.recipes[rid];
@@ -4005,55 +4022,46 @@
       if (q && (r.name + ' ' + makes).toLowerCase().indexOf(q) < 0) return;
       var b = document.createElement('button');
       b.type = 'button';
-      b.className = 'alt-row' + (state.unlocked.indexOf(rid) >= 0 ? ' on' : '');
+      b.className = 'sum-row check-row alt-check' + (state.unlocked.indexOf(rid) >= 0 ? ' on' : '');
+      var text = document.createElement('span');
+      text.className = 'sum-row-name';
       var main = document.createElement('span');
-      main.className = 'ctx-main';
+      main.className = 'ac-main';
       main.textContent = r.name;
       var note = document.createElement('span');
-      note.className = 'ctx-note';
-      note.textContent = makes + ' · ' + machineName(rid);
-      b.appendChild(main);
-      b.appendChild(note);
+      note.className = 'ac-note';
+      note.textContent = makes + ' · ' + machineName(rid) + (canBuild(rid) ? '' : ' (unticked)');
+      text.appendChild(main);
+      text.appendChild(note);
+      b.appendChild(text);
       b.addEventListener('click', function () {
         var at = state.unlocked.indexOf(rid);
         state.unlocked = at >= 0
           ? state.unlocked.filter(function (x) { return x !== rid; })
           : state.unlocked.concat([rid]);
-        if (state.alts === 'none') state.alts = 'unlocked';
         b.classList.toggle('on', at < 0);
         refreshRecipeControls();
         changed();
       });
       altList.appendChild(b);
     });
-    altList.scrollTop = keep;
+    if (!altList.firstChild) {
+      var none = document.createElement('div');
+      none.className = 'ip-empty';
+      none.textContent = 'No alternates match';
+      altList.appendChild(none);
+    }
   }
 
-  function closeAltPicker() { altPop.classList.remove('show'); }
-
-  chooseAlts.addEventListener('click', function () {
-    closeCtx();
-    closeConfirm();
-    altInput.value = '';
-    renderAltList();
-    placePopup(altPop, chooseAlts, false, false);
-    altPop.classList.add('show');
-    setTimeout(function () { altInput.focus(); }, 20);
-  });
   altInput.addEventListener('input', renderAltList);
-  altInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { e.preventDefault(); closeAltPicker(); }
-  });
-  altPop.querySelectorAll('[data-all]').forEach(function (b) {
+  altFold.querySelectorAll('[data-all]').forEach(function (b) {
     b.addEventListener('click', function () {
       state.unlocked = b.dataset.all === '1' ? UNLOCKABLE.slice() : [];
-      if (state.alts === 'none' && state.unlocked.length) state.alts = 'unlocked';
       renderAltList();
       refreshRecipeControls();
       changed();
     });
   });
-  document.getElementById('alt-done').addEventListener('click', closeAltPicker);
 
   /* ----------------------------------------------------------------- boot */
 
@@ -4068,6 +4076,7 @@
   buildTierSegs();
   refreshTierSegs();
   refreshRecipeControls();
+  renderAltList();
   applyFolds();
   renderTargets();
   applyView();

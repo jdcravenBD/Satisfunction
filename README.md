@@ -116,14 +116,15 @@ nothing capped is involved, the plan says so rather than going to infinity.
 ### Clocks and power
 
 When a step needs part of a machine, the Plan panel chooses how to split it:
+**All at 100%** (nothing clocked: 2.5 machines' worth → 3 at 100%, the last
+idling half the time, drawing power only while it works),
 **Spread evenly** (2.5 machines' worth → 3 at 83.33%, least power),
 **Underclock last** (2 at 100% and 1 at 50%) or **Overclock** (fewest
 machines: 1 at 250%, spread evenly over as few as can take it). Overclocking
 stops short of 250% where one machine's belt or pipe couldn't keep up at the
 fastest tier allowed, and the Machines list counts the Power Shards it takes
 (one per 50% over 100%). Miners on resource nodes stay at 100% or below.
-Leaving the last machine at 100% to idle part-time isn't offered: it builds
-exactly what Underclock last does. Power is the average draw per building, at
+Power is the average draw per building, at
 clock^1.32 of full power, so the choice changes the total. Particle
 Accelerators, Converters and Quantum Encoders use each recipe's average draw.
 Miners and extractors are counted once their nodes are known.
@@ -143,18 +144,18 @@ asked for. It then solves three times, each holding on to the last result:
 
 1. Least shortfall, for fixed outputs the resource nodes can't cover.
 2. Most output: every max output as high as it goes.
-3. The goal you pick: **Fewest resources** (weighted by the game's sink
-   points, which track rarity; water is free), **Least power**, or **Fewest
-   machines**.
+3. The goal you pick: **Fewest machines**, **Fewest resources** (weighted
+   by the game's sink points, which track rarity; water is free), or **Least
+   power**.
 
 Its answer is used as it is, so it can do what one recipe per item can't: make
 screws partly from iron and partly from steel, or run a recipe purely for its
 byproduct. With every alternate it takes a Motor from 1.9/min to 61/min on the
 default nodes.
 
-- **Alternates.** **None**, **Unlocked**, or **All**. The unlocked list is
-  ticked off in a searchable checklist, and Converter recipes count as
-  unlockable too. Items with no standard recipe (Heavy Oil Residue, Polymer
+- **Alternates.** A searchable, ticked list in the panel that folds away
+  from its heading, with **All** and **None** to tick or clear the lot. Only
+  ticked alternates are used, and Converter recipes count as unlockable too. Items with no standard recipe (Heavy Oil Residue, Polymer
   Resin, Compacted Coal…) always keep their game default.
 - **Pins.** Picking a recipe on a node pins it: the optimiser has to make that
   item that way. **Let the optimiser choose** unpins it.

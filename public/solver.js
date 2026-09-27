@@ -98,6 +98,8 @@
    * spreads it over the fewest whole machines; "fill" runs all but the last at
    * 100% and underclocks that one; "max" overclocks, up to `top` (250% unless
    * a belt couldn't keep up), over the fewest machines that can take it.
+   * "none" leaves every machine at 100%: the list is then each one's share
+   * of the work, the last one idling part of the time.
    */
   function clocks(count, mode, top) {
     if (!(count > EPS)) return [];
@@ -110,7 +112,7 @@
     }
     var n = Math.max(1, Math.ceil(count - 1e-6));
     var out = [];
-    if (mode === 'fill') {
+    if (mode === 'fill' || mode === 'none') {
       var whole = Math.floor(count + 1e-6);
       for (var i = 0; i < whole; i++) out.push(1);
       if (count - whole > 1e-6) out.push(count - whole);
@@ -123,19 +125,23 @@
   /**
    * Average draw in MW of `count` machines' worth of a recipe. Power scales
    * with clock speed to the power of ~1.32, so how the work is split matters.
+   * An unclocked machine draws full power while it works and none while it
+   * waits, so there it's simply in proportion.
    */
   function recipePower(data, rid, count, mode, top) {
     var r = data.recipes[rid];
     var m = data.machines[r.machine];
     var base = r.power != null ? r.power : m.power;
+    var exp = mode === 'none' ? 1 : m.powerExp;
     return clocks(count, mode, top).reduce(function (s, c) {
-      return s + base * Math.pow(c, m.powerExp);
+      return s + base * Math.pow(c, exp);
     }, 0);
   }
 
-  function extractorPower(data, exId, clockList) {
+  function extractorPower(data, exId, clockList, mode) {
     var ex = data.extractors[exId];
-    return clockList.reduce(function (s, c) { return s + ex.power * Math.pow(c, 1.321929); }, 0);
+    var exp = mode === 'none' ? 1 : 1.321929;
+    return clockList.reduce(function (s, c) { return s + ex.power * Math.pow(c, exp); }, 0);
   }
 
   /* ----------------------------------------------------------------- maths */
