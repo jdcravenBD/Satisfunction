@@ -525,10 +525,22 @@
   }
 
   var saveTimer = null;
+  var SAVE_DELAY = 1500;  // long enough for the save button to show it's pending
+  var dirty = false;
+
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(writeNow, 250);
+    saveTimer = setTimeout(writeNow, SAVE_DELAY);
+    setDirty(true);
     scheduleCommit();
+  }
+
+  function setDirty(on) {
+    dirty = on;
+    var b = document.getElementById('save-now');
+    if (!b) return;
+    b.classList.toggle('saved', !on);
+    b.title = on ? 'Unsaved changes: saving in a moment, or click to save now' : 'All changes saved';
   }
 
   function writeNow() {
@@ -541,10 +553,14 @@
     store.prefs = pick(state, ['folds', 'show']);
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(store));
+      setDirty(false);
     } catch (e) {
       console.warn('Could not save:', e);
     }
   }
+
+  // Anything still waiting is written before the page goes.
+  window.addEventListener('pagehide', function () { if (dirty) writeNow(); });
 
   /* --------------------------------------------------------------- history */
 
@@ -3073,10 +3089,6 @@
 
   /* -------------------------------------------------------------- toolbar */
 
-  document.getElementById('add').addEventListener('click', function () {
-    askForOutput(this);
-  });
-
   document.getElementById('zoom-in').addEventListener('click', function () {
     var r = stage.getBoundingClientRect();
     zoomAt(r.left + usableWidth() / 2, r.top + stage.clientHeight / 2, 1.15);
@@ -3986,7 +3998,6 @@
 
   var tabsEl = document.getElementById('tabs');
   var saveNameInput = document.getElementById('save-name');
-  var saveMenuBtn = document.getElementById('save-menu');
 
   /** Everything on screen redrawn for the open factory. */
   function refreshAll() {
@@ -4267,20 +4278,15 @@
     saveNameInput.select();
   }
 
-  function duplicateSave() {
-    writeNow();
-    var sv = clone(currentSave());
-    sv.id = uid();
-    sv.name = saveLabel(sv) + ' copy';
-    var activeAt = sv.factories.findIndex(function (f) { return f.id === sv.active; });
-    sv.factories.forEach(function (f) { f.id = uid(); });
-    sv.active = sv.factories[Math.max(0, activeAt)].id;
-    store.saves.splice(store.saves.indexOf(currentSave()) + 1, 0, sv);
-    switchTo(sv.id);
-  }
-
-  function deleteSave() {
-    var at = store.saves.indexOf(currentSave());
+  /** Deletes a save; if it's the open one, the next one along opens. */
+  function deleteSave(sv) {
+    var at = store.saves.indexOf(sv);
+    if (at < 0) return;
+    if (sv !== currentSave()) {
+      store.saves.splice(at, 1);
+      writeNow();
+      return;
+    }
     store.saves.splice(at, 1);
     if (!store.saves.length) store.saves.push(newSaveRecord('My save'));
     store.active = store.saves[Math.min(at, store.saves.length - 1)].id;
@@ -4295,27 +4301,84 @@
     writeNow();
   }
 
-  saveMenuBtn.addEventListener('click', function () {
-    var r = saveMenuBtn.getBoundingClientRect();
+  document.getElementById('save-now').addEventListener('click', writeNow);
+  document.getElementById('save-export').addEventListener('click', exportSave);
+  document.getElementById('save-import').addEventListener('click', function () { importFile.click(); });
+
+  // Browse: every save in a scrolling list, to open or delete, and a new one.
+  var savePop = document.getElementById('save-pop');
+  var saveList = document.getElementById('save-list');
+  var browseBtn = document.getElementById('save-browse');
+
+  function renderSaveList() {
     var cur = currentSave();
-    var items = [{ head: 'Saves' }];
+    saveList.innerHTML = '';
     store.saves.forEach(function (sv) {
+      var row = document.createElement('div');
+      row.className = 'sp-row' + (sv === cur ? ' on' : '');
+      var open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'sp-open';
+      var name = document.createElement('span');
+      name.className = 'sp-name';
+      name.textContent = saveLabel(sv);
       var n = sv.factories.length;
-      items.push({
-        label: saveLabel(sv),
-        note: n + (n === 1 ? ' factory' : ' factories'),
-        on: sv === cur,
-        run: function () { if (sv !== cur) switchTo(sv.id); }
+      var note = document.createElement('span');
+      note.className = 'sp-note';
+      note.textContent = n + (n === 1 ? ' factory' : ' factories') + (sv === cur ? ' · open' : '');
+      open.appendChild(name);
+      open.appendChild(note);
+      open.addEventListener('click', function () {
+        closeSavePop();
+        if (sv !== cur) switchTo(sv.id);
       });
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'sp-del';
+      del.title = 'Delete ' + saveLabel(sv) + ' and all its factories';
+      del.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>';
+      del.addEventListener('click', function () {
+        askConfirm(del, function () {
+          deleteSave(sv);
+          renderSaveList();
+        });
+      });
+      row.appendChild(open);
+      row.appendChild(del);
+      saveList.appendChild(row);
     });
-    items.push('-');
-    items.push({ label: 'New save', note: 'Starts with one empty factory', run: newSave });
-    items.push({ label: 'Duplicate save', run: duplicateSave });
-    items.push({ label: 'Export save', note: 'Every factory in one file', run: exportSave });
-    items.push({ label: 'Import…', note: 'A save or a factory file', run: function () { importFile.click(); } });
-    items.push('-');
-    items.push({ label: 'Delete save', note: 'And all its factories', danger: true, confirm: true, run: deleteSave });
-    openCtx(r.left, r.bottom + 6, items);
+  }
+
+  function openSavePop() {
+    closeAll();
+    writeNow();
+    renderSaveList();
+    var r = browseBtn.getBoundingClientRect();
+    savePop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 300)) + 'px';
+    savePop.style.top = r.bottom + 6 + 'px';
+    savePop.classList.add('show');
+    browseBtn.classList.add('open');
+  }
+  function closeSavePop() {
+    savePop.classList.remove('show');
+    browseBtn.classList.remove('open');
+  }
+  browseBtn.addEventListener('click', function () {
+    if (savePop.classList.contains('show')) closeSavePop();
+    else openSavePop();
+  });
+  document.getElementById('save-new').addEventListener('click', function () {
+    closeSavePop();
+    newSave();
+  });
+  // Closes on any press outside it, except on the confirmation it raised.
+  document.addEventListener('pointerdown', function (e) {
+    if (!savePop.classList.contains('show')) return;
+    if (savePop.contains(e.target) || browseBtn.contains(e.target) || confirmEl.contains(e.target)) return;
+    closeSavePop();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeSavePop();
   });
 
   /* ---- toolbar ---- */
@@ -4343,10 +4406,14 @@
     modeSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.mode === state.mode);
     });
-    // How inputs are fed only means something in the machine view, and only
-    // there is nothing on the canvas moved by hand.
-    balanceSeg.hidden = state.mode !== 'machines';
-    document.getElementById('view-note').hidden = state.mode !== 'machines';
+    // How inputs are fed only means something in the machine view, so it's
+    // greyed out in the item view; and only the machine view can't be
+    // rearranged by hand.
+    var machinesOn = state.mode === 'machines';
+    balanceSeg.classList.toggle('disabled', !machinesOn);
+    balanceSeg.title = machinesOn ? '' : 'Only in the Machines view';
+    balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) { b.disabled = !machinesOn; });
+    document.getElementById('view-note').hidden = !machinesOn;
     balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.balance === state.balance);
     });
@@ -4595,6 +4662,7 @@
   buildTierSegs();
   refreshAll();
   if (firstVisit) fitView();
+  setDirty(false);
 
   // Web fonts can land after the first layout and change node heights.
   if (document.fonts && document.fonts.ready) {

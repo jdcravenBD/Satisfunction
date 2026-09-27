@@ -24,6 +24,9 @@
   --warn: #e08b3d;
   --machine: 224, 139, 61;   /* as r, g, b so tints can share it */
   --output: 76, 190, 122;
+  /* The header: the one broad field of colour, a dark orange. */
+  --header: #4d2a10;
+  --header-edge: #6b3b17;
 
   --edge: #2e2e2e;
   --edge-hi: #4a4a4a;
@@ -90,13 +93,14 @@ html, body {
   gap: 14px;
   flex-wrap: wrap;
   padding: 7px calc(var(--frame) + 6px);
-  background: var(--panel);
+  background: var(--header);
+  border-bottom: 1px solid var(--header-edge);
   position: relative;
   z-index: 20;
 }
 
 .bar-left { display: flex; align-items: center; gap: 22px; min-width: 0; }
-.brand { display: flex; align-items: baseline; gap: 8px; }
+.brand { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
 .brand .mark {
   width: 10px; height: 10px; border-radius: 2px;
   background: var(--ink-dim);
@@ -1517,3 +1521,104 @@ html, body {
 /* ---------- clock speeds option ---------- */
 
 #stage.hide-clocks .m-clock { display: none; }
+
+/* ---------- header on orange ---------- */
+
+.bar .brand strong { color: #fff3e6; }
+.bar .brand .sub { color: rgba(255, 226, 199, .55); }
+.bar .brand .mark { background: #f2a25c; }
+.bar .board-name { border-left-color: rgba(255, 220, 190, .18); }
+.bar .bn-label { color: rgba(255, 226, 199, .5); }
+
+/* The save's name, set like the old plan name: big, borderless, a soft
+   panel behind it on hover and while typing. */
+#save-name {
+  min-width: 0;
+  width: 220px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #fff3e6;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  padding: 5px 8px;
+  transition: background-color .16s ease;
+}
+#save-name::placeholder { color: rgba(255, 226, 199, .35); }
+#save-name:hover { background: rgba(0, 0, 0, .14); }
+#save-name:focus { outline: none; background: rgba(0, 0, 0, .24); }
+
+/* Save, browse, import, export: quiet icon buttons on the orange. */
+.save-tools { display: flex; align-items: center; gap: 2px; margin-left: 2px; }
+.hbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: rgba(255, 226, 199, .72);
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease;
+}
+.hbtn:hover, .hbtn.open { background: rgba(0, 0, 0, .2); color: #fff3e6; }
+.hbtn:active { transform: translateY(1px); }
+#save-now { color: rgba(255, 226, 199, .38); }
+#save-now .save-tick { opacity: 0; transition: opacity .16s ease; }
+#save-now.saved { color: rgb(var(--output)); }
+#save-now.saved .save-tick { opacity: 1; }
+#save-now:hover { color: rgba(255, 226, 199, .8); }
+#save-now.saved:hover { color: rgb(118, 216, 158); }
+
+/* ---------- tabs strip stays grey ---------- */
+
+.tabs { background: var(--panel); }
+
+/* ---------- toolbar ---------- */
+
+.tb-btn:disabled { opacity: .32; cursor: default; }
+.tb-btn:disabled:hover { background: none; color: var(--ink-dim); }
+.tb-btn:disabled:active { transform: none; }
+.seg.disabled { opacity: .38; }
+.seg.disabled .seg-btn { cursor: default; }
+.seg.disabled .seg-btn:hover { color: var(--ink-faint); }
+.seg.disabled .seg-btn.on:hover { color: var(--ink); }
+
+/* ---------- browse saves ---------- */
+
+.save-pop { width: 290px; padding: 6px; }
+.sp-head { display: flex; align-items: center; padding: 3px 6px 6px; }
+.sp-head strong { font-size: 12.5px; }
+.sp-head .link-btn { margin-left: auto; font-size: 12px; }
+.sp-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.sp-row { display: flex; align-items: center; border-radius: 6px; }
+.sp-row:hover { background: rgba(255, 255, 255, .05); }
+.sp-row.on { background: rgba(255, 255, 255, .07); }
+.ctx .sp-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 8px;
+  background: none;
+}
+.ctx .sp-open:hover { background: none; }
+.sp-name { font-size: 12.5px; color: var(--ink); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-row.on .sp-name { font-weight: 600; }
+.sp-note { font-size: 11px; color: var(--ink-faint); }
+.ctx .sp-del {
+  flex: 0 0 auto;
+  width: 28px; height: 28px;
+  justify-content: center;
+  padding: 0;
+  margin-right: 3px;
+  color: var(--ink-faint);
+  opacity: .45;
+}
+.sp-row:hover .sp-del, .sp-del:focus-visible { opacity: 1; }
+.ctx .sp-del:hover { color: var(--warn); background: rgba(255, 255, 255, .06); }

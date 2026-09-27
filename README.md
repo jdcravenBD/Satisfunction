@@ -288,13 +288,17 @@ belt and pipe, the miner new resources start on) is shared by all its
 factories. A factory is one production line with its own outputs, recipes,
 resource nodes, clocks and view.
 
-- The header holds the save's name (type to rename) and a menu to switch,
-  add, duplicate, export, import or delete saves.
+- The dark orange header holds the save's name (type to rename) and four
+  buttons: **save** (a dim ring while changes wait, a green tick once
+  written; changes also save themselves a moment after each edit),
+  **browse** (every save in a scrolling list to open or delete, and **New
+  save**), **import** and **export**.
 - Factories are tabs over the top left of the canvas: **+** adds one,
   double-click renames, right-click for more, **×** deletes.
-- The toolbar under the tabs runs the width of the app: Items / Machines,
-  Manifold / Balancer, zoom, then Duplicate, Export, Import, Clear and Delete
-  for the open factory.
+- The toolbar under the tabs runs the width of the app: undo and redo,
+  Duplicate, Export, Import, Clear and Delete for the open factory on the
+  left; Items / Machines, Manifold / Balancer (greyed out in the Items view)
+  and zoom on the right.
 - **Import** takes either kind of file: a save file comes in as a new save, a
   factory file (or an export from before saves existed) as a new tab.
 - Undo history belongs to the open factory and starts fresh on switching.

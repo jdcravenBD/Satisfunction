@@ -23,19 +23,32 @@
 
       <!-- The main save: one game, holding every factory in it. -->
       <div class="board-name save-pick">
-        <span class="bn-label">Save</span>
+        <span class="bn-label">Save name</span>
         <input id="save-name" type="text" placeholder="Untitled save" spellcheck="false" title="Rename this save">
-        <button type="button" id="save-menu" class="btn icon" title="Switch, add, export or import saves" aria-haspopup="true">
-          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <div class="bar-actions">
-      <button id="add" class="btn primary">+ Add output</button>
-      <div class="group">
-        <button id="undo" class="btn icon" title="Undo (Ctrl+Z)">&#8630;</button>
-        <button id="redo" class="btn icon" title="Redo (Ctrl+Y)">&#8631;</button>
+        <div class="save-tools">
+          <!-- Dim ring while changes wait to be written; green tick once they are. -->
+          <button type="button" id="save-now" class="hbtn" title="Saved">
+            <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="9" r="6.6"/>
+              <path class="save-tick" d="M6 9.2l2.1 2.1 4-4.3"/>
+            </svg>
+          </button>
+          <button type="button" id="save-browse" class="hbtn" title="Browse saves" aria-haspopup="true">
+            <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+              <path d="M2.5 5V14h13V6.5H8.6L7 5z"/>
+            </svg>
+          </button>
+          <button type="button" id="save-import" class="hbtn" title="Import a save (or a factory, as a new tab)">
+            <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 2.5v8M5.8 7.5L9 10.7l3.2-3.2M3 11.5v3.5h12v-3.5"/>
+            </svg>
+          </button>
+          <button type="button" id="save-export" class="hbtn" title="Export this save, every factory in one file">
+            <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 10.7v-8M5.8 5.7L9 2.5l3.2 3.2M3 11.5v3.5h12v-3.5"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   </header>
@@ -45,23 +58,12 @@
 
   <!-- Controls for the factory showing. -->
   <div class="toolbar">
-    <!-- Every step as one card, or every step expanded into its buildings. -->
-    <div class="seg bar-seg" id="mode" role="group" aria-label="View">
-      <button type="button" class="seg-btn" data-mode="items" title="One card per step">Items</button>
-      <button type="button" class="seg-btn" data-mode="machines" title="Every building, at its real footprint">Machines</button>
-    </div>
-    <!-- Machine view only: how each line's inputs reach its machines. -->
-    <div class="seg bar-seg" id="balance" role="group" aria-label="Logistics" hidden>
-      <button type="button" class="seg-btn" data-balance="manifold" title="One belt runs past every machine, with a splitter at each">Manifold</button>
-      <button type="button" class="seg-btn" data-balance="balancer" title="A tree of splitters gives every machine exactly the same share">Balancer</button>
+    <!-- Editing the open factory, on the left. -->
+    <div class="group">
+      <button id="undo" class="tb-btn icon" title="Undo (Ctrl+Z)">&#8630;</button>
+      <button id="redo" class="tb-btn icon" title="Redo (Ctrl+Y)">&#8631;</button>
     </div>
     <span class="tb-sep"></span>
-    <div class="group">
-      <button id="zoom-out" class="tb-btn icon" title="Zoom out">&minus;</button>
-      <button id="zoom-fit" class="tb-btn" title="Fit the plan to the window">100%</button>
-      <button id="zoom-in" class="tb-btn icon" title="Zoom in">+</button>
-    </div>
-    <span class="tb-space"></span>
     <div class="group">
       <button id="duplicate" class="tb-btn" title="Copy this factory into a new tab">Duplicate</button>
       <button id="export" class="tb-btn" title="Save this factory as a file">Export</button>
@@ -71,6 +73,24 @@
     <div class="group">
       <button id="clear" class="tb-btn" title="Remove every output from this factory">Clear</button>
       <button id="delete" class="tb-btn danger" title="Delete this factory">Delete</button>
+    </div>
+    <span class="tb-space"></span>
+    <!-- Viewing it, on the right. -->
+    <!-- Every step as one card, or every step expanded into its buildings. -->
+    <div class="seg bar-seg" id="mode" role="group" aria-label="View">
+      <button type="button" class="seg-btn" data-mode="items" title="One card per step">Items</button>
+      <button type="button" class="seg-btn" data-mode="machines" title="Every building, at its real footprint">Machines</button>
+    </div>
+    <!-- How each line's inputs reach its machines: Machines view only. -->
+    <div class="seg bar-seg" id="balance" role="group" aria-label="Logistics">
+      <button type="button" class="seg-btn" data-balance="manifold" title="One belt runs past every machine, with a splitter at each">Manifold</button>
+      <button type="button" class="seg-btn" data-balance="balancer" title="A tree of splitters gives every machine exactly the same share">Balancer</button>
+    </div>
+    <span class="tb-sep"></span>
+    <div class="group">
+      <button id="zoom-out" class="tb-btn icon" title="Zoom out">&minus;</button>
+      <button id="zoom-fit" class="tb-btn" title="Fit the plan to the window">100%</button>
+      <button id="zoom-in" class="tb-btn icon" title="Zoom in">+</button>
     </div>
   </div>
 </div>
@@ -242,6 +262,15 @@
 <div id="item-pop" class="ctx item-pop">
   <input class="ip-input" type="text" placeholder="Search items" spellcheck="false" autocomplete="off">
   <div class="ip-list"></div>
+</div>
+
+<!-- The saves, opened from the folder button beside the save's name. -->
+<div id="save-pop" class="ctx save-pop" role="menu" aria-label="Saves">
+  <div class="sp-head">
+    <strong>Saves</strong>
+    <button type="button" class="link-btn" id="save-new">+ New save</button>
+  </div>
+  <div class="sp-list" id="save-list"></div>
 </div>
 
 <!-- Shared right-click menu, filled in per context when opened. -->
