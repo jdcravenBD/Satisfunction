@@ -39,7 +39,8 @@
     recipes: {},   // item -> recipe id, where the user overrode the default
     imports: {},   // item -> true, when it comes from outside this factory
     supply: {},    // raw item -> { nodes: ['pure', ...], miner }
-    clock: 'even', // how part-machines are split: 'even' or 'fill'
+    clock: 'even', // how work is split over machines: 'even', 'fill' or 'max'
+    unavailable: [], // buildings the user doesn't have yet
     belt: 6,       // fastest conveyor tier the build may use, 1–6
     pipe: 2,       // fastest pipeline tier, 1–2
     picker: 'manual',     // who picks recipes: 'manual' or 'optimise'
@@ -51,6 +52,7 @@
     view: { x: 60, y: 40, s: 1 },
     mode: 'items', // 'items' or 'machines'
     folds: {},     // panel sections the user has collapsed: { inputs: true }
+    show: { products: true, rates: true, short: false }, // what the canvas labels
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     panel: true
   };
@@ -131,12 +133,167 @@
     var s = state.supply[id];
     return {
       nodes: s ? s.nodes || [] : DEFAULT_NODES.slice(),
-      miner: (s && s.miner) || state.defaultMiner
+      miner: availableMiner((s && s.miner) || state.defaultMiner)
     };
   }
 
+  /** How a raw input is extracted, or null if the user lacks the building. */
   function supplyInfo(id) {
-    return SOLVER.supplyInfo(DATA, id, supplyOf(id));
+    var info = SOLVER.supplyInfo(DATA, id, supplyOf(id));
+    return info && hasBuilding(info.extractor) ? info : null;
+  }
+
+  /* ------------------------------------------------------------ buildings */
+
+  // Every building a plan can place, in roughly the order the game unlocks them.
+  var MINERS = ['Build_MinerMk1_C', 'Build_MinerMk2_C', 'Build_MinerMk3_C'];
+  var BUILDINGS = ['Build_SmelterMk1_C', 'Build_ConstructorMk1_C', 'Build_AssemblerMk1_C',
+    'Build_FoundryMk1_C', 'Build_ManufacturerMk1_C', 'Build_OilRefinery_C', 'Build_Packager_C',
+    'Build_Blender_C', 'Build_HadronCollider_C', 'Build_Converter_C', 'Build_QuantumEncoder_C']
+    .concat(Object.keys(DATA.machines))
+    .concat(MINERS, ['Build_WaterPump_C', 'Build_OilPump_C', 'Build_FrackingExtractor_C'])
+    .concat(Object.keys(DATA.extractors))
+    .filter(function (id, i, all) {
+      return (DATA.machines[id] || DATA.extractors[id]) && all.indexOf(id) === i;
+    });
+
+  function buildingName(id) {
+    return (DATA.machines[id] || DATA.extractors[id]).name;
+  }
+
+  function hasBuilding(id) { return state.unavailable.indexOf(id) < 0; }
+  function canBuild(rid) { return hasBuilding(DATA.recipes[rid].machine); }
+
+  /** The miner picked, or the nearest one the user has: down a mark, else up. */
+  function availableMiner(mid) {
+    if (hasBuilding(mid)) return mid;
+    var i = MINERS.indexOf(mid);
+    for (var d = i - 1; d >= 0; d--) if (hasBuilding(MINERS[d])) return MINERS[d];
+    for (var u = i + 1; u < MINERS.length; u++) if (hasBuilding(MINERS[u])) return MINERS[u];
+    return mid;  // none at all: supplyInfo turns the resource into a plain input
+  }
+
+  // Two letters in place of a building's name, when the user asks for them.
+  var SHORT_NAMES = {
+    'Smelter': 'SM', 'Constructor': 'CN', 'Assembler': 'AS', 'Foundry': 'FD',
+    'Manufacturer': 'MF', 'Refinery': 'RF', 'Packager': 'PK', 'Blender': 'BL',
+    'Particle Accelerator': 'PA', 'Converter': 'CV', 'Quantum Encoder': 'QE',
+    'Miner Mk.1': 'M1', 'Miner Mk.2': 'M2', 'Miner Mk.3': 'M3',
+    'Water Extractor': 'WE', 'Oil Extractor': 'OE', 'Resource Well Extractor': 'RW',
+    'Storage Container': 'SC', 'Fluid Buffer': 'FB', 'AWESOME Sink': 'SK'
+  };
+
+  function shortName(name) {
+    return SHORT_NAMES[name] || name.split(/\s+/).map(function (w) { return w.charAt(0); }).join('').toUpperCase();
+  }
+
+  /** A building's name that the "Short names" option swaps for its letters. */
+  function nameSpans(parent, name) {
+    var full = document.createElement('span');
+    full.className = 'nm-full';
+    full.textContent = name;
+    var abbr = document.createElement('span');
+    abbr.className = 'nm-short';
+    abbr.textContent = shortName(name);
+    parent.appendChild(full);
+    parent.appendChild(abbr);
+    return parent;
+  }
+
+  /**
+   * A pick (a recipe id, or a mix of them) with any recipe the user can't
+   * build dropped; null if that leaves nothing.
+   */
+  function buildablePick(pick) {
+    if (!pick) return null;
+    if (typeof pick === 'string') return canBuild(pick) ? pick : null;
+    var out = null;
+    Object.keys(pick).forEach(function (rid) {
+      if (DATA.recipes[rid] && canBuild(rid)) (out = out || {})[rid] = pick[rid];
+    });
+    return out;
+  }
+
+  /**
+   * In place of a recipe needing a building the user lacks: another that
+   * makes the item without it. Standard recipes first, then unlocked
+   * alternates, then any alternate, then ones that make it on the side.
+   */
+  function fallbackRecipe(id) {
+    var list = (producersOf[id] || []).filter(canBuild);
+    function rank(rid) {
+      var r = DATA.recipes[rid];
+      if (r.out[0][0] !== id) return 3;
+      if (!unlockable(rid)) return 0;
+      return state.unlocked.indexOf(rid) >= 0 ? 1 : 2;
+    }
+    list.sort(function (a, b) {
+      return rank(a) - rank(b) || DATA.recipes[a].name.localeCompare(DATA.recipes[b].name);
+    });
+    return list[0] || null;
+  }
+
+  // Items no building the user has can make: they're brought in instead,
+  // mapped to the building their usual recipe needs. Set by recompute().
+  var blocked = {};
+
+  /**
+   * The recipes and imports the solver works from, given the buildings the
+   * user has. In optimise mode only the user's own picks are passed (as
+   * pins), unless `fallbacks` asks for the manual stand-ins as well; the
+   * optimiser skips anything it can't build by itself.
+   */
+  function buildablePlan(fallbacks) {
+    var recipes = {};
+    var imports = {};
+    blocked = {};
+    Object.keys(state.imports).forEach(function (id) { imports[id] = true; });
+    Object.keys(state.recipes).forEach(function (id) {
+      var pick = buildablePick(state.recipes[id]);
+      if (pick) recipes[id] = pick;
+    });
+    Object.keys(producersOf).forEach(function (id) {
+      if (imports[id] || DATA.items[id].raw) return;
+      if (!(producersOf[id] || []).some(canBuild)) {
+        var def = DATA.defaults[id] || producersOf[id][0];
+        blocked[id] = DATA.recipes[def].machine;
+        imports[id] = true;
+        delete recipes[id];
+        return;
+      }
+      if ((state.picker === 'optimise' && !fallbacks) || recipes[id]) return;
+      var def2 = DATA.defaults[id];
+      if (def2 && canBuild(def2) && !state.recipes[id]) return;
+      var alt = fallbackRecipe(id);
+      if (alt) recipes[id] = alt;
+    });
+    return { recipes: recipes, imports: imports };
+  }
+
+  /* ---------------------------------------------------------------- clocks */
+
+  /**
+   * Most a recipe's machines may be overclocked: 250%, less if one of its
+   * belts or pipes couldn't carry what an overclocked machine moves.
+   */
+  function clockTop(rid) {
+    var r = DATA.recipes[rid];
+    var k = 60 / r.time;
+    var top = SOLVER.MAX_CLOCK;
+    r.in.concat(r.out).forEach(function (p) {
+      var cap = isFluid(p[0]) ? DATA.logistics.pipes[state.pipe - 1] : DATA.logistics.belts[state.belt - 1];
+      if (p[1] > 0) top = Math.min(top, cap / (p[1] * k));
+    });
+    return Math.max(1, top);
+  }
+
+  function recipeClocks(rid, count) {
+    return SOLVER.clocks(count, state.clock, clockTop(rid));
+  }
+
+  /** Power Shards a machine at clock `c` needs: one per 50% past 100%. */
+  function shardsFor(c) {
+    return c > 1 + 1e-6 ? Math.ceil((c - 1) / 0.5 - 1e-6) : 0;
   }
 
   /** Most each raw input can supply, for the ones with resource nodes set. */
@@ -163,7 +320,8 @@
       // Water Extractors go anywhere, so the plan simply uses enough of them.
       return {
         info: info,
-        list: SOLVER.clocks(used / info.baseRate, state.clock).map(function (c) {
+        list: SOLVER.clocks(used / info.baseRate, state.clock,
+          DATA.logistics.pipes[state.pipe - 1] / info.baseRate).map(function (c) {
           return { purity: null, clock: c };
         })
       };
@@ -259,7 +417,12 @@
         miner: DATA.extractors[s.miner] ? s.miner : undefined
       };
     });
-    state.clock = data.clock === 'fill' ? 'fill' : 'even';
+    state.clock = ['even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'even';
+    state.unavailable = (Array.isArray(data.unavailable) ? data.unavailable : []).filter(function (id) {
+      return BUILDINGS.indexOf(id) >= 0;
+    });
+    var show = data.show || {};
+    state.show = { products: show.products !== false, rates: show.rates !== false, short: !!show.short };
     state.belt = clamp(Math.round(Number(data.belt)) || DATA.logistics.belts.length, 1, DATA.logistics.belts.length);
     state.pipe = clamp(Math.round(Number(data.pipe)) || DATA.logistics.pipes.length, 1, DATA.logistics.pipes.length);
     state.pins = data.pins && typeof data.pins === 'object' ? data.pins : {};
@@ -300,7 +463,7 @@
   var MAX_HISTORY = 80;
 
   var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe',
-    'picker', 'goal', 'alts', 'unlocked', 'pins'];
+    'picker', 'goal', 'alts', 'unlocked', 'unavailable', 'pins'];
 
   function snapshot() {
     var snap = {};
@@ -457,23 +620,32 @@
    * survives any change that doesn't remove that step outright.
    */
   function recompute() {
+    var built = buildablePlan();
     var plan = {
       targets: state.targets,
-      recipes: state.recipes,
-      imports: state.imports,
+      recipes: built.recipes,
+      imports: built.imports,
       caps: currentCaps()
     };
     solved = null;
     if (state.picker === 'optimise') {
       // Recipes picked on a node become pins the optimiser has to keep.
-      plan.pins = state.recipes;
-      solved = OPTIMISE.solveOptimised(DATA, plan, { goal: state.goal, allowed: recipeAllowed });
+      plan.pins = built.recipes;
+      solved = OPTIMISE.solveOptimised(DATA, plan, { goal: state.goal, allowed: recipeAllowed, built: canBuild });
       if (!solved) {
+        plan.recipes = buildablePlan(true).recipes;
         solved = SOLVER.solve(DATA, plan);
         solved.error = 'The optimiser couldn’t settle this plan, so it’s showing your own recipe picks.';
       }
     } else {
       solved = SOLVER.solve(DATA, plan);
+    }
+
+    // An output only an unticked building makes can't be planned at all.
+    var stuck = state.targets.filter(function (t) { return blocked[t.item]; })[0];
+    if (stuck) {
+      solved.error = itemName(stuck.item) + ' needs the ' + buildingName(blocked[stuck.item]) +
+        ', which is unticked under Machines in the Plan panel.';
     }
 
     errorEl.hidden = !solved.error;
@@ -886,7 +1058,8 @@
       setRate(rate, n.item, made);
 
       machine.innerHTML = '';
-      machine.appendChild(document.createTextNode(machineName(n.rid) + ' '));
+      nameSpans(machine, machineName(n.rid));
+      machine.appendChild(document.createTextNode(' '));
       var count = document.createElement('b');
       count.textContent = '×' + fmtCount(n.count);
       machine.appendChild(count);
@@ -962,6 +1135,13 @@
       } else if (state.imports[n.item]) {
         label = 'Imported';
         recipeBtn.title = 'Make it here instead';
+      } else if (blocked[n.item]) {
+        // Only a building the user doesn't have makes it.
+        label = 'No ' + buildingName(blocked[n.item]);
+        el.classList.add('short');
+        recipeBtn.disabled = true;
+        recipeBtn.title = '';
+        note('Tick the ' + buildingName(blocked[n.item]) + ' under Machines to make it here', 'warn');
       } else if (!producersOf[n.item]) {
         label = 'Supplied';
         recipeBtn.disabled = true;
@@ -1163,7 +1343,7 @@
         item: s.item, name: spec.name, size: spec.size,
         ins: r.in.map(function (p) { return p[0]; }),
         outs: r.out.map(function (p) { return p[0]; }),
-        machines: SOLVER.clocks(s.count, state.clock).map(function (c) {
+        machines: recipeClocks(rid, s.count).map(function (c) {
           var load = {};
           r.in.concat(r.out).forEach(function (p) { load[p[0]] = (load[p[0]] || 0) + p[1] * k * c; });
           return { clock: c, product: itemName(s.item), sub: fmtClock(c), load: load };
@@ -1664,7 +1844,8 @@
     [['m-name', itemName(n.item)], ['m-product', b.name], ['m-sub', rateText(n.item, rate)]].forEach(function (pair) {
       var sp = document.createElement('span');
       sp.className = pair[0];
-      sp.textContent = pair[1];
+      if (pair[0] === 'm-product') nameSpans(sp, pair[1]);
+      else sp.textContent = pair[1];
       el.appendChild(sp);
     });
     var dot = document.createElement('span');
@@ -2048,12 +2229,18 @@
     var m = document.createElement('div');
     m.className = 'machine';
     if (clock < 1 - 1e-6) m.classList.add('under');
+    if (clock > 1 + 1e-6) m.classList.add('over');
     m.style.width = px(size ? size.l : 10) + 'px';
     m.style.height = px(size ? size.w : 8) + 'px';
+    var shards = shardsFor(clock);
     m.title = name + ' · ' + product + ' · ' + Number((clock * 100).toFixed(4)) + '% clock' +
+      (shards ? ' (' + shards + ' Power Shard' + (shards > 1 ? 's' : '') + ')' : '') +
       (size ? ' · ' + size.l + ' × ' + size.w + ' m' : '');
 
-    [['m-name', name], ['m-product', product], ['m-sub', sub]].forEach(function (pair) {
+    var nm = document.createElement('span');
+    nm.className = 'm-name';
+    m.appendChild(nameSpans(nm, name));
+    [['m-product', product], ['m-sub', sub]].forEach(function (pair) {
       var s = document.createElement('span');
       s.className = pair[0];
       s.textContent = pair[1];
@@ -2835,7 +3022,8 @@
         items.push({
           label: r.name,
           tag: r.alt ? 'ALT' : (r.out[0][0] !== id ? 'SIDE' : null),
-          note: recipeSummary(rid) + (locked ? ' · not unlocked' : ''),
+          note: recipeSummary(rid) + (locked ? ' · not unlocked' : '') +
+            (canBuild(rid) ? '' : ' · no ' + machineName(rid)),
           on: typeof current === 'string' ? current === rid : false,
           run: function () {
             if (rid === def && !optimising) delete state.recipes[id];
@@ -2925,7 +3113,7 @@
     if (info && info.purity) {
       var nodes = info.nodes;
       var set = function (list, miner) {
-        var s = supplyOf(id);
+        var s = state.supply[id] || {};
         state.supply[id] = { nodes: list, miner: miner || s.miner };
         changed();
       };
@@ -2974,7 +3162,7 @@
           if (!ex) return;
           items.push({
             label: ex.name,
-            note: rateText(id, ex.rate) + ' on a normal node',
+            note: rateText(id, ex.rate) + ' on a normal node' + (hasBuilding(mid) ? '' : ' · not available'),
             on: info.extractor === mid,
             run: function () {
               // New resources start on whichever miner was picked last.
@@ -3210,10 +3398,19 @@
   var panelEl = document.getElementById('panel');
   var breakdownEl = document.getElementById('breakdown');
   var inputsBox = document.getElementById('inputs-box');
+  var machinesBox = document.getElementById('machines-box');
+
+  function toggleBuilding(mid) {
+    var i = state.unavailable.indexOf(mid);
+    if (i >= 0) state.unavailable.splice(i, 1);
+    else state.unavailable.push(mid);
+    changed();
+  }
 
   function setPanelOpen(open) {
     state.panel = open;
     panelEl.classList.toggle('show', open);
+    stage.classList.toggle('panel-open', open);
     document.getElementById('panel-toggle').classList.toggle('primary', open);
     centreEmptyHint();
     writeNow();
@@ -3305,9 +3502,11 @@
   function renderBreakdown() {
     breakdownEl.innerHTML = '';
     inputsBox.innerHTML = '';
+    machinesBox.innerHTML = '';
 
     var power = 0;
     var buildings = 0;
+    var shards = 0;
     var byMachine = {};
     function tally(mid, name, exact, built, p) {
       var m = byMachine[mid] || (byMachine[mid] = { name: name, exact: 0, built: 0, power: 0 });
@@ -3320,9 +3519,10 @@
     Object.keys(solved.recipes).forEach(function (rid) {
       var count = solved.recipes[rid].count;
       var mid = DATA.recipes[rid].machine;
-      tally(mid, DATA.machines[mid].name, count,
-        SOLVER.clocks(count, state.clock).length,
-        SOLVER.recipePower(DATA, rid, count, state.clock));
+      var list = recipeClocks(rid, count);
+      list.forEach(function (c) { shards += shardsFor(c); });
+      tally(mid, DATA.machines[mid].name, count, list.length,
+        SOLVER.recipePower(DATA, rid, count, state.clock, clockTop(rid)));
     });
     // Extractors count too, wherever the plan knows what they are.
     Object.keys(solved.items).forEach(function (id) {
@@ -3331,6 +3531,7 @@
       var ex = extractorsFor(id, e.supplied);
       if (!ex) return;
       var clocksList = ex.list.map(function (m) { return m.clock; });
+      clocksList.forEach(function (c) { shards += shardsFor(c); });
       tally(ex.info.extractor, DATA.extractors[ex.info.extractor].name,
         clocksList.reduce(function (s, c) { return s + c; }, 0),
         clocksList.length,
@@ -3356,21 +3557,33 @@
         var short = (!it.raw && !state.imports[id] && !!producersOf[id]) || e.short > EPS;
         var note = it.raw
           ? (e.cap != null ? 'of ' + fmtNum(e.cap) : '')
-          : state.imports[id] ? 'imported' : short ? 'shortfall' : 'supplied';
+          : state.imports[id] ? 'imported'
+          : blocked[id] ? 'no ' + buildingName(blocked[id])
+          : short ? 'shortfall' : 'supplied';
         return row(itemName(id), note, rateText(id, e.supplied),
           function () { focusOn('raw:' + id); }, short);
       }), 'inputs'));
     }
 
-    var mids = Object.keys(byMachine).sort(function (a, b) {
-      return byMachine[b].built - byMachine[a].built;
+    // Every building, ticked if the user has it: what the plan uses shows
+    // how many, and unticking one re-plans without it.
+    var rows = BUILDINGS.map(function (mid) {
+      var m = byMachine[mid];
+      var has = hasBuilding(mid);
+      var b = row(buildingName(mid), m ? fmtNum(m.exact) + ' · ' + fmtPower(m.power) : '',
+        m ? String(m.built) : '', function () { toggleBuilding(mid); });
+      b.classList.add('check-row');
+      b.classList.toggle('on', has);
+      b.classList.toggle('idle', !m);
+      b.title = has ? 'Untick if you don’t have it yet' : 'Tick once you have it';
+      return b;
     });
-    if (mids.length) {
-      breakdownEl.appendChild(group('Machines', 'running · built', mids.map(function (mid) {
-        var m = byMachine[mid];
-        return row(m.name, fmtNum(m.exact) + ' · ' + fmtPower(m.power), String(m.built));
-      }), 'machines'));
+    if (shards) {
+      var sh = row('Power Shards', 'for overclocking', String(shards));
+      sh.classList.add('extra-row');
+      rows.push(sh);
     }
+    machinesBox.appendChild(group('Machines', 'running · built', rows, 'machines'));
 
     var spare = Object.keys(solved.items)
       .filter(function (id) { return solved.items[id].surplus > EPS; });
@@ -3585,8 +3798,10 @@
     modeSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.mode === state.mode);
     });
-    // How inputs are fed only means something in the machine view.
+    // How inputs are fed only means something in the machine view, and only
+    // there is nothing on the canvas moved by hand.
     balanceSeg.hidden = state.mode !== 'machines';
+    document.getElementById('view-note').hidden = state.mode !== 'machines';
     balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.balance === state.balance);
     });
@@ -3628,6 +3843,47 @@
     state.clock = btn.dataset.clock;
     refreshClockSeg();
     changed();
+  });
+
+  /* -------------------------------------------------------- canvas labels */
+
+  // What the canvas spells out: what each building makes, the rates on the
+  // lines, and full or two-letter building names. Pure display, so it's all
+  // CSS classes on the stage and nothing is re-solved.
+  var viewOpts = document.getElementById('view-opts');
+  var voBtn = document.getElementById('view-opts-btn');
+  var voMenu = document.getElementById('vo-menu');
+
+  function applyShow() {
+    stage.classList.toggle('hide-products', !state.show.products);
+    stage.classList.toggle('hide-rates', !state.show.rates);
+    stage.classList.toggle('short-names', state.show.short);
+    voMenu.querySelectorAll('[data-show]').forEach(function (b) {
+      var on = !!state.show[b.dataset.show];
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
+  function setOptsOpen(open) {
+    voMenu.hidden = !open;
+    voBtn.classList.toggle('primary', open);
+    voBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  voBtn.addEventListener('click', function () { setOptsOpen(voMenu.hidden); });
+  voMenu.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-show]');
+    if (!b) return;
+    state.show[b.dataset.show] = !state.show[b.dataset.show];
+    applyShow();
+    writeNow();
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (!voMenu.hidden && !viewOpts.contains(e.target)) setOptsOpen(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !voMenu.hidden) setOptsOpen(false);
   });
 
   // The fastest belt and pipe the build may use. A line of machines whose
@@ -3804,8 +4060,10 @@
   load();
   boardNameInput.value = state.name || '';
   panelEl.classList.toggle('show', state.panel);
+  stage.classList.toggle('panel-open', state.panel);
   document.getElementById('panel-toggle').classList.toggle('primary', state.panel);
   refreshModeSeg();
+  applyShow();
   refreshClockSeg();
   buildTierSegs();
   refreshTierSegs();

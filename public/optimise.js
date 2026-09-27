@@ -34,7 +34,8 @@
   /**
    * plan: { targets, imports, caps, pins } — pins are recipes the user fixed
    * for an item: { item: recipeId or { recipeId: share } }.
-   * opts: { goal: 'resources' | 'power' | 'machines', allowed(recipeId) }.
+   * opts: { goal: 'resources' | 'power' | 'machines', allowed(recipeId),
+   *         built(recipeId): false when its building isn't available }.
    * Returns { status, counts: { recipeId: machines }, maxRate, unbounded }.
    */
   function optimise(data, plan, opts) {
@@ -80,6 +81,8 @@
       return typeof p === 'string' ? [p] : Object.keys(p);
     }
     function usable(rid) {
+      // Nothing that needs a building the user doesn't have.
+      if (opts.built && !opts.built(rid)) return false;
       var main = data.recipes[rid].out[0][0];
       if (imports[main]) return false;
       var pin = pinnedTo(main);

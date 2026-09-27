@@ -116,8 +116,14 @@ nothing capped is involved, the plan says so rather than going to infinity.
 ### Clocks and power
 
 When a step needs part of a machine, the Plan panel chooses how to split it:
-**Spread evenly** (2.5 machines' worth → 3 at 83.33%) or **Underclock last**
-(2 at 100% and 1 at 50%). Power is the average draw per building, at
+**Spread evenly** (2.5 machines' worth → 3 at 83.33%, least power),
+**Underclock last** (2 at 100% and 1 at 50%) or **Overclock** (fewest
+machines: 1 at 250%, spread evenly over as few as can take it). Overclocking
+stops short of 250% where one machine's belt or pipe couldn't keep up at the
+fastest tier allowed, and the Machines list counts the Power Shards it takes
+(one per 50% over 100%). Miners on resource nodes stay at 100% or below.
+Leaving the last machine at 100% to idle part-time isn't offered: it builds
+exactly what Underclock last does. Power is the average draw per building, at
 clock^1.32 of full power, so the choice changes the total. Particle
 Accelerators, Converters and Quantum Encoders use each recipe's average draw.
 Miners and extractors are counted once their nodes are known.
@@ -176,6 +182,8 @@ which saved and imported plans keep.
 | Make as much as possible | Outputs start on **max**; click **max** / **/min** to switch |
 | Choose resource nodes | Click "Normal node · Mk.1" on an ore, oil or gas node |
 | Manifold or balancer | **Manifold** / **Balancer** in the header, in the Machines view |
+| Buildings you don't have yet | Untick them under **Machines** in the Plan panel |
+| Labels on the canvas | The sliders button, top right: resource names, rates, two-letter building names |
 | See every building | **Machines** in the header; **Items** goes back to one card per step |
 | Change a recipe | Click the machine line on a node (e.g. "Smelter ×2") |
 | Import an item instead of making it | Same menu, **Import from elsewhere** |
@@ -185,9 +193,13 @@ which saved and imported plans keep.
 | Fit the plan to the window | Click the zoom percentage |
 | Pan / zoom | Drag the background / scroll |
 
-The Plan panel lists Inputs, Outputs and Machines, each folding away from
-its heading, with recipe settings and layout settings in a box each. The
-whole app is set in Space Grotesk.
+The Plan panel boxes Inputs, Outputs, Machines, recipe settings and layout
+settings; the first three fold away from their heading. Machines lists every
+building with a tick for the ones you have. Unticking one re-plans without it:
+another recipe stands in where one exists (standard first, then unlocked
+alternates, then any), miners drop to the next mark down, and anything only
+that building makes is brought in and flagged "no <building>". The whole app is
+set in Space Grotesk.
 
 Hovering a node lights up its own lines and fades the rest. Outputs are tinted
 green.

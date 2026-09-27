@@ -1272,3 +1272,114 @@ html, body {
 .machine.extractor .m-sub { color: var(--ink-faint); }
 .machine.extractor .m-port { background: var(--ink-dim); }
 .machine.extractor .m-port.fluid { background: var(--bg); border-color: var(--ink-dim); }
+
+/* ---------- boxed panel sections ---------- */
+
+.panel-box:empty { display: none; }
+.panel-box > .sum-group { margin: 0; }
+.panel-box > .sum-group + .sum-group { margin-top: 10px; }
+
+/* Buildings the user has are ticked; unticking re-plans without them. */
+.sum-row.check-row::before {
+  content: "";
+  flex: 0 0 auto;
+  align-self: center;
+  width: 10px; height: 10px;
+  border: 1.5px solid var(--edge-hi);
+  border-radius: 3px;
+}
+.sum-row.check-row.on::before { background: var(--bright); border-color: var(--bright); }
+.sum-row.check-row:not(.on) .sum-row-name { color: var(--ink-faint); text-decoration: line-through; }
+.sum-row.check-row.idle.on .sum-row-name { color: var(--ink-dim); }
+.sum-row.extra-row { padding-left: 24px; }
+
+/* ---------- canvas overlays ---------- */
+
+/* Machine view: nothing here moves by hand. */
+.view-note {
+  position: absolute;
+  top: 14px; left: 14px;
+  z-index: 24;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-dim);
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+}
+.view-note svg { flex: 0 0 auto; color: var(--warn); }
+
+/* Display options, top right of whatever the plan panel leaves showing. */
+.view-opts {
+  position: absolute;
+  top: 14px; right: 14px;
+  z-index: 26;
+  transition: right .2s ease;
+}
+#stage.panel-open .view-opts { right: 362px; }
+.view-opts .btn.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  padding: 0;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+}
+.vo-menu {
+  position: absolute;
+  top: calc(100% + 6px); right: 0;
+  width: 250px;
+  padding: 5px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .6);
+}
+.vo-row {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.vo-row:hover { background: rgba(255, 255, 255, .05); }
+.vo-row::before {
+  content: "";
+  grid-row: 1 / span 2;
+  width: 10px; height: 10px;
+  border: 1.5px solid var(--edge-hi);
+  border-radius: 3px;
+}
+.vo-row.on::before { background: var(--bright); border-color: var(--bright); }
+.vo-main { grid-column: 2; font-size: 12.5px; }
+.vo-row.on .vo-main { color: var(--ink); font-weight: 600; }
+.vo-note { grid-column: 2; font-size: 11px; color: var(--ink-faint); }
+
+/* ---------- label options ---------- */
+
+#stage.hide-rates .flow-label { display: none; }
+#stage.hide-products .machine:not(.storage) .m-product { display: none; }
+
+.nm-short { display: none; }
+#stage.short-names .nm-full { display: none; }
+#stage.short-names .nm-short { display: inline; }
+/* Two letters have room to be read from further out. */
+#stage.short-names .m-name .nm-short { font-size: 17px; font-weight: 700; letter-spacing: .04em; line-height: 1.05; }
+#stage.short-names .n-machine .nm-short { font-size: 13.5px; font-weight: 700; letter-spacing: .04em; }
+#stage.short-names .storage .m-product .nm-short { font-weight: 600; letter-spacing: .04em; }
+
+/* Overclocked buildings read a touch hotter than ones at 100%. */
+.machine.over { border-color: rgba(var(--machine), .95); }

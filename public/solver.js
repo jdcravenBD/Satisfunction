@@ -91,13 +91,23 @@
 
   /* ---------------------------------------------------------------- clocks */
 
+  var MAX_CLOCK = 2.5;
+
   /**
    * Clock speeds (as fractions) for `count` machines' worth of work. "even"
    * spreads it over the fewest whole machines; "fill" runs all but the last at
-   * 100% and underclocks that one.
+   * 100% and underclocks that one; "max" overclocks, up to `top` (250% unless
+   * a belt couldn't keep up), over the fewest machines that can take it.
    */
-  function clocks(count, mode) {
+  function clocks(count, mode, top) {
     if (!(count > EPS)) return [];
+    if (mode === 'max') {
+      top = Math.max(1, Math.min(MAX_CLOCK, top || MAX_CLOCK));
+      var m = Math.max(1, Math.ceil(count / top - 1e-6));
+      var list = [];
+      for (var k = 0; k < m; k++) list.push(count / m);
+      return list;
+    }
     var n = Math.max(1, Math.ceil(count - 1e-6));
     var out = [];
     if (mode === 'fill') {
@@ -114,11 +124,11 @@
    * Average draw in MW of `count` machines' worth of a recipe. Power scales
    * with clock speed to the power of ~1.32, so how the work is split matters.
    */
-  function recipePower(data, rid, count, mode) {
+  function recipePower(data, rid, count, mode, top) {
     var r = data.recipes[rid];
     var m = data.machines[r.machine];
     var base = r.power != null ? r.power : m.power;
-    return clocks(count, mode).reduce(function (s, c) {
+    return clocks(count, mode, top).reduce(function (s, c) {
       return s + base * Math.pow(c, m.powerExp);
     }, 0);
   }
@@ -476,6 +486,7 @@
     readMix: readMix,
     perMinute: perMinute,
     clocks: clocks,
+    MAX_CLOCK: MAX_CLOCK,
     recipePower: recipePower,
     extractorPower: extractorPower,
     supplyInfo: supplyInfo,
