@@ -1,0 +1,14 @@
+{
+  "name": "satisfunction",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Visual Satisfactory production planner",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "deploy": "wrangler pages deploy",
+    "data": "node tools/extract-data.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Satisfunction — Production Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="bar-left">
+    <div class="brand">
+      <span class="mark"></span>
+      <strong>SATISFUNCTION</strong>
+      <span class="sub">Production Planner</span>
+    </div>
+
+    <div class="board-name">
+      <span class="bn-label">Plan name</span>
+      <input id="board-name" type="text" placeholder="Untitled plan" spellcheck="false">
+    </div>
+  </div>
+
+  <div class="bar-actions">
+    <button id="add" class="btn primary">+ Add output</button>
+    <div class="group">
+      <button id="undo" class="btn icon" title="Undo (Ctrl+Z)">&#8630;</button>
+      <button id="redo" class="btn icon" title="Redo (Ctrl+Y)">&#8631;</button>
+    </div>
+    <div class="group">
+      <button id="zoom-out" class="btn icon" title="Zoom out">&minus;</button>
+      <button id="zoom-fit" class="btn" title="Fit the plan to the window">100%</button>
+      <button id="zoom-in" class="btn icon" title="Zoom in">+</button>
+    </div>
+    <!-- Every step as one card, or every step expanded into its buildings. -->
+    <div class="seg bar-seg" id="mode" role="group" aria-label="View">
+      <button type="button" class="seg-btn" data-mode="items" title="One card per step">Items</button>
+      <button type="button" class="seg-btn" data-mode="machines" title="Every building, at its real footprint">Machines</button>
+    </div>
+    <div class="total" title="Average power draw of every machine in the plan">
+      <span class="total-label">Power</span>
+      <span class="total-line">
+        <span id="total">0 MW</span>
+        <span class="total-of" id="total-machines"></span>
+      </span>
+    </div>
+    <button id="panel-toggle" class="btn">Plan</button>
+    <div class="group">
+      <button id="export" class="btn" title="Save the plan as a file you can re-import">Export</button>
+      <button id="import" class="btn">Import</button>
+      <button id="clear" class="btn danger">Clear</button>
+    </div>
+
+    <span class="bar-sep"></span>
+
+    <!-- Dev-only typeface switcher. Each button previews its own face. -->
+    <div class="group fonts" title="Typeface (dev)">
+      <button class="btn font-btn" data-font="ui">Segoe</button>
+      <button class="btn font-btn" data-font="inter">Inter</button>
+      <button class="btn font-btn" data-font="plex">Plex</button>
+      <button class="btn font-btn" data-font="grotesk">Grotesk</button>
+      <button class="btn font-btn" data-font="mono">Mono</button>
+    </div>
+  </div>
+</header>
+
+<main id="stage">
+  <div id="world">
+    <!-- Flow lines. Lives inside #world so it pans and zooms with the nodes,
+         and sits behind them in stacking order. -->
+    <svg id="wires"></svg>
+    <!-- Rate labels ride above the lines but below the nodes. -->
+    <div id="labels"></div>
+    <!-- Machine view: the manifolds inside each block, drawn over it. -->
+    <svg id="belts"></svg>
+  </div>
+  <div id="empty" class="empty-hint">
+    <p class="eh-lead">Start from an example, or <button type="button" id="eh-blank" class="eh-link">pick an output</button>.</p>
+    <div class="tpl-grid" id="tpl-grid"></div>
+    <p class="eh-tip">Drag the background to pan &middot; Scroll to zoom &middot; Right-click a node for its recipes</p>
+  </div>
+
+  <div id="solve-error" class="solve-error" hidden></div>
+
+  <!-- Ctrl/Shift-drag marquee. Visual only for now. -->
+  <div id="marquee"></div>
+</main>
+
+<!-- The plan: outputs you ask for, and what it takes to make them. Slides over
+     the canvas from the right. -->
+<aside id="panel" class="summary" aria-label="Plan">
+  <div class="sum-head">
+    <strong>Plan</strong>
+    <button type="button" id="panel-close" class="link-btn">Close</button>
+  </div>
+
+  <div class="sum-totals">
+    <div class="sum-stat"><span class="sum-k">Machines</span><span class="sum-v" id="stat-machines">0</span></div>
+    <div class="sum-stat"><span class="sum-k">Power</span><span class="sum-v" id="stat-power">0 MW</span></div>
+    <div class="sum-stat"><span class="sum-k">Steps</span><span class="sum-v" id="stat-steps">0</span></div>
+  </div>
+
+  <div class="sum-list" id="panel-list">
+    <div class="sum-group">
+      <div class="sum-group-head">
+        <span class="sum-group-name">Outputs</span>
+        <span class="sum-group-count">per minute</span>
+      </div>
+      <div id="targets"></div>
+      <button type="button" class="add-target" id="add-target">+ Add output</button>
+    </div>
+
+    <div class="sum-group">
+      <div class="sum-group-head">
+        <span class="sum-group-name">Clock speeds</span>
+        <span class="sum-group-count">for part-machine steps</span>
+      </div>
+      <div class="seg panel-seg" id="clock-seg">
+        <button type="button" class="seg-btn" data-clock="even" title="2.5 machines' worth = 3 machines at 83.33%">Spread evenly</button>
+        <button type="button" class="seg-btn" data-clock="fill" title="2.5 machines' worth = 2 at 100% and 1 at 50%">Underclock last</button>
+      </div>
+    </div>
+
+    <div id="breakdown"></div>
+  </div>
+
+  <div class="sum-foot">
+    <span class="sum-k">Game data</span>
+    <span class="recheck-note" id="data-build"></span>
+  </div>
+</aside>
+
+<!-- Item search: an input over a filtered list, in the context menu's shell. -->
+<div id="item-pop" class="ctx item-pop">
+  <input class="ip-input" type="text" placeholder="Search items" spellcheck="false" autocomplete="off">
+  <div class="ip-list"></div>
+</div>
+
+<!-- Shared right-click menu, filled in per context when opened. -->
+<div id="ctx" class="ctx"></div>
+
+<!-- Shared confirmation, dropped beneath whichever control asked for it. -->
+<div id="confirm" class="confirm">
+  <span class="confirm-q">Are you sure?</span>
+  <button type="button" class="link-btn confirm-yes">Yes</button>
+  <button type="button" class="link-btn confirm-no">No</button>
+</div>
+
+<input type="file" id="import-file" accept="application/json" hidden>
+
+<!-- One production step: an item, and the machines that make it. -->
+<template id="node-tpl">
+  <article class="node">
+    <span class="n-badge" hidden>Output</span>
+    <div class="n-head">
+      <span class="n-title"></span>
+      <span class="n-rate"></span>
+    </div>
+    <button type="button" class="n-recipe">
+      <span class="n-machine"></span>
+    </button>
+    <div class="n-alt" hidden></div>
+    <div class="n-notes"></div>
+  </article>
+</template>
+
+<script src="data.js"></script>
+<script src="solver.js"></script>
+<script src="examples.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

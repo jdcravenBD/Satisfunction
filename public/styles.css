@@ -1,0 +1,1194 @@
+/* Greyscale only. Every colour here is a neutral: R, G and B are always equal,
+   so nothing carries a hue. Dark theme is fixed, not system-dependent. */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #131313;
+  /* Kept in sync by hand with the stroke colour baked into the #stage
+     data-URI below; a var() cannot reach inside that URL. Holds the same
+     5-step gap over --bg that it had at the older, darker values. */
+  --plus: #181818;
+
+  --panel: #1c1c1c;
+  --panel-2: #232323;
+  --well: #0a0a0a;
+
+  /* Field labels sit just above the card in value. Must stay lighter than
+     --panel, but well below --ink so the values still read first. */
+  --label: #5a5a5a;
+
+  /* The deliberate exceptions to the greyscale rule. Orange marks buildings
+     in the machine view, and on anything else it's a warning: shortfalls and
+     the like. Green marks outputs, the things the plan is for. */
+  --warn: #e08b3d;
+  --machine: 224, 139, 61;   /* as r, g, b so tints can share it */
+  --output: 76, 190, 122;
+
+  --edge: #2e2e2e;
+  --edge-hi: #4a4a4a;
+  --edge-focus: #8a8a8a;
+
+  --ink: #e8e8e8;
+  --ink-dim: #9a9a9a;
+  --ink-faint: #6a6a6a;
+  --ink-ghost: #4a4a4a;
+
+  --bright: #ededed;
+  --bright-ink: #101010;
+
+  /* Connectors: barely there until they matter. */
+  --port: #232323;
+  --port-live: #f4f4f4;
+  --wire: #cfcfcf;
+
+  --radius: 10px;
+  --thumb-radius: 8px;
+  --bar-h: 56px;
+  --cell: 44px;
+
+  /* Thickness of the rail that runs down the sides and along the bottom, and
+     the radius of the canvas corners that sit inside it. */
+  --frame: 13px;
+  --inner-radius: 12px;
+
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* Typeface options, switched by the dev buttons in the bar. */
+:root[data-font="inter"]   { --font: "Inter", "Segoe UI", system-ui, sans-serif; }
+:root[data-font="plex"]    { --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
+:root[data-font="grotesk"] { --font: "Space Grotesk", "Segoe UI", system-ui, sans-serif; }
+:root[data-font="mono"]    { --font: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+
+* { box-sizing: border-box; }
+
+/* Class-level `display` beats the UA rule for [hidden], which would otherwise
+   leave the empty-state and status overlays permanently visible. */
+[hidden] { display: none !important; }
+
+/* The header colour also paints the body, so it continues down both sides and
+   across the bottom as a thin rail. The canvas is inset into that frame and
+   rounded, which is what produces the rounded inner corners. */
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--panel);
+  color: var(--ink);
+  font: 14px/1.45 var(--font);
+}
+
+/* Each button renders in the face it selects, so the bar doubles as a specimen. */
+.font-btn { font-size: 12px; padding: 6px 8px; }
+.font-btn[data-font="ui"]      { font-family: "Segoe UI", system-ui, sans-serif; }
+.font-btn[data-font="inter"]   { font-family: "Inter", sans-serif; }
+.font-btn[data-font="plex"]    { font-family: "IBM Plex Sans", sans-serif; }
+.font-btn[data-font="grotesk"] { font-family: "Space Grotesk", sans-serif; }
+.font-btn[data-font="mono"]    { font-family: "JetBrains Mono", monospace; }
+.font-btn.on {
+  background: var(--bright);
+  color: var(--bright-ink);
+  border-color: var(--bright);
+}
+
+/* ---------- top bar ---------- */
+
+/* No bottom rule: the header runs continuously into the side rails.
+   Height is content-driven — the controls wrap on a narrow window — and JS
+   mirrors the measured height into --bar-h so the canvas always starts below
+   it instead of being overlapped. */
+.bar {
+  min-height: var(--bar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 7px calc(var(--frame) + 6px);
+  background: var(--panel);
+  position: relative;
+  z-index: 20;
+}
+
+.bar-left { display: flex; align-items: center; gap: 22px; min-width: 0; }
+.brand { display: flex; align-items: baseline; gap: 8px; }
+.brand .mark {
+  width: 10px; height: 10px; border-radius: 2px;
+  background: var(--ink-dim);
+  transform: rotate(45deg);
+  align-self: center;
+}
+.brand strong { letter-spacing: 0.08em; font-size: 15px; }
+.brand .sub { color: var(--ink-faint); font-size: 15px; }
+
+/* Same borderless treatment as the card fields, scaled up for the header.
+   A rule and a wide gutter hold it clear of the GCL wordmark so the two don't
+   read as one run of text. */
+.board-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-left: 22px;
+  border-left: 1px solid var(--edge);
+}
+.bn-label {
+  flex: 0 0 auto;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--label);
+  white-space: nowrap;
+  user-select: none;
+}
+#board-name {
+  min-width: 0;
+  width: 230px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  padding: 5px 8px;
+  transition: background-color .16s ease;
+}
+#board-name::placeholder { color: var(--ink-ghost); }
+#board-name:hover { background: rgba(255, 255, 255, .034); }
+#board-name:focus { outline: none; background: rgba(255, 255, 255, .075); }
+
+.bar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.group { display: flex; gap: 4px; }
+
+/* Divides the board actions from the dev typeface switcher. */
+.bar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--edge);
+}
+
+.btn {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  padding: 6px 11px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--edge-hi); background: #2c2c2c; }
+.btn:active { transform: translateY(1px); }
+.btn.primary {
+  background: var(--bright);
+  color: var(--bright-ink);
+  border-color: var(--bright);
+  font-weight: 600;
+}
+.btn.primary:hover { background: #fff; border-color: #fff; }
+.btn.danger:hover { border-color: var(--edge-focus); color: #fff; }
+.btn.icon { width: 30px; padding: 6px 0; text-align: center; }
+
+.total {
+  display: flex; flex-direction: column; align-items: flex-end;
+  padding: 0 12px;
+  border-left: 1px solid var(--edge);
+  border-right: 1px solid var(--edge);
+  line-height: 1.15;
+}
+.total-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--ink-faint);
+}
+#total { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--bright); }
+
+/* ---------- canvas ---------- */
+
+/* A plus mark at every grid intersection, tiled. The background-position and
+   background-size are driven from JS so the field pans and zooms with the
+   nodes rather than sitting still underneath them. */
+#stage {
+  position: absolute;
+  inset: var(--bar-h) var(--frame) var(--frame);
+  border-radius: var(--inner-radius);
+  overflow: hidden;
+  cursor: grab;
+  background-color: var(--bg);
+  /* Hairline where the frame meets the canvas. An inset shadow rather than a
+     border, so it adds no layout box and the world origin stays put. */
+  box-shadow: inset 0 0 0 1px var(--edge);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M22 18.5v7M18.5 22h7' stroke='%23181818' stroke-width='1.75' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-size: var(--cell) var(--cell);
+  background-repeat: repeat;
+}
+#stage.panning { cursor: grabbing; }
+
+#world {
+  position: absolute;
+  top: 0; left: 0;
+  width: 0; height: 0;
+  transform-origin: 0 0;
+}
+
+/* The container stays click-through so the canvas can still be panned from
+   the middle; only the controls inside take pointer events. */
+.empty-hint {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--ink-faint);
+  pointer-events: none;
+  margin: 0;
+  width: min(560px, calc(100% - 48px));
+}
+.eh-lead { margin: 0 0 16px; font-size: 13.5px; }
+.eh-tip { margin: 16px 0 0; font-size: 12px; color: var(--ink-ghost); }
+.eh-link {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink-dim);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color .16s ease;
+}
+.eh-link:hover { color: var(--ink); }
+
+.tpl-grid {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.tpl {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 12px 13px;
+  min-height: 74px;
+  justify-content: center;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .022);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .16s ease, border-color .16s ease;
+}
+.tpl:hover { background: rgba(255, 255, 255, .06); border-color: var(--edge-hi); }
+.tpl-name { font-size: 13px; font-weight: 600; }
+.tpl-note {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* An unfilled slot is visible but inert, so the grid keeps its shape. */
+.tpl.empty {
+  cursor: default;
+  border-style: dashed;
+  background: none;
+  opacity: .5;
+}
+.tpl.empty:hover { background: none; border-color: var(--edge); }
+.tpl.empty .tpl-name { color: var(--ink-faint); font-weight: 500; }
+
+@media (max-width: 620px) {
+  .tpl-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ---------- marquee ---------- */
+
+/* Ctrl/Shift-drag on the canvas. Drawn in stage coordinates, above the nodes
+   but inert — it selects nothing yet. */
+#marquee {
+  position: absolute;
+  display: none;
+  z-index: 40;
+  border: 1px solid rgba(255, 255, 255, .5);
+  background: rgba(255, 255, 255, .06);
+  border-radius: 2px;
+  pointer-events: none;
+}
+#marquee.on { display: block; }
+
+/* ---------- context menu ---------- */
+
+.ctx {
+  position: fixed;
+  z-index: 60;
+  min-width: 160px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .68);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-5px) scale(.98);
+  transform-origin: top left;
+  transition: opacity .12s ease, transform .12s ease, visibility .12s,
+              filter .16s ease;
+}
+/* Recedes while a popup of its own is open, so the popup reads as the thing
+   being answered. The popup is a sibling, so it stays at full strength. */
+.ctx.dimmed { filter: brightness(.7); }
+.ctx.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+.ctx button {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  padding: 7px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color .12s ease, color .12s ease;
+}
+.ctx button:hover { background: rgba(255, 255, 255, .07); color: var(--ink); }
+/* Picker menus get a marker column showing the current value. Scoped to
+   .picker so ordinary command menus aren't indented by the empty slot. */
+.ctx.picker button::before {
+  content: '';
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex: 0 0 auto;
+}
+.ctx.picker button.on { color: var(--ink); font-weight: 600; }
+.ctx.picker button.on::before { background: currentColor; }
+.ctx button.danger:hover { color: #fff; }
+.ctx .sep { height: 1px; background: var(--edge); margin: 4px 3px; }
+
+/* ---------- connectors and wires ---------- */
+
+/* The SVG is a 1px anchor at the world origin with clipping switched off, so
+   paths can be drawn straight in world coordinates at any offset. */
+#wires {
+  position: absolute;
+  left: 0; top: 0;
+  width: 1px; height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+.wire {
+  fill: none;
+  stroke: var(--wire);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.wire-pending {
+  stroke: var(--port-live);
+  stroke-dasharray: 5 4;
+}
+/* A wire dropped on nothing dissolves rather than blinking out. */
+.wire-fade { transition: opacity .18s ease; }
+.wire-fade.gone { opacity: 0; }
+
+/* One shared confirmation, positioned from JS beneath whichever control asked
+   for it — a card's Delete, a context-menu row, or the header's Clear. Kept in
+   the DOM and animated with opacity/transform; display:none would skip the
+   transition. Sits above the context menu so it can overlay a menu row. */
+.confirm {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  padding: 1px 5px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .65);
+  font-size: 11.5px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity .15s ease, transform .15s ease, visibility .15s;
+}
+.confirm.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.confirm-q { color: var(--ink-dim); padding-right: 2px; }
+.link-btn {
+  background: none; border: none; padding: 0;
+  color: var(--ink-faint); font: inherit; font-size: 11.5px;
+  cursor: pointer;
+  transition: color .16s ease;
+}
+.link-btn:hover { color: var(--ink); }
+
+/* Outside any toolbar, so it needs its own hit padding. */
+.confirm .link-btn { padding: 6px 6px; line-height: 1; }
+.confirm .confirm-yes:hover { color: #fff; }
+
+/* #stage no longer needs a hard-coded top here: --bar-h tracks the real
+   header height, however many rows it has wrapped onto. */
+@media (max-width: 720px) {
+  .bar { padding: 7px var(--frame); }
+  .bar-actions { gap: 6px; }
+}
+
+/* Undo/redo go flat when there's nothing left on their stack. */
+.btn:disabled {
+  opacity: .32;
+  cursor: default;
+}
+.btn:disabled:hover {
+  background: var(--panel-2);
+  border-color: var(--edge);
+}
+/* ---------- summary panel ---------- */
+
+/* Sits inside the same frame as the canvas and slides over it, rather than
+   resizing the canvas — the nodes stay exactly where you left them. */
+.summary {
+  position: fixed;
+  top: var(--bar-h);
+  right: var(--frame);
+  bottom: var(--frame);
+  width: 348px;
+  max-width: calc(100vw - var(--frame) * 2);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--inner-radius);
+  box-shadow: -14px 0 40px rgba(0, 0, 0, .55);
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(14px);
+  transition: transform .2s ease, opacity .2s ease, visibility .2s;
+}
+.summary.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+}
+
+.sum-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+}
+.sum-head strong { font-size: 14px; letter-spacing: .02em; }
+
+.sum-totals {
+  display: flex;
+  gap: 6px;
+  padding: 0 14px 12px;
+}
+.sum-stat {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .034);
+}
+.sum-k {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--ink-faint);
+}
+.sum-v {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#sum-total { color: var(--bright); }
+
+/* Segmented control for the grouping. Same borderless language as the fields:
+   a pale panel marks the active choice rather than an outline. */
+.seg {
+  display: flex;
+  gap: 2px;
+  margin: 0 14px 10px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .034);
+}
+.seg-btn {
+  flex: 1 1 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 0;
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease;
+}
+.seg-btn:hover { color: var(--ink-dim); }
+.seg-btn.on { background: rgba(255, 255, 255, .1); color: var(--ink); font-weight: 600; }
+
+.sum-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+.sum-list::-webkit-scrollbar { width: 9px; }
+.sum-list::-webkit-scrollbar-thumb {
+  background: var(--edge);
+  border-radius: 20px;
+  border: 3px solid var(--panel);
+}
+.sum-list::-webkit-scrollbar-thumb:hover { background: var(--edge-hi); }
+
+.sum-group { margin-bottom: 10px; }
+.sum-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 6px 5px;
+  border-bottom: 1px solid var(--edge);
+  margin-bottom: 3px;
+}
+.sum-group-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sum-group-count { font-size: 11px; color: var(--ink-ghost); }
+.sum-group-sub {
+  margin-left: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+
+/* One row per part. Clicking it takes you to that block on the canvas. */
+.sum-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  padding: 5px 6px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .14s ease;
+}
+.sum-row:hover { background: rgba(255, 255, 255, .05); }
+.sum-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sum-row-name.untitled { color: var(--ink-ghost); font-style: italic; }
+.sum-row-qty {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sum-row-price {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+.sum-row-price.none { color: var(--ink-ghost); }
+
+.sum-empty {
+  padding: 22px 10px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.sum-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 14px 11px;
+  border-top: 1px solid var(--edge);
+}
+.sum-exports { display: flex; gap: 2px; }
+.sum-exports .link-btn {
+  padding: 5px 7px;
+  border-radius: 5px;
+  transition: background-color .14s ease, color .16s ease;
+}
+.sum-exports .link-btn:hover { background: rgba(255, 255, 255, .06); }
+
+/* Brief pulse when a panel row sends you to its node. */
+.node.flash {
+  border-color: var(--edge-focus);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .13), 0 16px 40px rgba(0, 0, 0, .7);
+}
+
+@media (max-width: 560px) {
+  .summary { width: auto; left: var(--frame); }
+}
+
+/* Quiet status text in the panel footer. */
+.recheck-note {
+  font-size: 11px;
+  color: var(--ink-faint);
+  align-self: center;
+  margin-right: 4px;
+}
+.recheck-note.warn { color: var(--warn); }
+
+/* ---------- flow lines ---------- */
+
+/* Pipes read as a hollow double line, belts as a solid one, so fluids are
+   told apart without spending a colour on them. */
+.wire.pipe { stroke-width: 6; stroke: #6a6a6a; }
+.wire.pipe-core { stroke-width: 2.4; stroke: var(--bg); }
+.wire-end { fill: var(--port-live); }
+
+/* Hovering a node brings its own lines forward and lets the rest recede. */
+.wire, .wire-end, .flow-label { transition: opacity .14s ease; }
+#world.focusing .wire:not(.hot),
+#world.focusing .wire-end:not(.hot),
+#world.focusing .flow-label:not(.hot) { opacity: .18; }
+
+#labels {
+  position: absolute;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.flow-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  padding: 1px 7px 2px;
+  border-radius: 20px;
+  background: var(--bg);
+  border: 1px solid var(--edge);
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.flow-label b { color: var(--ink); font-weight: 600; }
+.flow-label .fl-item { color: var(--ink-faint); margin-left: 4px; }
+
+/* ---------- nodes ---------- */
+
+/* Same surface as a GCL card: panel fill, hairline edge, deep shadow. */
+.node {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px 10px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.node:hover { border-color: var(--edge-hi); }
+.node.dragging {
+  z-index: 5;
+  cursor: grabbing;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .7);
+  border-color: var(--edge-focus);
+}
+/* A node you've moved by hand keeps its place through re-solves; the corner
+   dot says so. */
+.node.pinned::after {
+  content: "";
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--ink-ghost);
+}
+
+.n-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.n-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.n-rate {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--bright);
+}
+.n-rate small { font-size: 10.5px; font-weight: 500; color: var(--ink-faint); margin-left: 1px; }
+
+/* The machine line doubles as the recipe picker, drawn like GCL's part-type
+   button: a label with a caret that only shows a panel under the cursor. */
+.n-recipe {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -5px;
+  padding: 2px 5px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--label);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease;
+}
+.n-recipe::after {
+  content: "";
+  width: 0; height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: .75;
+}
+.n-recipe:hover { background: rgba(255, 255, 255, .034); color: var(--ink-dim); }
+.n-recipe:disabled { cursor: inherit; }
+.n-recipe:disabled::after { display: none; }
+.n-recipe:disabled:hover { background: none; color: var(--label); }
+.n-machine b { color: var(--ink-dim); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.n-alt {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.n-alt.is-alt::before {
+  content: "ALT";
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--edge-hi);
+  color: var(--ink-dim);
+  vertical-align: 1px;
+}
+
+.n-notes:empty { display: none; }
+.n-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.n-notes .warn { color: var(--warn); }
+
+/* Same idea as GCL's status chip, sat on the node's top edge. */
+.n-badge {
+  position: absolute;
+  top: -9px; left: 10px;
+  padding: 1px 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: #2a2a2a;
+  color: #f2f2f2;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Raw inputs sit a step back from the machines that use them. */
+.node.raw { background: var(--panel-2); border-style: dashed; }
+.node.raw .n-title { color: var(--ink-dim); }
+.node.short { border-color: rgba(224, 139, 61, .55); }
+.node.short .n-machine { color: var(--warn); }
+
+/* Solver trouble, above the canvas rather than in any one node. */
+.solve-error {
+  position: absolute;
+  left: 50%; top: 14px;
+  transform: translateX(-50%);
+  z-index: 25;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 8px 12px;
+  border-left: 2px solid var(--warn);
+  background: var(--panel);
+  color: var(--warn);
+  font-size: 12.5px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .55);
+}
+
+/* ---------- context menu extras ---------- */
+
+.ctx { max-height: calc(100vh - 16px); overflow-y: auto; }
+
+/* Rows that carry a second, quieter line (a recipe's ingredients). */
+.ctx button.two-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0;
+  row-gap: 1px;
+  align-items: center;
+}
+.ctx button.two-line .ctx-main { grid-column: 2; }
+.ctx button.two-line .ctx-note { grid-column: 2; }
+.ctx.picker button.two-line::before { grid-row: 1 / span 2; }
+.ctx .ctx-note {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.ctx .ctx-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  margin-left: 7px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--edge-hi);
+  color: var(--ink-dim);
+  vertical-align: 1px;
+}
+.ctx .ctx-head {
+  padding: 5px 9px 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--ink-ghost);
+}
+
+/* ---------- item search ---------- */
+
+.item-pop { width: 280px; padding: 6px; gap: 4px; overflow: hidden; }
+.item-pop .ip-input {
+  background: rgba(255, 255, 255, .055);
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 8px;
+  outline: none;
+  transition: border-color .14s ease;
+}
+.item-pop .ip-input::placeholder { color: var(--ink-ghost); }
+.item-pop .ip-input:focus { border-color: var(--edge-hi); }
+.ip-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; }
+.ip-list button.sel { background: rgba(255, 255, 255, .07); color: var(--ink); }
+.ip-empty { padding: 8px 9px; font-size: 12px; color: var(--ink-ghost); }
+
+/* ---------- plan panel ---------- */
+
+.target-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+.t-item {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 5px 6px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .14s ease;
+}
+.t-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-item::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 0; height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid var(--ink-faint);
+}
+.t-item:hover { background: rgba(255, 255, 255, .05); }
+.t-rate {
+  flex: 0 0 64px;
+  width: 64px;
+  background: rgba(255, 255, 255, .034);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--bright);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding: 4px 6px;
+  transition: background-color .16s ease;
+}
+.t-rate:hover { background: rgba(255, 255, 255, .06); }
+.t-rate:focus { outline: none; background: rgba(255, 255, 255, .085); }
+.t-rate.bad { border-color: var(--warn); }
+/* A max output's figure is the solver's answer, not something to type. */
+.t-rate:disabled { background: none; color: var(--ink-dim); cursor: default; }
+
+/* The unit doubles as the rate/max switch. */
+.t-unit {
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease, border-color .14s ease;
+}
+.t-unit:hover { background: rgba(255, 255, 255, .05); color: var(--ink); }
+.t-unit.on {
+  border-color: var(--edge-hi);
+  color: var(--ink);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: 10px;
+  text-align: center;
+}
+.t-del {
+  flex: 0 0 auto;
+  width: 22px; height: 22px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  color: var(--ink-ghost);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease;
+}
+.t-del:hover { background: rgba(255, 255, 255, .06); color: var(--ink); }
+
+.add-target {
+  margin: 4px 0 0;
+  padding: 6px;
+  border: 1px dashed var(--edge);
+  border-radius: 6px;
+  background: none;
+  width: 100%;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .14s ease, color .14s ease;
+}
+.add-target:hover { border-color: var(--edge-hi); color: var(--ink); }
+
+.sum-row .sum-row-note {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--ink-ghost);
+  font-variant-numeric: tabular-nums;
+}
+.sum-row .sum-row-price.warn { color: var(--warn); }
+.sum-foot .recheck-note { margin-right: 0; text-align: right; }
+
+/* ---------- view and clock switches ---------- */
+
+.bar-seg { margin: 0; }
+.bar-seg .seg-btn { flex: 0 0 auto; padding: 5px 11px; font-size: 12.5px; }
+.panel-seg { margin: 4px 0 0; }
+
+/* ---------- outputs ---------- */
+
+/* The end of the line, and the point of the plan: tinted green. */
+.node.output {
+  background: rgba(var(--output), .09);
+  border-color: rgba(var(--output), .55);
+}
+.node.output:hover { border-color: rgba(var(--output), .8); }
+.node.output .n-head { margin-top: 2px; }
+.node.output .n-title { color: #bff0d2; }
+.node.output .n-rate { color: #93e5b3; }
+.node.output .n-badge {
+  background: #1d3627;
+  border-color: rgba(var(--output), .6);
+  color: #93e5b3;
+}
+
+/* Machine view: an unused byproduct's belt ends here. */
+.node.spare { border-style: dashed; background: var(--panel-2); }
+.node.spare .n-title { color: var(--ink-dim); }
+
+/* ---------- machine view ---------- */
+
+/* Nothing in the machine view moves, so nothing looks grabbable. */
+.node.block,
+.node.logi,
+#world.machines .node { cursor: inherit; }
+
+/* A block: a production step's buildings on their manifolds. The header sits
+   in flow at the top; the buildings are placed under it by position. */
+.node.block { justify-content: flex-start; }
+
+/* Manifolds sit above their block, so the belts read over its background. */
+#belts {
+  position: absolute;
+  left: 0; top: 0;
+  width: 1px; height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 3;
+}
+#belts .wire { stroke-linejoin: round; }
+#belts .wire.pipe-core { stroke: var(--panel); }
+#world.focusing #belts .wire { opacity: 1; }
+.belt-node {
+  fill: var(--panel-2);
+  stroke: var(--wire);
+  stroke-width: 1.5;
+}
+.belt-node.fluid { stroke: #8a8a8a; }
+#belts .belt-node { pointer-events: auto; }
+
+/* Splitters, mergers and pipeline junctions between blocks. */
+.node.logi {
+  padding: 0;
+  border-radius: 5px;
+  background: var(--panel-2);
+  border-color: var(--edge-focus);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .45);
+  align-items: center;
+  justify-content: center;
+}
+.node.logi svg { width: 100%; height: 100%; display: block; }
+.node.logi path {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.node.logi.fluid { border-radius: 50%; }
+
+/* The slowest belt or pipe tier that carries a line. */
+.flow-label .fl-tier {
+  margin-left: 5px;
+  padding-left: 5px;
+  border-left: 1px solid var(--edge-hi);
+  color: var(--ink-faint);
+}
+.flow-label .fl-tier.warn { color: var(--warn); }
+
+/* One building, top-down at its in-game footprint, tinted orange. Belts run
+   left to right through it, so its length is across and its width is down. */
+.machine {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 3px 5px;
+  background: rgba(var(--machine), .14);
+  border: 1px solid rgba(var(--machine), .6);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.m-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #f6cfa4;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-sub {
+  font-size: 10px;
+  color: #d1a275;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Underclocked buildings read quieter than ones at full speed. */
+.machine.under { background: rgba(var(--machine), .08); border-color: rgba(var(--machine), .38); }
+.machine.under .m-sub { color: #a27e5c; }
+
+/* Conveyor and pipe ports on the building's ends. */
+.m-port {
+  position: absolute;
+  width: 6px; height: 6px;
+  margin-top: -3px;
+  border-radius: 1px;
+  background: #f6cfa4;
+}
+.m-port.in { left: -1px; }
+.m-port.out { right: -1px; }
+.m-port.fluid {
+  background: var(--panel);
+  border: 1.5px solid #f6cfa4;
+  border-radius: 50%;
+}
+
