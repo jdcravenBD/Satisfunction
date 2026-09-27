@@ -194,7 +194,7 @@ which saved and imported plans keep.
 | Fit the plan to the window | Click the zoom percentage |
 | Pan / zoom | Drag the background / scroll |
 
-The Plan panel boxes Inputs, Outputs, Machines, recipe settings and layout
+The Plan column sits to the right of the canvas. It boxes Inputs, Outputs, Machines, recipe settings and layout
 settings; the first three fold away from their heading. Machines lists every
 building with a tick for the ones you have. Unticking one re-plans without it:
 another recipe stands in where one exists (standard first, then unlocked
@@ -280,8 +280,28 @@ Belts are drawn as solid lines and pipes as hollow double lines. Each line is
 labelled with its rate, plus the item name when the source makes more than one
 thing.
 
-Plans save automatically to `localStorage` under `satisfunction.plan.v1`.
-**Export** writes a JSON file and **Import** reads one back.
+### Saves and factories
+
+Work is kept as **main saves**, each holding **factories**. A save is one game:
+what you've unlocked (ticked alternates, the buildings you have, the fastest
+belt and pipe, the miner new resources start on) is shared by all its
+factories. A factory is one production line with its own outputs, recipes,
+resource nodes, clocks and view.
+
+- The header holds the save's name (type to rename) and a menu to switch,
+  add, duplicate, export, import or delete saves.
+- Factories are tabs over the top left of the canvas: **+** adds one,
+  double-click renames, right-click for more, **×** deletes.
+- The toolbar under the tabs runs the width of the app: Items / Machines,
+  Manifold / Balancer, zoom, then Duplicate, Export, Import, Clear and Delete
+  for the open factory.
+- **Import** takes either kind of file: a save file comes in as a new save, a
+  factory file (or an export from before saves existed) as a new tab.
+- Undo history belongs to the open factory and starts fresh on switching.
+
+Everything saves automatically to `localStorage` under
+`satisfunction.saves.v1`. A plan kept under the older `satisfunction.plan.v1`
+becomes the first factory of "My save".
 
 ## Layout
 

@@ -51,10 +51,12 @@
     view: { x: 60, y: 40, s: 1 },
     mode: 'items', // 'items' or 'machines'
     folds: {},     // panel sections the user has collapsed: { inputs: true }
-    show: { products: true, rates: true, short: false }, // what the canvas labels
-    balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
-    panel: true
+    show: { products: true, rates: true, clocks: true, short: false }, // what the canvas labels
+    balance: 'manifold' // machine view inputs: 'manifold' or 'balancer'
   };
+
+  // What a new factory starts from.
+  var DEFAULTS = JSON.parse(JSON.stringify(state));
 
   /** Pins for whichever view is showing. The machine view is laid out
       automatically and can't be rearranged, so it has none. */
@@ -380,14 +382,82 @@
 
   /* ---------------------------------------------------------------- store */
 
+  /*
+   * Plans are kept as main saves, each holding factories. A save is one game:
+   * what the player has unlocked (alternates, buildings, the fastest belt and
+   * pipe, the miner new resources start on) is shared by all its factories.
+   * A factory is one production line: its outputs, recipes, nodes, clocks
+   * and view. `state` is always the open factory with its save's progress
+   * folded in; writeNow() files it back.
+   */
+  var STORE_KEY = 'satisfunction.saves.v1';
+  var PROGRESS = ['unlocked', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
+  var FACTORY = ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal',
+    'pins', 'view', 'mode', 'balance'];
+  var store = null;  // { active, saves: [{ id, name, active, progress, factories: [{ id, name, plan }] }], prefs }
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+  function pick(obj, keys) {
+    var out = {};
+    keys.forEach(function (k) { if (obj[k] !== undefined) out[k] = clone(obj[k]); });
+    return out;
+  }
+
+  function newFactoryRecord(name) { return { id: uid(), name: name || '', plan: {} }; }
+  function newSaveRecord(name) {
+    var f = newFactoryRecord();
+    return { id: uid(), name: name || '', active: f.id, progress: {}, factories: [f] };
+  }
+
+  function currentSave() {
+    return store.saves.filter(function (sv) { return sv.id === store.active; })[0] || store.saves[0];
+  }
+  function currentFactory() {
+    var sv = currentSave();
+    return sv.factories.filter(function (f) { return f.id === sv.active; })[0] || sv.factories[0];
+  }
+
+  /** Reads the saves, turning a plan from before saves existed into the first one. */
   function load() {
     try {
-      var raw = localStorage.getItem(KEY);
-      if (!raw) return;
-      adopt(JSON.parse(raw));
+      var raw = localStorage.getItem(STORE_KEY);
+      if (raw) store = JSON.parse(raw);
     } catch (e) {
-      console.warn('Could not read saved plan:', e);
+      console.warn('Could not read saves:', e);
     }
+    if (!store || !Array.isArray(store.saves) || !store.saves.length) {
+      store = { active: null, saves: [], prefs: {} };
+      var sv = newSaveRecord('My save');
+      try {
+        var old = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (old && Array.isArray(old.targets)) {
+          sv.progress = pick(old, PROGRESS);
+          sv.factories[0].plan = pick(old, FACTORY);
+          sv.factories[0].name = old.name || '';
+          store.prefs = pick(old, ['folds', 'show']);
+        }
+      } catch (e) { /* nothing to bring over */ }
+      store.saves.push(sv);
+      store.active = sv.id;
+    }
+    store.prefs = store.prefs || {};
+    store.saves.forEach(function (sv) {
+      sv.progress = sv.progress || {};
+      if (!sv.factories || !sv.factories.length) sv.factories = [newFactoryRecord()];
+      if (!sv.factories.some(function (f) { return f.id === sv.active; })) sv.active = sv.factories[0].id;
+    });
+    if (!store.saves.some(function (sv) { return sv.id === store.active; })) store.active = store.saves[0].id;
+    return openCurrent();
+  }
+
+  /** Loads the open factory of the open save into `state`. */
+  function openCurrent() {
+    var sv = currentSave();
+    var f = currentFactory();
+    PROGRESS.concat(FACTORY, ['name']).forEach(function (k) { state[k] = clone(DEFAULTS[k]); });
+    adopt(Object.assign({}, store.prefs, sv.progress, f.plan, { name: f.name }));
+    return !f.plan.view;
   }
 
   /** Copies a saved or imported plan into state, dropping anything unknown. */
@@ -434,7 +504,12 @@
       return BUILDINGS.indexOf(id) >= 0;
     });
     var show = data.show || {};
-    state.show = { products: show.products !== false, rates: show.rates !== false, short: !!show.short };
+    state.show = {
+      products: show.products !== false,
+      rates: show.rates !== false,
+      clocks: show.clocks !== false,
+      short: !!show.short
+    };
     state.belt = clamp(Math.round(Number(data.belt)) || DATA.logistics.belts.length, 1, DATA.logistics.belts.length);
     state.pipe = clamp(Math.round(Number(data.pipe)) || DATA.logistics.pipes.length, 1, DATA.logistics.pipes.length);
     state.pins = data.pins && typeof data.pins === 'object' ? data.pins : {};
@@ -442,7 +517,6 @@
     if (data.view && isFinite(data.view.s)) state.view = data.view;
     if (data.mode === 'machines' || data.mode === 'items') state.mode = data.mode;
     if (data.balance === 'balancer' || data.balance === 'manifold') state.balance = data.balance;
-    if (typeof data.panel === 'boolean') state.panel = data.panel;
     state.folds = {};
     Object.keys(data.folds || {}).forEach(function (k) {
       if (typeof data.folds[k] === 'boolean') state.folds[k] = data.folds[k];
@@ -459,10 +533,16 @@
 
   function writeNow() {
     clearTimeout(saveTimer);
+    if (!store) return;
+    var f = currentFactory();
+    f.name = state.name;
+    f.plan = pick(state, FACTORY);
+    currentSave().progress = pick(state, PROGRESS);
+    store.prefs = pick(state, ['folds', 'show']);
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
+      localStorage.setItem(STORE_KEY, JSON.stringify(store));
     } catch (e) {
-      console.warn('Could not save plan:', e);
+      console.warn('Could not save:', e);
     }
   }
 
@@ -510,7 +590,7 @@
   function applySnapshot(json) {
     var d = JSON.parse(json);
     UNDOABLE.forEach(function (k) { if (k in d) state[k] = d[k]; });
-    boardNameInput.value = state.name || '';
+    renderTabs();
     refreshClockSeg();
     refreshTierSegs();
     refreshRecipeControls();
@@ -589,7 +669,7 @@
 
   /** Width of canvas not covered by the plan panel. */
   function usableWidth() {
-    return stage.clientWidth - (state.panel ? panelEl.offsetWidth + 20 : 0);
+    return stage.clientWidth;
   }
 
   /** Frames the whole plan in whatever part of the canvas is visible. */
@@ -1361,7 +1441,7 @@
         machines: recipeClocks(rid, s.count).map(function (c) {
           var load = {};
           r.in.concat(r.out).forEach(function (p) { load[p[0]] = (load[p[0]] || 0) + p[1] * k * c; });
-          return { clock: clockSetting(c), product: itemName(s.item), sub: clockLabel(c), load: load };
+          return { clock: clockSetting(c), product: itemName(s.item), pre: '', sub: clockLabel(c), load: load };
         })
       });
     });
@@ -1381,7 +1461,8 @@
               return {
                 clock: clockSetting(m.clock),
                 product: itemName(id),
-                sub: (m.purity ? titleCase(m.purity) + ' · ' : '') + clockLabel(m.clock),
+                pre: m.purity ? titleCase(m.purity) : '',
+                sub: clockLabel(m.clock),
                 load: load
               };
             })
@@ -2413,7 +2494,7 @@
    * One building, drawn top-down at its real footprint with belts running
    * left to right through it: its name, what it makes, and its clock.
    */
-  function machineShape(size, name, product, sub, clock, ins, outs) {
+  function machineShape(size, name, product, sub, clock, ins, outs, pre) {
     var m = document.createElement('div');
     m.className = 'machine';
     if (clock < 1 - 1e-6) m.classList.add('under');
@@ -2428,12 +2509,28 @@
     var nm = document.createElement('span');
     nm.className = 'm-name';
     m.appendChild(nameSpans(nm, name));
-    [['m-product', product], ['m-sub', sub]].forEach(function (pair) {
-      var s = document.createElement('span');
-      s.className = pair[0];
-      s.textContent = pair[1];
-      m.appendChild(s);
-    });
+    var prod = document.createElement('span');
+    prod.className = 'm-product';
+    prod.textContent = product;
+    m.appendChild(prod);
+    // The clock speed on its own, so the display options can hide it and
+    // leave a miner's node purity.
+    var line = document.createElement('span');
+    line.className = 'm-sub';
+    var clk = document.createElement('span');
+    clk.className = 'm-clock';
+    clk.textContent = sub;
+    if (pre) {
+      line.appendChild(document.createTextNode(pre));
+      var sep = document.createElement('span');
+      sep.className = 'm-clock';
+      sep.textContent = ' · ';
+      line.appendChild(sep);
+    } else {
+      line.classList.add('m-clock');
+    }
+    line.appendChild(clk);
+    m.appendChild(line);
 
     function ports(list, side) {
       list.forEach(function (id, i) {
@@ -2527,7 +2624,7 @@
           .concat(g.belts.filter(function (b) { return b.branch; }))
           .forEach(function (b) { belt(b.pts.map(abs), isFluid(b.item), []); });
         g.machines.forEach(function (gm) {
-          var shape = machineShape(n.size, n.name, gm.m.product, gm.m.sub, gm.m.clock, n.ins, n.outs);
+          var shape = machineShape(n.size, n.name, gm.m.product, gm.m.sub, gm.m.clock, n.ins, n.outs, gm.m.pre);
           // Miners and extractors bring things in rather than make them: grey.
           if (n.key.indexOf('raw:') === 0) shape.classList.add('extractor');
           shape.style.left = n.x + px(gm.x) + 'px';
@@ -3490,7 +3587,6 @@
       changed();
       if (wasEmpty) fitView();
     }
-    setPanelOpen(true);
     // A max output's figure isn't typed, so only a fixed rate gets the caret.
     var input = targetsEl.querySelectorAll('.t-rate')[index];
     if (input && !input.disabled) {
@@ -3599,7 +3695,6 @@
 
   /* ---------------------------------------------------------------- panel */
 
-  var panelEl = document.getElementById('panel');
   var breakdownEl = document.getElementById('breakdown');
   var inputsBox = document.getElementById('inputs-box');
   var machinesBox = document.getElementById('machines-box');
@@ -3611,21 +3706,6 @@
     changed();
   }
 
-  function setPanelOpen(open) {
-    state.panel = open;
-    panelEl.classList.toggle('show', open);
-    stage.classList.toggle('panel-open', open);
-    document.getElementById('panel-toggle').classList.toggle('primary', open);
-    centreEmptyHint();
-    writeNow();
-  }
-
-  document.getElementById('panel-toggle').addEventListener('click', function () {
-    setPanelOpen(!state.panel);
-  });
-  document.getElementById('panel-close').addEventListener('click', function () {
-    setPanelOpen(false);
-  });
 
   /**
    * A panel section. With a fold key its heading is a button that collapses
@@ -3753,9 +3833,6 @@
     document.getElementById('stat-machines').textContent = buildings;
     document.getElementById('stat-power').textContent = fmtPower(power);
     document.getElementById('stat-steps').textContent = steps;
-    document.getElementById('total').textContent = fmtPower(power);
-    document.getElementById('total-machines').textContent =
-      buildings ? buildings + (buildings === 1 ? ' machine' : ' machines') : '';
 
     // Raw inputs: what has to arrive from outside this factory.
     var raws = Object.keys(solved.items)
@@ -3822,13 +3899,7 @@
     }
   }
 
-  // Centred in the part of the canvas the panel leaves visible, so the
-  // examples are never hidden behind it.
-  function centreEmptyHint() {
-    emptyHint.style.left = state.panel ? usableWidth() / 2 + 'px' : '';
-    emptyHint.style.width = state.panel ? Math.min(560, usableWidth() - 48) + 'px' : '';
-  }
-  window.addEventListener('resize', centreEmptyHint);
+  function centreEmptyHint() {}
 
   function renderExamples() {
     var grid = document.getElementById('tpl-grid');
@@ -3860,13 +3931,10 @@
           if (t.max) out.max = true;
           return out;
         });
-        if (!state.name) {
-          state.name = ex.name;
-          boardNameInput.value = state.name;
-        }
+        if (!state.name) state.name = ex.name;
+        renderTabs();
         renderTargets();
         changed();
-        setPanelOpen(true);
         fitView();
       });
       grid.appendChild(btn);
@@ -3899,9 +3967,10 @@
 
   /* ---------------------------------------------------------- header size */
 
-  // The header wraps onto extra rows on a narrow window. Publishing its real
-  // height as --bar-h keeps the canvas tucked underneath instead of covered.
-  var barEl = document.querySelector('.bar');
+  // The header, tabs and toolbar wrap onto extra rows on a narrow window.
+  // Publishing their real height as --bar-h keeps the canvas and the plan
+  // tucked underneath instead of covered.
+  var barEl = document.getElementById('top');
 
   function syncBarHeight() {
     document.documentElement.style.setProperty(
@@ -3913,84 +3982,349 @@
   window.addEventListener('resize', syncBarHeight);
   syncBarHeight();
 
-  /* ------------------------------------------------------------ plan name */
+  /* ------------------------------------------------- saves and factories */
 
-  var boardNameInput = document.getElementById('board-name');
+  var tabsEl = document.getElementById('tabs');
+  var saveNameInput = document.getElementById('save-name');
+  var saveMenuBtn = document.getElementById('save-menu');
 
-  boardNameInput.addEventListener('input', function () {
-    state.name = boardNameInput.value;
-    save();
-  });
-  boardNameInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      boardNameInput.blur();
+  /** Everything on screen redrawn for the open factory. */
+  function refreshAll() {
+    saveNameInput.value = currentSave().name || '';
+    refreshModeSeg();
+    applyShow();
+    refreshClockSeg();
+    refreshTierSegs();
+    refreshRecipeControls();
+    renderAltList();
+    applyFolds();
+    renderTargets();
+    renderTabs();
+    applyView();
+    recompute();
+  }
+
+  /** Opens another factory (and save): files this one away, starts a fresh history. */
+  function switchTo(saveId, factoryId) {
+    writeNow();
+    closeAll();
+    store.active = saveId;
+    var sv = currentSave();
+    if (factoryId) sv.active = factoryId;
+    var fresh = openCurrent();
+    clearTimeout(commitTimer);
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastSnap = snapshot();
+    refreshHistoryButtons();
+    refreshAll();
+    if (fresh) fitView();
+    writeNow();
+  }
+
+  function factoryLabel(f) {
+    var name = currentFactory() === f ? state.name : f.name;
+    return (name || '').trim() || 'New factory';
+  }
+
+  /* ---- tabs ---- */
+
+  function renderTabs() {
+    var sv = currentSave();
+    tabsEl.innerHTML = '';
+    sv.factories.forEach(function (f) {
+      var on = f.id === sv.active;
+      var tab = document.createElement('div');
+      tab.className = 'tab' + (on ? ' on' : '');
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+      tab.title = on ? 'Double-click to rename' : factoryLabel(f);
+
+      var label = document.createElement('span');
+      label.className = 'tab-name';
+      label.textContent = factoryLabel(f);
+      tab.appendChild(label);
+
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'tab-x';
+      x.title = 'Delete factory';
+      x.setAttribute('aria-label', 'Delete ' + factoryLabel(f));
+      x.textContent = '×';
+      x.addEventListener('click', function (e) {
+        e.stopPropagation();
+        askConfirm(x, function () { deleteFactory(f); });
+      });
+      tab.appendChild(x);
+
+      tab.addEventListener('click', function () {
+        if (!on) switchTo(sv.id, f.id);
+      });
+      tab.addEventListener('dblclick', function () {
+        if (on) renameTab(tab, f);
+      });
+      tab.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+        closeAll();
+        if (!on) switchTo(sv.id, f.id);
+        openFactoryMenu(e.clientX, e.clientY);
+      });
+      tabsEl.appendChild(tab);
+    });
+
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'tab-add';
+    add.title = 'New factory';
+    add.setAttribute('aria-label', 'New factory');
+    add.textContent = '+';
+    add.addEventListener('click', function () { addFactory(newFactoryRecord()); });
+    tabsEl.appendChild(add);
+  }
+
+  /** Renames the open factory in place, on its tab. */
+  function renameTab(tab, f) {
+    var label = tab.querySelector('.tab-name');
+    var input = document.createElement('input');
+    input.className = 'tab-input';
+    input.value = state.name || '';
+    input.placeholder = 'New factory';
+    input.spellcheck = false;
+    label.replaceWith(input);
+    input.focus();
+    input.select();
+    var done = false;
+    function finish(keep) {
+      if (done) return;
+      done = true;
+      if (keep) {
+        state.name = input.value.trim();
+        save();
+      }
+      renderTabs();
     }
-  });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', function () { finish(true); });
+    input.addEventListener('click', function (e) { e.stopPropagation(); });
+    input.addEventListener('dblclick', function (e) { e.stopPropagation(); });
+  }
 
-  /** Plan name reduced to something safe to use as a filename. */
-  function exportFilename(extension) {
-    var base = (state.name || '').trim()
+  function openFactoryMenu(x, y) {
+    var f = currentFactory();
+    openCtx(x, y, [
+      { head: factoryLabel(f) },
+      { label: 'Rename', run: function () {
+        var tab = tabsEl.querySelector('.tab.on');
+        if (tab) renameTab(tab, f);
+      } },
+      { label: 'Duplicate', note: 'A copy in a new tab', run: duplicateFactory },
+      { label: 'Export', note: 'Save this factory as a file', run: exportFactory },
+      '-',
+      { label: 'Delete factory', danger: true, confirm: true, run: function () { deleteFactory(f); } }
+    ]);
+  }
+
+  /* ---- factories ---- */
+
+  function addFactory(f, afterId) {
+    writeNow();
+    var sv = currentSave();
+    var at = sv.factories.findIndex(function (o) { return o.id === afterId; });
+    if (at >= 0) sv.factories.splice(at + 1, 0, f);
+    else sv.factories.push(f);
+    switchTo(sv.id, f.id);
+  }
+
+  function duplicateFactory() {
+    writeNow();
+    var f = currentFactory();
+    var copy = clone(f);
+    copy.id = uid();
+    copy.name = factoryLabel(f) + ' copy';
+    addFactory(copy, f.id);
+  }
+
+  function deleteFactory(f) {
+    var sv = currentSave();
+    var at = sv.factories.indexOf(f);
+    if (at < 0) return;
+    writeNow();
+    sv.factories.splice(at, 1);
+    if (!sv.factories.length) sv.factories.push(newFactoryRecord());
+    if (sv.active === f.id) sv.active = sv.factories[Math.min(at, sv.factories.length - 1)].id;
+    // Nothing of the deleted factory may be written back over its neighbour.
+    PROGRESS.concat(FACTORY, ['name']).forEach(function (k) { state[k] = clone(DEFAULTS[k]); });
+    store.active = sv.id;
+    var fresh = openCurrent();
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastSnap = snapshot();
+    refreshHistoryButtons();
+    refreshAll();
+    if (fresh) fitView();
+    writeNow();
+  }
+
+  /* ---- files ---- */
+
+  /** A name reduced to something safe to use as a filename. */
+  function exportFilename(name, fallback) {
+    var base = (name || '').trim()
       .replace(/[\\/:*?"<>|]+/g, '')  // characters filesystems reject
       .replace(/\s+/g, '-')
       .replace(/^[.-]+|[.-]+$/g, '')
       .slice(0, 60);
-    return (base || 'satisfunction-plan') + '.' + (extension || 'json');
+    return (base || fallback) + '.json';
   }
 
-  document.getElementById('export').addEventListener('click', function () {
-    var out = {
-      app: 'satisfunction',
-      version: 2,
-      name: state.name,
-      targets: state.targets,
-      recipes: state.recipes,
-      imports: state.imports,
-      supply: state.supply,
-      clock: state.clock,
-      belt: state.belt,
-      pipe: state.pipe,
-      picker: state.picker,
-      goal: state.goal,
-      unlocked: state.unlocked,
-      unavailable: state.unavailable,
-      defaultMiner: state.defaultMiner,
-      pins: state.pins,
-      mode: state.mode,
-      balance: state.balance,
-      view: state.view
-    };
-    var blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  function download(data, filename) {
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = exportFilename('json');
+    a.download = filename;
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-  });
+  }
+
+  // A factory file carries its save's progress too, so it still makes sense
+  // opened on its own; imported into a save, the save's progress wins.
+  function exportFactory() {
+    writeNow();
+    var f = currentFactory();
+    download(Object.assign({ app: 'satisfunction', kind: 'factory', version: 3, name: f.name },
+      currentSave().progress, f.plan), exportFilename(f.name, 'satisfunction-factory'));
+  }
+
+  function exportSave() {
+    writeNow();
+    var sv = currentSave();
+    download({ app: 'satisfunction', kind: 'save', version: 1, save: sv },
+      exportFilename(sv.name, 'satisfunction-save'));
+  }
 
   document.getElementById('import').addEventListener('click', function () {
     importFile.click();
   });
 
+  // One button for both: a save file becomes a new save, anything else that
+  // reads as a plan becomes a new factory in the open save.
   importFile.addEventListener('change', async function () {
     var file = importFile.files && importFile.files[0];
-    if (!file) return;
-    try {
-      var data = JSON.parse(await file.text());
-      if (!data || !Array.isArray(data.targets)) throw new Error('bad file');
-      adopt(data);
-      boardNameInput.value = state.name;
-      refreshModeSeg();
-      refreshClockSeg();
-      refreshTierSegs();
-      refreshRecipeControls();
-      renderTargets();
-      changed();
-      fitView();
-    } catch (e) {
-      alert('That file is not a Satisfunction plan export.');
-    }
     importFile.value = '';
+    if (!file) return;
+    var data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch (e) {
+      data = null;
+    }
+    if (data && data.kind === 'save' && data.save && Array.isArray(data.save.factories)) {
+      writeNow();
+      var sv = clone(data.save);
+      sv.id = uid();
+      sv.progress = sv.progress || {};
+      var activeAt = Math.max(0, sv.factories.findIndex(function (f) { return f.id === sv.active; }));
+      sv.factories = sv.factories.filter(function (f) { return f && typeof f === 'object'; }).map(function (f) {
+        return { id: uid(), name: typeof f.name === 'string' ? f.name : '', plan: f.plan || {} };
+      });
+      if (!sv.factories.length) sv.factories.push(newFactoryRecord());
+      sv.active = sv.factories[Math.min(activeAt, sv.factories.length - 1)].id;
+      store.saves.push(sv);
+      switchTo(sv.id);
+    } else if (data && Array.isArray(data.targets)) {
+      var f = newFactoryRecord(typeof data.name === 'string' ? data.name : '');
+      f.plan = pick(data, FACTORY);
+      addFactory(f, currentFactory().id);
+    } else {
+      alert('That file is not a Satisfunction save or factory export.');
+    }
+  });
+
+  /* ---- saves ---- */
+
+  saveNameInput.addEventListener('input', function () {
+    currentSave().name = saveNameInput.value;
+    save();
+  });
+  saveNameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveNameInput.blur();
+    }
+  });
+
+  function saveLabel(sv) { return (sv.name || '').trim() || 'Untitled save'; }
+
+  function newSave() {
+    writeNow();
+    var sv = newSaveRecord('Save ' + (store.saves.length + 1));
+    store.saves.push(sv);
+    switchTo(sv.id);
+    saveNameInput.focus();
+    saveNameInput.select();
+  }
+
+  function duplicateSave() {
+    writeNow();
+    var sv = clone(currentSave());
+    sv.id = uid();
+    sv.name = saveLabel(sv) + ' copy';
+    var activeAt = sv.factories.findIndex(function (f) { return f.id === sv.active; });
+    sv.factories.forEach(function (f) { f.id = uid(); });
+    sv.active = sv.factories[Math.max(0, activeAt)].id;
+    store.saves.splice(store.saves.indexOf(currentSave()) + 1, 0, sv);
+    switchTo(sv.id);
+  }
+
+  function deleteSave() {
+    var at = store.saves.indexOf(currentSave());
+    store.saves.splice(at, 1);
+    if (!store.saves.length) store.saves.push(newSaveRecord('My save'));
+    store.active = store.saves[Math.min(at, store.saves.length - 1)].id;
+    PROGRESS.concat(FACTORY, ['name']).forEach(function (k) { state[k] = clone(DEFAULTS[k]); });
+    var fresh = openCurrent();
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastSnap = snapshot();
+    refreshHistoryButtons();
+    refreshAll();
+    if (fresh) fitView();
+    writeNow();
+  }
+
+  saveMenuBtn.addEventListener('click', function () {
+    var r = saveMenuBtn.getBoundingClientRect();
+    var cur = currentSave();
+    var items = [{ head: 'Saves' }];
+    store.saves.forEach(function (sv) {
+      var n = sv.factories.length;
+      items.push({
+        label: saveLabel(sv),
+        note: n + (n === 1 ? ' factory' : ' factories'),
+        on: sv === cur,
+        run: function () { if (sv !== cur) switchTo(sv.id); }
+      });
+    });
+    items.push('-');
+    items.push({ label: 'New save', note: 'Starts with one empty factory', run: newSave });
+    items.push({ label: 'Duplicate save', run: duplicateSave });
+    items.push({ label: 'Export save', note: 'Every factory in one file', run: exportSave });
+    items.push({ label: 'Import…', note: 'A save or a factory file', run: function () { importFile.click(); } });
+    items.push('-');
+    items.push({ label: 'Delete save', note: 'And all its factories', danger: true, confirm: true, run: deleteSave });
+    openCtx(r.left, r.bottom + 6, items);
+  });
+
+  /* ---- toolbar ---- */
+
+  document.getElementById('duplicate').addEventListener('click', duplicateFactory);
+  document.getElementById('export').addEventListener('click', exportFactory);
+  var deleteBtn = document.getElementById('delete');
+  deleteBtn.addEventListener('click', function () {
+    askConfirm(deleteBtn, function () { deleteFactory(currentFactory()); });
   });
 
   var clearBtn = document.getElementById('clear');
@@ -4069,6 +4403,7 @@
     stage.classList.toggle('hide-products', !state.show.products);
     stage.classList.toggle('hide-rates', !state.show.rates);
     stage.classList.toggle('short-names', state.show.short);
+    stage.classList.toggle('hide-clocks', !state.show.clocks);
     voMenu.querySelectorAll('[data-show]').forEach(function (b) {
       var on = !!state.show[b.dataset.show];
       b.classList.toggle('on', on);
@@ -4256,22 +4591,10 @@
 
   /* ----------------------------------------------------------------- boot */
 
-  load();
-  boardNameInput.value = state.name || '';
-  panelEl.classList.toggle('show', state.panel);
-  stage.classList.toggle('panel-open', state.panel);
-  document.getElementById('panel-toggle').classList.toggle('primary', state.panel);
-  refreshModeSeg();
-  applyShow();
-  refreshClockSeg();
+  var firstVisit = load();
   buildTierSegs();
-  refreshTierSegs();
-  refreshRecipeControls();
-  renderAltList();
-  applyFolds();
-  renderTargets();
-  applyView();
-  recompute();
+  refreshAll();
+  if (firstVisit) fitView();
 
   // Web fonts can land after the first layout and change node heights.
   if (document.fonts && document.fonts.ready) {

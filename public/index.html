@@ -11,31 +11,40 @@
 </head>
 <body>
 
-<header class="bar">
-  <div class="bar-left">
-    <div class="brand">
-      <span class="mark"></span>
-      <strong>SATISFUNCTION</strong>
-      <span class="sub">Production Planner</span>
+<!-- Everything above the canvas. Its height is published as --bar-h. -->
+<div id="top" class="top">
+  <header class="bar">
+    <div class="bar-left">
+      <div class="brand">
+        <span class="mark"></span>
+        <strong>SATISFUNCTION</strong>
+        <span class="sub">Production Planner</span>
+      </div>
+
+      <!-- The main save: one game, holding every factory in it. -->
+      <div class="board-name save-pick">
+        <span class="bn-label">Save</span>
+        <input id="save-name" type="text" placeholder="Untitled save" spellcheck="false" title="Rename this save">
+        <button type="button" id="save-menu" class="btn icon" title="Switch, add, export or import saves" aria-haspopup="true">
+          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
 
-    <div class="board-name">
-      <span class="bn-label">Plan name</span>
-      <input id="board-name" type="text" placeholder="Untitled plan" spellcheck="false">
+    <div class="bar-actions">
+      <button id="add" class="btn primary">+ Add output</button>
+      <div class="group">
+        <button id="undo" class="btn icon" title="Undo (Ctrl+Z)">&#8630;</button>
+        <button id="redo" class="btn icon" title="Redo (Ctrl+Y)">&#8631;</button>
+      </div>
     </div>
-  </div>
+  </header>
 
-  <div class="bar-actions">
-    <button id="add" class="btn primary">+ Add output</button>
-    <div class="group">
-      <button id="undo" class="btn icon" title="Undo (Ctrl+Z)">&#8630;</button>
-      <button id="redo" class="btn icon" title="Redo (Ctrl+Y)">&#8631;</button>
-    </div>
-    <div class="group">
-      <button id="zoom-out" class="btn icon" title="Zoom out">&minus;</button>
-      <button id="zoom-fit" class="btn" title="Fit the plan to the window">100%</button>
-      <button id="zoom-in" class="btn icon" title="Zoom in">+</button>
-    </div>
+  <!-- The save's factories, one tab each. -->
+  <nav id="tabs" class="tabs" role="tablist" aria-label="Factories"></nav>
+
+  <!-- Controls for the factory showing. -->
+  <div class="toolbar">
     <!-- Every step as one card, or every step expanded into its buildings. -->
     <div class="seg bar-seg" id="mode" role="group" aria-label="View">
       <button type="button" class="seg-btn" data-mode="items" title="One card per step">Items</button>
@@ -46,21 +55,25 @@
       <button type="button" class="seg-btn" data-balance="manifold" title="One belt runs past every machine, with a splitter at each">Manifold</button>
       <button type="button" class="seg-btn" data-balance="balancer" title="A tree of splitters gives every machine exactly the same share">Balancer</button>
     </div>
-    <div class="total" title="Average power draw of every machine in the plan">
-      <span class="total-label">Power</span>
-      <span class="total-line">
-        <span id="total">0 MW</span>
-        <span class="total-of" id="total-machines"></span>
-      </span>
-    </div>
-    <button id="panel-toggle" class="btn">Plan</button>
+    <span class="tb-sep"></span>
     <div class="group">
-      <button id="export" class="btn" title="Save the plan as a file you can re-import">Export</button>
-      <button id="import" class="btn">Import</button>
-      <button id="clear" class="btn danger">Clear</button>
+      <button id="zoom-out" class="tb-btn icon" title="Zoom out">&minus;</button>
+      <button id="zoom-fit" class="tb-btn" title="Fit the plan to the window">100%</button>
+      <button id="zoom-in" class="tb-btn icon" title="Zoom in">+</button>
+    </div>
+    <span class="tb-space"></span>
+    <div class="group">
+      <button id="duplicate" class="tb-btn" title="Copy this factory into a new tab">Duplicate</button>
+      <button id="export" class="tb-btn" title="Save this factory as a file">Export</button>
+      <button id="import" class="tb-btn" title="Open a factory file as a new tab, or a save file as a new save">Import</button>
+    </div>
+    <span class="tb-sep"></span>
+    <div class="group">
+      <button id="clear" class="tb-btn" title="Remove every output from this factory">Clear</button>
+      <button id="delete" class="tb-btn danger" title="Delete this factory">Delete</button>
     </div>
   </div>
-</header>
+</div>
 
 <main id="stage">
   <div id="world">
@@ -108,6 +121,10 @@
         <span class="vo-main">Production rates</span>
         <span class="vo-note">The /min on every line</span>
       </button>
+      <button type="button" class="vo-row" data-show="clocks" role="menuitemcheckbox">
+        <span class="vo-main">Clock speeds</span>
+        <span class="vo-note">The under- and overclock % on each building</span>
+      </button>
       <button type="button" class="vo-row" data-show="short" role="menuitemcheckbox">
         <span class="vo-main">Short names</span>
         <span class="vo-note">CN for Constructor, AS for Assembler…</span>
@@ -119,12 +136,11 @@
   <div id="marquee"></div>
 </main>
 
-<!-- The plan: outputs you ask for, and what it takes to make them. Slides over
-     the canvas from the right. -->
+<!-- The plan: outputs you ask for, and what it takes to make them. Its own
+     column, to the right of the canvas. -->
 <aside id="panel" class="summary" aria-label="Plan">
   <div class="sum-head">
     <strong>Plan</strong>
-    <button type="button" id="panel-close" class="link-btn">Close</button>
   </div>
 
   <div class="sum-totals">
