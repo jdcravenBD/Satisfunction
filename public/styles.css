@@ -1992,3 +1992,9 @@ html, body {
 }
 .fold-inline .sg-icon { margin-right: -2px; }
 .machine.extractor.over { border-color: #9a9a9a; }
+
+/* Steps in the Items view a shade lighter than the machines, so the cards
+   read clearly on the canvas. */
+.node:not(.raw):not(.output):not(.spare) { background: #2c2015; border-color: #4f3721; }
+.node:not(.raw):not(.output):not(.spare):hover { border-color: #775333; }
+.node.selected:not(.raw):not(.output):not(.spare) { border-color: #4f3721; }
