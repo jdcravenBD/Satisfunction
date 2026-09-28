@@ -196,8 +196,10 @@ which saved and imported plans keep.
 | Fit the plan to the window | Click the zoom percentage |
 | Pan / zoom | Drag the background / scroll |
 
-The Plan column, titled "<factory> details", runs the full height to the right
-of the canvas; the tabs and toolbar stop where the canvas does. Factory names in
+The plan panel is a rounded panel of its own, running the full height to the
+right of the canvas; the tabs and toolbar stop where the canvas does. It has
+three pages: **Details** (everything below), **Overview** and **Power** (both
+still to come). Factory names in
 a save are kept distinct: a clash gets the next number ("New factory 2",
 "Motor 3"). It boxes Inputs, Outputs, Machines, recipe settings and layout
 settings; the first three fold away from their heading. Machines lists every

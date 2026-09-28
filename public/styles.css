@@ -24,6 +24,8 @@
   --warn: #e08b3d;
   --machine: 224, 139, 61;   /* as r, g, b so tints can share it */
   --output: 76, 190, 122;
+  /* The outline round the open tab and along the toolbar. */
+  --tab-line: #3c3c3c;
   /* The header: the one broad field of colour, a dark orange. */
   --header: #4d2a10;
   --header-edge: #6b3b17;
@@ -1684,8 +1686,8 @@ html, body {
 /* The open tab flares out where it meets the toolbar, as in Chrome: its side
    line curves out into the toolbar's top line. Each corner is a small
    drawing laid over the bottom of the tab's border, filled with the
-   toolbar's grey and stroked like the border (#232323 is --panel-2, #2e2e2e
-   is --edge; a var() can't reach inside the image). */
+   toolbar's grey and stroked like the border (#232323 is --panel-2, #3c3c3c
+   is --tab-line; a var() can't reach inside the image). */
 .tabs .tab.on { z-index: 1; }
 .tabs .tab.on::before,
 .tabs .tab.on::after,
@@ -1699,7 +1701,7 @@ html, body {
   right: auto;
   width: 9px;
   height: 9px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 9 9'%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5L9 0.5L9 9L0.5 9Z' fill='%23232323'/%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5' fill='none' stroke='%232e2e2e' stroke-width='1'/%3E%3C/svg%3E") 0 0 / 9px 9px no-repeat;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 9 9'%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5L9 0.5L9 9L0.5 9Z' fill='%23232323'/%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5' fill='none' stroke='%233c3c3c' stroke-width='1'/%3E%3C/svg%3E") 0 0 / 9px 9px no-repeat;
   pointer-events: none;
 }
 .tabs .tab.on::after,
@@ -1746,7 +1748,6 @@ html, body {
 /* Quieter half of a label: "(Default)", "details". */
 .seg-btn .dim { color: var(--ink-ghost); font-weight: 400; }
 .seg-btn.on .dim { color: var(--ink-faint); }
-.plan-title .dim { color: var(--ink-faint); font-weight: 500; }
 
 /* The plan column runs the full height under the header; the tabs and the
    toolbar stop where the canvas does. */
@@ -1761,3 +1762,72 @@ html, body {
 .tb-btn.icon { width: 24px; }
 #zoom-fit { min-width: 44px; }
 .toolbar .bar-seg .seg-btn { padding: 3px 8px; }
+
+/* ---------- round 10 ---------- */
+
+/* The toolbar's outline, visible against the tab strip, and the open tab
+   drawn in the same line. Its far end is rounded like the canvas. */
+.tab.on { border-color: var(--tab-line); }
+.toolbar {
+  border-top: 1px solid var(--tab-line);
+  border-bottom: 1px solid var(--tab-line);
+  border-right: 1px solid var(--tab-line);
+  border-top-right-radius: var(--inner-radius);
+  border-bottom-right-radius: var(--inner-radius);
+}
+
+/* The plan panel: a rounded panel of its own, cornered like the canvas and
+   the same distance from it as the canvas is from the window's edge. */
+.summary {
+  top: calc(var(--head-h, 44px) + 8px);
+  right: var(--frame);
+  bottom: var(--frame);
+  width: calc(var(--plan-w) - var(--frame) * 2);
+  padding: 0 4px;
+  background: var(--bg);
+  border: 1px solid var(--edge);
+  border-radius: var(--inner-radius);
+}
+
+/* Its pages: plain text tabs, underlined when open. */
+.ptabs {
+  display: flex;
+  gap: 18px;
+  padding: 0 12px;
+  margin: 0 4px 12px;
+  border-bottom: 1px solid var(--edge);
+}
+.ptab {
+  position: relative;
+  padding: 12px 0 10px;
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color .14s ease;
+}
+.ptab:hover { color: var(--ink-dim); }
+.ptab.on { color: var(--ink); }
+.ptab.on::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--bright);
+}
+.ptab-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ptab-soon {
+  margin: 40px 16px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}

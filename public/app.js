@@ -52,6 +52,7 @@
     mode: 'items', // 'items' or 'machines'
     folds: {},     // panel sections the user has collapsed: { inputs: true }
     show: { products: true, rates: true, clocks: true, short: false }, // what the canvas labels
+    page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
     balance: 'manifold' // machine view inputs: 'manifold' or 'balancer'
   };
 
@@ -449,7 +450,7 @@
           sv.progress = pick(old, PROGRESS);
           sv.factories[0].plan = pick(old, FACTORY);
           sv.factories[0].name = old.name || '';
-          store.prefs = pick(old, ['folds', 'show']);
+          store.prefs = pick(old, ['folds', 'show', 'page']);
         }
       } catch (e) { /* nothing to bring over */ }
       store.saves.push(sv);
@@ -537,6 +538,7 @@
     if (data.view && isFinite(data.view.s)) state.view = data.view;
     if (data.mode === 'machines' || data.mode === 'items') state.mode = data.mode;
     if (data.balance === 'balancer' || data.balance === 'manifold') state.balance = data.balance;
+    if (['details', 'overview', 'power'].indexOf(data.page) >= 0) state.page = data.page;
     state.folds = {};
     Object.keys(data.folds || {}).forEach(function (k) {
       if (typeof data.folds[k] === 'boolean') state.folds[k] = data.folds[k];
@@ -570,7 +572,7 @@
     f.name = state.name;
     f.plan = pick(state, FACTORY);
     currentSave().progress = pick(state, PROGRESS);
-    store.prefs = pick(state, ['folds', 'show']);
+    store.prefs = pick(state, ['folds', 'show', 'page']);
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(store));
       setDirty(false);
@@ -4123,6 +4125,7 @@
   function refreshAll() {
     saveNameInput.value = currentSave().name || '';
     fitSaveName();
+    showPage();
     refreshModeSeg();
     applyShow();
     refreshClockSeg();
@@ -4180,7 +4183,6 @@
 
   function renderTabs() {
     var sv = currentSave();
-    document.getElementById('plan-name').textContent = factoryLabel(currentFactory());
     tabsEl.innerHTML = '';
     sv.factories.forEach(function (f) {
       var on = f.id === sv.active;
@@ -4573,6 +4575,27 @@
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeSavePop();
+  });
+
+  /* ---- plan panel pages ---- */
+
+  var ptabs = document.getElementById('ptabs');
+  function showPage() {
+    ptabs.querySelectorAll('.ptab').forEach(function (b) {
+      var on = b.dataset.page === state.page;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('#panel .ptab-page').forEach(function (p) {
+      p.hidden = p.dataset.page !== state.page;
+    });
+  }
+  ptabs.addEventListener('click', function (e) {
+    var b = e.target.closest('.ptab');
+    if (!b || b.dataset.page === state.page) return;
+    state.page = b.dataset.page;
+    showPage();
+    writeNow();
   });
 
   /* ---- toolbar ---- */

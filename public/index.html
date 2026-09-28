@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 
@@ -161,12 +161,16 @@
 </main>
 
 <!-- The plan: outputs you ask for, and what it takes to make them. Its own
-     column, to the right of the canvas. -->
+     rounded panel, to the right of the canvas. -->
 <aside id="panel" class="summary" aria-label="Plan">
-  <div class="sum-head">
-    <strong class="plan-title"><span id="plan-name">Factory</span> <span class="dim">details</span></strong>
+  <!-- Pages of the panel. Overview and Power are still to come. -->
+  <div class="ptabs" id="ptabs" role="tablist">
+    <button type="button" class="ptab" data-page="details" role="tab">Details</button>
+    <button type="button" class="ptab" data-page="overview" role="tab">Overview</button>
+    <button type="button" class="ptab" data-page="power" role="tab">Power</button>
   </div>
 
+  <div class="ptab-page" data-page="details">
   <div class="sum-totals">
     <div class="sum-stat"><span class="sum-k">Machines</span><span class="sum-v" id="stat-machines">0</span></div>
     <div class="sum-stat"><span class="sum-k">Power</span><span class="sum-v" id="stat-power">0 MW</span></div>
@@ -255,6 +259,14 @@
 
     <div id="breakdown" class="panel-box"></div>
   </div>
+  </div>
+
+  <div class="ptab-page" data-page="overview" hidden>
+    <p class="ptab-soon">The overview is on its way.</p>
+  </div>
+  <div class="ptab-page" data-page="power" hidden>
+    <p class="ptab-soon">Power is on its way.</p>
+  </div>
 
   <div class="sum-foot">
     <span class="sum-k">Game data</span>
@@ -307,11 +319,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=11"></script>
-<script src="solver.js?v=11"></script>
-<script src="lp.js?v=11"></script>
-<script src="optimise.js?v=11"></script>
-<script src="examples.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="data.js?v=12"></script>
+<script src="solver.js?v=12"></script>
+<script src="lp.js?v=12"></script>
+<script src="optimise.js?v=12"></script>
+<script src="examples.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
