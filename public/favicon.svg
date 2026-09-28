@@ -6,101 +6,42 @@
    id="_x31__1_"
    x="0px"
    y="0px"
-   viewBox="0 0 32 32"
+   viewBox="0 0 32 31.999979"
    xml:space="preserve"
    width="32"
-   height="32"
+   height="31.999979"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg"><defs
-   id="defs460"><filter
-     style="color-interpolation-filters:sRGB"
-     id="filter482"
-     x="0"
-     y="0"
-     width="1"
-     height="1"><feColorMatrix
-       type="hueRotate"
-       values="180"
-       result="color1"
-       id="feColorMatrix481" /><feColorMatrix
-       values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 -0.21 -0.72 -0.07 2 0 "
-       result="fbSourceGraphic"
-       id="feColorMatrix482" /><feColorMatrix
-       result="fbSourceGraphicAlpha"
-       in="fbSourceGraphic"
-       values="0 0 0 -1 0 0 0 0 -1 0 0 0 0 -1 0 0 0 0 1 0"
-       id="feColorMatrix485" /><feColorMatrix
-       id="feColorMatrix486"
-       type="hueRotate"
-       values="180"
-       result="color1"
-       in="fbSourceGraphic" /><feColorMatrix
-       id="feColorMatrix487"
-       values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 -0.21 -0.72 -0.07 2 0 "
-       result="fbSourceGraphic" /><feColorMatrix
-       result="fbSourceGraphicAlpha"
-       in="fbSourceGraphic"
-       values="0 0 0 -1 0 0 0 0 -1 0 0 0 0 -1 0 0 0 0 1 0"
-       id="feColorMatrix491" /><feColorMatrix
-       id="feColorMatrix492"
-       type="hueRotate"
-       values="180"
-       result="color1"
-       in="fbSourceGraphic" /><feColorMatrix
-       id="feColorMatrix493"
-       values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 -0.21 -0.72 -0.07 2 0 "
-       result="fbSourceGraphic" /><feColorMatrix
-       result="fbSourceGraphicAlpha"
-       in="fbSourceGraphic"
-       values="0 0 0 -1 0 0 0 0 -1 0 0 0 0 -1 0 0 0 0 1 0"
-       id="feColorMatrix592" /><feColorMatrix
-       id="feColorMatrix593"
-       values="1 0 0 0.06 -0 0 1 0 0.06 -0 0 0 1 0.06 -0 0 0 0 1 0"
-       in="fbSourceGraphic" /></filter><filter
-     style="color-interpolation-filters:sRGB"
-     id="filter484"
-     x="0"
-     y="0"
-     width="1"
-     height="1"><feColorMatrix
-       type="hueRotate"
-       values="180"
-       result="color1"
-       id="feColorMatrix483" /><feColorMatrix
-       values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 -0.21 -0.72 -0.07 2 0 "
-       result="fbSourceGraphic"
-       id="feColorMatrix484" /><feColorMatrix
-       result="fbSourceGraphicAlpha"
-       in="fbSourceGraphic"
-       values="0 0 0 -1 0 0 0 0 -1 0 0 0 0 -1 0 0 0 0 1 0"
-       id="feColorMatrix488" /><feColorMatrix
-       id="feColorMatrix489"
-       type="hueRotate"
-       values="180"
-       result="color1"
-       in="fbSourceGraphic" /><feColorMatrix
-       id="feColorMatrix490"
-       values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 -0.21 -0.72 -0.07 2 0 "
-       result="fbSourceGraphic" /><feColorMatrix
-       result="fbSourceGraphicAlpha"
-       in="fbSourceGraphic"
-       values="0 0 0 -1 0 0 0 0 -1 0 0 0 0 -1 0 0 0 0 1 0"
-       id="feColorMatrix494" /><feColorMatrix
-       id="feColorMatrix495"
-       type="hueRotate"
-       values="180"
-       result="color1"
-       in="fbSourceGraphic" /><feColorMatrix
-       id="feColorMatrix496"
-       values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 -0.21 -0.72 -0.07 2 0 "
-       result="fbSourceGraphic" /><feColorMatrix
-       result="fbSourceGraphicAlpha"
-       in="fbSourceGraphic"
-       values="0 0 0 -1 0 0 0 0 -1 0 0 0 0 -1 0 0 0 0 1 0"
-       id="feColorMatrix594" /><feColorMatrix
-       id="feColorMatrix595"
-       values="1 0 0 0.06 -0 0 1 0 0.06 -0 0 0 1 0.06 -0 0 0 0 1 0"
-       in="fbSourceGraphic" /></filter></defs>
+   id="defs460"><linearGradient
+     id="linearGradient598"><stop
+       style="stop-color:#ff7100;stop-opacity:1;"
+       offset="0.62311018"
+       id="stop597" /><stop
+       style="stop-color:#ffffff;stop-opacity:1;"
+       offset="1"
+       id="stop598" /></linearGradient><linearGradient
+     id="linearGradient595"><stop
+       style="stop-color:#ff7100;stop-opacity:0;"
+       offset="0.62311018"
+       id="stop595" /><stop
+       style="stop-color:#ffffff;stop-opacity:1;"
+       offset="1"
+       id="stop596" /></linearGradient><linearGradient
+     xlink:href="#linearGradient598"
+     id="linearGradient596"
+     x1="2497.1226"
+     y1="3930.708"
+     x2="3454.6118"
+     y2="1536.9852"
+     gradientUnits="userSpaceOnUse" /><linearGradient
+     xlink:href="#linearGradient595"
+     id="linearGradient597"
+     gradientUnits="userSpaceOnUse"
+     x1="2522.3198"
+     y1="1504.589"
+     x2="3397.0186"
+     y2="3754.3284" /></defs>
 <linearGradient
    id="_x31__00000046328941256995178520000004011065065555357601_"
    gradientUnits="userSpaceOnUse"
@@ -118,88 +59,14 @@
    id="stop2" />
 </linearGradient>
 
-<g
-   id="_x32_"
-   transform="translate(-136.756,-19.723)">
-	<g
-   id="_x31__2_">
-		
-		<g
-   id="g43"
-   transform="matrix(0.71479628,0,0,0.71479628,39.00332,5.6250729)">
-			<linearGradient
-   id="SVGID_1_"
-   gradientUnits="userSpaceOnUse"
-   x1="177.72009"
-   y1="23.5259"
-   x2="140.45711"
-   y2="60.788898">
-				<stop
-   offset="0.4138"
-   style="stop-color:#e8e8e8;stop-opacity:1;"
-   id="stop36" />
-				<stop
-   offset="0.4598"
-   style="stop-color:#ECEEEE"
-   id="stop37" />
-				<stop
-   offset="0.5451"
-   style="stop-color:#D9DCDC"
-   id="stop38" />
-				<stop
-   offset="0.6443"
-   style="stop-color:#CBD0D0"
-   id="stop39" />
-				<stop
-   offset="0.7689"
-   style="stop-color:#C3C9C9"
-   id="stop40" />
-				<stop
-   offset="1"
-   style="stop-color:#C1C7C7"
-   id="stop41" />
-			</linearGradient>
-			<path
-   style="display:inline;fill:url(#SVGID_1_);filter:url(#filter484)"
-   d="M 136.756,52.544 V 31.67 c 0,-6.598 5.349,-11.947 11.947,-11.947 h 20.874 c 6.598,0 11.947,5.349 11.947,11.947 v 20.874 c 0,6.598 -5.349,11.947 -11.947,11.947 H 148.703 C 142.104,64.49 136.756,59.142 136.756,52.544 Z"
-   id="path41" />
-			
-				<linearGradient
-   id="SVGID_00000175324067160587451760000012586846035520870297_"
-   gradientUnits="userSpaceOnUse"
-   x1="176.97211"
-   y1="24.2735"
-   x2="141.2088"
-   y2="60.0368">
-				<stop
-   offset="0"
-   style="stop-color:#cacdcd;stop-opacity:1;"
-   id="stop42" />
-				<stop
-   offset="0.9962"
-   style="stop-color:#FAFAFA"
-   id="stop43" />
-			</linearGradient>
-			<path
-   style="display:inline;fill:url(#SVGID_00000175324067160587451760000012586846035520870297_);filter:url(#filter482)"
-   d="m 168.816,63.73 h -19.354 c -6.598,0 -11.947,-5.349 -11.947,-11.947 V 32.43 c 0,-6.598 5.349,-11.947 11.947,-11.947 h 19.354 c 6.598,0 11.947,5.349 11.947,11.947 v 19.354 c -0.001,6.598 -5.349,11.946 -11.947,11.946 z"
-   id="path43" />
-		</g>
-	</g>
-	
-	
-	
-	
-	
-	
-</g>
+
 
 
 <polygon
-   style="clip-rule:evenodd;fill:#ff7300;fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:0;stroke-dasharray:none;stroke-opacity:1"
-   points="3497.233,2709.385 3388.408,2818.212 3556.813,2986.616 3834.042,2709.385 3000.002,1875.346 2667.183,2208.164 2498.78,2376.567 2667.183,2544.973 2845.49,2723.278 3164.416,3042.204 3000.002,3206.618 2502.771,2709.385 2611.596,2600.56 2443.191,2432.155 2165.961,2709.385 3000.002,3543.426 3332.821,3210.609 3501.225,3042.205 3193.69,2734.668 2835.587,2376.569 3000.002,2212.154 "
+   style="clip-rule:evenodd;fill:url(#linearGradient596);fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:0;stroke-dasharray:none;stroke-opacity:1"
+   points="3834.042,2709.385 3000.002,1875.346 2667.183,2208.164 2498.78,2376.567 2667.183,2544.973 2845.49,2723.278 3164.416,3042.204 3000.002,3206.618 2502.771,2709.385 2611.596,2600.56 2443.191,2432.155 2165.961,2709.385 3000.002,3543.426 3332.821,3210.609 3501.225,3042.205 3193.69,2734.668 2835.587,2376.569 3000.002,2212.154 3497.233,2709.385 3388.408,2818.212 3556.813,2986.616 "
    id="polygon1"
-   transform="matrix(0.01678576,0,0,0.01678576,-34.357302,-29.479108)" />
+   transform="matrix(0.01918372,0,0,0.01918372,-41.551189,-35.976113)" />
 
 
 
@@ -220,4 +87,8 @@
 
 
 
-</svg>
+<polygon
+   style="clip-rule:evenodd;display:inline;fill:url(#linearGradient597);fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:0;stroke-dasharray:none;stroke-opacity:1"
+   points="3501.225,3042.205 3193.69,2734.668 2835.587,2376.569 3000.002,2212.154 3497.233,2709.385 3388.408,2818.212 3556.813,2986.616 3834.042,2709.385 3000.002,1875.346 2667.183,2208.164 2498.78,2376.567 2667.183,2544.973 2845.49,2723.278 3164.416,3042.204 3000.002,3206.618 2502.771,2709.385 2611.596,2600.56 2443.191,2432.155 2165.961,2709.385 3000.002,3543.426 3332.821,3210.609 "
+   id="polygon596"
+   transform="matrix(0.01918372,0,0,0.01918372,-41.551189,-35.976113)" /></svg>
