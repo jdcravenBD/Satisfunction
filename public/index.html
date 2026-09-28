@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=22">
+<link rel="stylesheet" href="styles.css?v=23">
 </head>
 <body>
 
@@ -226,7 +226,7 @@
     <!-- How recipes are chosen. -->
     <div class="panel-box">
       <div class="sum-group-head">
-        <span class="sum-group-name">Recipes</span>
+        <span class="sum-group-name" data-icon="recipe">Recipes</span>
         <span class="sum-group-count" id="picker-sub"></span>
       </div>
       <div class="seg panel-seg" id="picker-seg">
@@ -235,7 +235,7 @@
       </div>
       <div id="opt-settings" hidden>
         <div class="sum-group-head sub-head">
-          <span class="sum-group-name">Aim for</span>
+          <span class="sum-group-name" data-icon="target">Aim for</span>
           <span class="sum-group-count">once max outputs are as high as they go</span>
         </div>
         <div class="seg panel-seg" id="goal-seg">
@@ -247,7 +247,7 @@
         <div class="alt-fold" id="alt-fold" data-fold="alternates">
           <div class="sum-group-head sub-head">
             <button type="button" class="fold-head fold-inline" title="Alternates the optimiser may use, alongside the standard recipes">
-              <span class="sum-group-name">Alternates</span>
+              <span class="sum-group-name" data-icon="shuffle">Alternates</span>
               <span class="sum-group-count" id="alts-count"></span>
             </button>
             <button type="button" class="link-btn" data-all="1" title="Tick every alternate">All</button>
@@ -265,7 +265,7 @@
     <!-- How the build is laid out. -->
     <div class="panel-box">
       <div class="sum-group-head">
-        <span class="sum-group-name">Clock speeds</span>
+        <span class="sum-group-name" data-icon="gauge">Clock speeds</span>
         <span class="sum-group-count">how work is split</span>
       </div>
       <div class="seg panel-seg" id="clock-seg">
@@ -275,12 +275,12 @@
         <button type="button" class="seg-btn" data-clock="max" title="Fewest machines: 2.5 machines' worth = 1 at 250%, using Power Shards (one per 50% over 100%). Held lower where a belt couldn't keep up. Miners on resource nodes stay at 100%.">Overclock</button>
       </div>
       <div class="sum-group-head sub-head">
-        <span class="sum-group-name">Fastest belt</span>
+        <span class="sum-group-name" data-icon="belt">Fastest belt</span>
         <span class="sum-group-count">longer lines split in two</span>
       </div>
       <div class="seg panel-seg" id="belt-seg"></div>
       <div class="sum-group-head sub-head">
-        <span class="sum-group-name">Fastest pipe</span>
+        <span class="sum-group-name" data-icon="pipe">Fastest pipe</span>
       </div>
       <div class="seg panel-seg" id="pipe-seg"></div>
     </div>
@@ -349,11 +349,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=22"></script>
-<script src="solver.js?v=22"></script>
-<script src="lp.js?v=22"></script>
-<script src="optimise.js?v=22"></script>
-<script src="examples.js?v=22"></script>
-<script src="app.js?v=22"></script>
+<script src="data.js?v=23"></script>
+<script src="solver.js?v=23"></script>
+<script src="lp.js?v=23"></script>
+<script src="optimise.js?v=23"></script>
+<script src="examples.js?v=23"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>

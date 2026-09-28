@@ -4312,6 +4312,45 @@
   }
 
 
+  /* ---------------------------------------------------------- panel icons */
+
+  // Small line icons for the panel's section headings (16 × 16, drawn in the
+  // heading's own colour).
+  var ICONS = {
+    recipe: '<rect x="3.5" y="2.5" width="9" height="11.5" rx="1.5"/><path d="M6 2.5h4v2H6zM6 7.5h4M6 10.5h4"/>',
+    target: '<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.2"/>',
+    shuffle: '<path d="M2.5 5h2.8l5.2 6h3M2.5 11h2.8l5.2-6h3M11.8 3.2l1.7 1.8-1.7 1.8M11.8 9.2l1.7 1.8-1.7 1.8"/>',
+    gauge: '<path d="M2.5 11.5a5.5 5.5 0 1 1 11 0"/><path d="M8 11.5l2.8-3.3"/>',
+    belt: '<rect x="1.5" y="5" width="13" height="6" rx="3"/><circle cx="4.5" cy="8" r="1"/><circle cx="11.5" cy="8" r="1"/><path d="M7 8h2"/>',
+    pipe: '<path d="M8 2.5c2.2 2.8 3.8 4.9 3.8 6.8a3.8 3.8 0 0 1-7.6 0c0-1.9 1.6-4 3.8-6.8z"/>',
+    box: '<path d="M2.5 5.2L8 2.8l5.5 2.4v5.6L8 13.2l-5.5-2.4z"/><path d="M2.5 5.2L8 7.6l5.5-2.4M8 7.6v5.6"/>',
+    ore: '<path d="M4.5 3h7l2.5 3.5L8 13.5 2 6.5z"/><path d="M2 6.5h12M6.2 3L8 13.5 9.8 3"/>',
+    factory: '<path d="M2 13.5V7l4 2.5V7l4 2.5V3.5h4v10z"/>',
+    gear: '<circle cx="8" cy="8" r="2"/><circle cx="8" cy="8" r="4.4"/><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3"/>',
+    bolt: '<path d="M9 1.8L3.8 9h3.8l-.8 5.2L12.2 7H8.4z"/>',
+    list: '<path d="M5.5 4h8M5.5 8h8M5.5 12h8"/><circle cx="2.8" cy="4" r=".6"/><circle cx="2.8" cy="8" r=".6"/><circle cx="2.8" cy="12" r=".6"/>'
+  };
+  // Headings built in code, by title. Inputs, Outputs and Machines on the
+  // Details page go without.
+  var ICON_FOR = {
+    'Spare': 'box', 'Resources': 'ore', 'Production': 'factory', 'Machines': 'gear',
+    'Power': 'bolt', 'Alternate recipes used': 'shuffle', 'Itemised': 'list'
+  };
+
+  function iconEl(name) {
+    var span = document.createElement('span');
+    span.className = 'sg-icon';
+    span.setAttribute('aria-hidden', 'true');
+    span.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + '</svg>';
+    return span;
+  }
+
+  // The headings written in the page.
+  document.querySelectorAll('#panel .sum-group-name[data-icon]').forEach(function (el) {
+    el.parentNode.insertBefore(iconEl(el.dataset.icon), el);
+  });
+
   /**
    * A panel section. With a fold key its heading is a button that collapses
    * the rows under it, remembered between visits.
@@ -4333,6 +4372,8 @@
     var count = document.createElement('span');
     count.className = 'sum-group-count';
     count.textContent = sub || '';
+    var fixed = fold === 'inputs' || fold === 'outputs' || fold === 'machines';
+    if (!fixed && ICON_FOR[title]) head.appendChild(iconEl(ICON_FOR[title]));
     head.appendChild(name);
     head.appendChild(count);
     wrap.appendChild(head);

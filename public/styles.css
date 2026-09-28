@@ -1966,3 +1966,29 @@ html, body {
 }
 .hi-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hi-title { color: var(--ink); font-size: 14px; font-weight: 600; margin-bottom: 1px; }
+
+/* ---------- round 17 ---------- */
+
+/* Steps in the Items view, and buildings in the Machines view: the same
+   quiet weight as the grey cards, tinted orange. */
+.node:not(.raw):not(.output):not(.spare) {
+  background: #221810;
+  border-color: #422d1a;
+}
+.node:not(.raw):not(.output):not(.spare):hover { border-color: #684628; }
+.node.selected:not(.raw):not(.output):not(.spare) { border-color: #422d1a; }
+
+.machine { background: #221810; border-color: #422d1a; }
+.machine.under { background: #1c140d; border-color: #37261a; }
+.machine.over { border-color: #684628; }
+
+/* Panel heading icons. */
+.sg-icon {
+  flex: 0 0 auto;
+  align-self: center;
+  display: flex;
+  color: var(--ink-faint);
+  margin-right: -2px;
+}
+.fold-inline .sg-icon { margin-right: -2px; }
+.machine.extractor.over { border-color: #9a9a9a; }
