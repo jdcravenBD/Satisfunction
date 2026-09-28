@@ -799,6 +799,7 @@
       renderWires();
     }
     keepSelection();
+    lowestAdders();
     renderBreakdown();
     refreshMaxRates();
     refreshOptNote();
@@ -1285,7 +1286,8 @@
           if (!n.slot && solved.limitedBy === n.item) note('Sets the max output');
         }
         if (nd && !readOnly) {
-          // A tall, thin + down the block's left side adds another node.
+          // A thin + along the bottom of the resource's lowest block adds
+          // another node (which block that is is settled after layout).
           var more = document.createElement('button');
           more.type = 'button';
           more.className = 'n-add';
@@ -3012,13 +3014,31 @@
         el.removeEventListener('pointerup', onUp);
         el.removeEventListener('pointercancel', onUp);
         dragging = false;
-        if (moved) save();
-        else pickNode(n, mods);
+        if (moved) {
+          lowestAdders();
+          save();
+        } else {
+          pickNode(n, mods);
+        }
       }
 
       el.addEventListener('pointermove', onMove);
       el.addEventListener('pointerup', onUp);
       el.addEventListener('pointercancel', onUp);
+    });
+  }
+
+  /** Shows each resource's + only under its lowest block. */
+  function lowestAdders() {
+    if (state.mode !== 'items') return;
+    var lowest = {};
+    graph.nodes.forEach(function (n) {
+      if (!n.el || !n.el.querySelector('.n-add')) return;
+      if (!lowest[n.item] || n.y + n.h > lowest[n.item].y + lowest[n.item].h) lowest[n.item] = n;
+    });
+    graph.nodes.forEach(function (n) {
+      var add = n.el && n.el.querySelector('.n-add');
+      if (add) add.hidden = lowest[n.item] !== n;
     });
   }
 
@@ -3168,11 +3188,24 @@
   }
 
   /**
+   * The nodes in a list that can go. A resource keeps at least one node, so
+   * if all of one's nodes are listed, its first stays.
+   */
+  function removableOf(list) {
+    list = list.filter(canRemove);
+    var perItem = {};
+    list.forEach(function (n) { if (n.kind === 'raw') perItem[n.item] = (perItem[n.item] || 0) + 1; });
+    return list.filter(function (n) {
+      return n.kind !== 'raw' || perItem[n.item] < storedNodes(n.item).length || n.slot !== 0;
+    });
+  }
+
+  /**
    * Removes nodes: an output stops being asked for; a step stops being made
    * here and is brought in instead; a resource node comes off its resource.
    */
   function removeNodes(list) {
-    list = list.filter(canRemove);
+    list = removableOf(list);
     if (!list.length) return;
     var dropTargets = {};
     var slots = {};
@@ -3217,32 +3250,42 @@
   /** What can be done to the selection; anything that doesn't apply is shown dimmed. */
   function openSelectionMenu(x, y) {
     var nodes = selectedNodes();
-    var removable = nodes.filter(canRemove);
+    var removable = removableOf(nodes);
     var toOutput = uniq(nodes.filter(function (n) { return n.kind === 'recipe' && !targetFor(n.item); })
       .map(function (n) { return n.item; }));
     var outputs = uniq(nodes.filter(function (n) { return targetFor(n.item); })
       .map(function (n) { return n.item; }));
-    openCtx(x, y, [
+    // Inputs and outputs on their own can only be removed. Once a step in
+    // between is selected too, the other options show, dimmed where they
+    // don't apply (an input can't be made an output).
+    var inside = nodes.some(function (n) { return n.kind === 'recipe'; });
+    var hasInput = nodes.some(function (n) { return n.kind === 'raw'; });
+    var items = [
       { head: nodes.length + ' selected' },
       {
-        label: removable.length === 1 ? 'Remove this node' : 'Remove these nodes',
-        note: removable.length ? removable.length + ' · steps are brought in instead' : 'Nothing here can be removed',
+        label: removable.length === 1 ? 'Remove node' : 'Remove nodes',
+        note: removable.length
+          ? (inside ? removable.length + ' · steps are brought in instead' : String(removable.length))
+          : 'A resource keeps at least one node',
         disabled: !removable.length,
         run: function () { removeNodes(removable); }
-      },
-      {
+      }
+    ];
+    if (inside) {
+      items.push({
         label: toOutput.length === 1 ? 'Make this an output' : 'Make these outputs',
-        note: toOutput.length ? toOutput.map(itemName).join(', ') : 'Only steps that aren\u2019t outputs yet',
-        disabled: !toOutput.length,
+        note: hasInput ? 'Not with an input selected' : toOutput.length ? toOutput.map(itemName).join(', ') : 'Already outputs',
+        disabled: hasInput || !toOutput.length,
         run: function () { makeOutputs(toOutput); }
-      },
-      {
+      });
+      items.push({
         label: outputs.length === 1 ? 'Remove output' : 'Remove outputs',
         note: outputs.length ? outputs.map(itemName).join(', ') : 'No outputs selected',
         disabled: !outputs.length,
         run: function () { removeOutputs(outputs); }
-      }
-    ]);
+      });
+    }
+    openCtx(x, y, items);
   }
 
   // Delete removes the selection; Escape lets it go; Ctrl+A takes every node.
@@ -3506,13 +3549,37 @@
     undimCtx();
   }
 
-  /** Drop the shared "Are you sure?" against `anchor`, running `onYes` if taken. */
+  /**
+   * Drop the shared "Are you sure?" just under the pointer, with the pointer
+   * centred between Yes and No, running `onYes` if taken. From the keyboard
+   * (no pointer), it drops against `anchor`.
+   */
   function askConfirm(anchor, onYes, overlap) {
     popOpener = clickFrom;
     confirmAction = onYes;
-    placePopup(confirmEl, anchor, overlap);
+    if (lastPress && Date.now() - lastPress.t < 1500) {
+      var yes = confirmEl.querySelector('.confirm-yes');
+      var no = confirmEl.querySelector('.confirm-no');
+      var mid = (yes.offsetLeft + yes.offsetWidth + no.offsetLeft) / 2;
+      var w = confirmEl.offsetWidth;
+      var h = confirmEl.offsetHeight;
+      var left = Math.max(8, Math.min(lastPress.x - mid, window.innerWidth - w - 8));
+      var top = lastPress.y + 12;
+      if (top + h > window.innerHeight - 8) top = lastPress.y - h - 12;
+      confirmEl.style.left = left + 'px';
+      confirmEl.style.top = top + 'px';
+    } else {
+      placePopup(confirmEl, anchor, overlap);
+    }
     confirmEl.classList.add('show');
   }
+
+  // Where the pointer last pressed, for popups that open under it.
+  var lastPress = null;
+  document.addEventListener('pointerdown', function (e) {
+    lastPress = { x: e.clientX, y: e.clientY, t: Date.now() };
+  }, true);
+  document.addEventListener('keydown', function () { lastPress = null; }, true);
 
   confirmEl.querySelector('.confirm-yes').addEventListener('click', function () {
     var run = confirmAction;
@@ -5291,14 +5358,36 @@
   var supportBtn = document.getElementById('support');
   supportBtn.addEventListener('click', function () {
     var r = supportBtn.getBoundingClientRect();
-    openCtx(r.right - 230, r.bottom + 6, [
-      { head: 'Support Satisfunction' },
+    openCtx(r.left, r.bottom + 6, [
       {
         label: 'Donate with PayPal',
         note: 'Opens PayPal in a new tab',
         run: function () { window.open(SUPPORT_URL, '_blank', 'noopener'); }
       }
     ]);
+    // Right edge under the button's right edge.
+    ctx.style.left = Math.max(8, r.right - ctx.offsetWidth) + 'px';
+  });
+
+  /* ------------------------------------------------------------- versions */
+
+  // The game versions there have been. Only the data from the user's own
+  // install is loaded; the rest are listed but can't be picked yet.
+  var VERSIONS = ['1.1', '1.0', 'Update 8', 'Update 7', 'Update 6', 'Update 5', 'Update 4',
+    'Update 3', 'Update 2', 'Update 1'];
+  var versionBtn = document.getElementById('save-version');
+  versionBtn.addEventListener('click', function () {
+    var r = versionBtn.getBoundingClientRect();
+    var items = [{
+      label: 'Your game',
+      note: DATA.build ? 'Build ' + String(DATA.build).replace(/^.*CL\s*/, '') : 'The data in use',
+      on: true,
+      run: function () {}
+    }, '-'];
+    VERSIONS.forEach(function (v) {
+      items.push({ label: v, note: 'Not supported yet', disabled: true, run: function () {} });
+    });
+    openCtx(r.left, r.bottom + 6, items, true);
   });
 
   /* ------------------------------------------------------------- tooltips */

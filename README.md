@@ -182,9 +182,10 @@ which saved and imported plans keep.
 | Set its rate | Type in the Plan panel; the plan re-solves as you type. 0 keeps it listed but makes none |
 | Make as much as possible | Outputs start on **max**; click **max** / **/min** to switch |
 | Choose a node's purity and miner | Click "Normal node · Mk.1" on an ore, oil or gas block |
-| Add another resource node | The tall **+** down the left of the block, in the Items view. Each node is its own block with its own purity and miner; **Remove this node** is in its menu |
+| Add another resource node | The thin **+** under the resource's lowest block, in the Items view. Each node is its own block with its own purity and miner; **Remove this node** is in its menu |
 | Save now | **Ctrl+S** (or the ring beside the save's name) |
-| Support the app | The thumbs-up heart, top right: **Donate with PayPal** |
+| Support the app | **Support me**, top right: **Donate with PayPal** |
+| Game version | **Version**, beside export: lists the versions; only your own game's data is loaded for now |
 | Manifold or balancer | **Manifold** / **Balancer** in the header, in the Machines view |
 | Buildings you don't have yet | Untick them under **Machines** in the Plan panel |
 | Labels on the canvas | The sliders button, top right: resource names, rates, two-letter building names |
@@ -193,7 +194,7 @@ which saved and imported plans keep.
 | Import an item instead of making it | Same menu, **Import from elsewhere** |
 | Move a node | Drag it (Items view). It stays put through re-solves; a dot marks it pinned |
 | Select nodes | Click one; **Ctrl+click** adds or removes; **Shift+click** takes everything in a line between (the chain of belts that keeps closest to the straight line between the two, or, if no belts join them, whatever that line passes through); **Ctrl/Shift+drag** a box (each box replaces the selection); **Ctrl+A** all; **Esc** clears |
-| Act on a selection | Right-click a selected node: remove the nodes (steps are brought in instead, outputs dropped, extra resource nodes removed), make them outputs, or remove outputs; options that don't apply are dimmed. **Delete** removes. Dragging a selected node moves the whole selection |
+| Act on a selection | Right-click a selected node: **Remove nodes** (steps are brought in instead, outputs dropped, extra resource nodes removed; a resource keeps one). With a step in between selected, **Make these outputs** and **Remove outputs** show too, dimmed where they don't apply (not with an input selected). Inputs and outputs on their own only offer Remove. **Delete** removes. Dragging a selected node moves the whole selection |
 | Unpin one | Right-click it, **Unpin** |
 | Unpin everything | Right-click the canvas, **Tidy layout** |
 | Fit the plan to the window | Click the zoom percentage |
