@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 
@@ -261,11 +261,13 @@
   </div>
   </div>
 
+  <!-- The factory at a glance: filled in after every solve. -->
   <div class="ptab-page" data-page="overview" hidden>
-    <p class="ptab-soon">The overview is on its way.</p>
+    <div class="sum-list" id="overview-list"></div>
   </div>
+  <!-- Everything that draws power, biggest first, and the total. -->
   <div class="ptab-page" data-page="power" hidden>
-    <p class="ptab-soon">Power is on its way.</p>
+    <div class="sum-list" id="power-list"></div>
   </div>
 
   <div class="sum-foot">
@@ -319,11 +321,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=12"></script>
-<script src="solver.js?v=12"></script>
-<script src="lp.js?v=12"></script>
-<script src="optimise.js?v=12"></script>
-<script src="examples.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="data.js?v=13"></script>
+<script src="solver.js?v=13"></script>
+<script src="lp.js?v=13"></script>
+<script src="optimise.js?v=13"></script>
+<script src="examples.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

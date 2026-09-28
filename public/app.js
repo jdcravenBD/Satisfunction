@@ -3927,6 +3927,7 @@
     var buildings = 0;
     var shards = 0;
     var byMachine = {};
+    var draws = [];   // [{ label, note, power, extraction }]
     function tally(mid, name, exact, built, p) {
       var m = byMachine[mid] || (byMachine[mid] = { name: name, exact: 0, built: 0, power: 0 });
       m.exact += exact;
@@ -3940,8 +3941,15 @@
       var mid = DATA.recipes[rid].machine;
       var list = recipeClocks(rid, count);
       list.forEach(function (c) { shards += shardsFor(c); });
-      tally(mid, DATA.machines[mid].name, count, list.length,
-        SOLVER.recipePower(DATA, rid, count, state.clock, clockTop(rid)));
+      var p = SOLVER.recipePower(DATA, rid, count, state.clock, clockTop(rid));
+      tally(mid, DATA.machines[mid].name, count, list.length, p);
+      var r = DATA.recipes[rid];
+      draws.push({
+        label: itemName(solved.recipes[rid].item) + (r.alt ? ' (' + r.name + ')' : ''),
+        note: list.length + ' × ' + DATA.machines[mid].name,
+        power: p,
+        node: 'r:' + rid
+      });
     });
     // Extractors count too, wherever the plan knows what they are.
     Object.keys(solved.items).forEach(function (id) {
@@ -3954,14 +3962,23 @@
       Object.keys(byMark).forEach(function (mid) {
         var clocksList = byMark[mid];
         clocksList.forEach(function (c) { shards += shardsFor(c); });
+        var p = SOLVER.extractorPower(DATA, mid, clocksList, state.clock);
         tally(mid, DATA.extractors[mid].name,
           clocksList.reduce(function (s, c) { return s + c; }, 0),
-          clocksList.length,
-          SOLVER.extractorPower(DATA, mid, clocksList, state.clock));
+          clocksList.length, p);
+        draws.push({
+          label: itemName(id),
+          note: clocksList.length + ' × ' + DATA.extractors[mid].name,
+          power: p,
+          extraction: true,
+          node: 'raw:' + id
+        });
       });
     });
 
     var steps = Object.keys(solved.recipes).length;
+    renderOverview({ power: power, buildings: buildings, shards: shards, byMachine: byMachine, draws: draws });
+    renderPower(draws, power);
     document.getElementById('stat-machines').textContent = buildings;
     document.getElementById('stat-power').textContent = fmtPower(power);
     document.getElementById('stat-steps').textContent = steps;
@@ -4015,6 +4032,108 @@
           from ? function () { focusOn(from.node); } : null);
       })));
     }
+  }
+
+  /** A section in its own box, for the Overview and Power pages. */
+  function boxed(title, sub, rows) {
+    var box = document.createElement('div');
+    box.className = 'panel-box';
+    box.appendChild(group(title, sub, rows));
+    return box;
+  }
+
+  function quietRow(text) {
+    var r = row(text, '', '');
+    r.classList.add('quiet');
+    return r;
+  }
+
+  /** The factory at a glance: resources, production, machines, power, alternates. */
+  function renderOverview(t) {
+    var el = document.getElementById('overview-list');
+    el.innerHTML = '';
+
+    // Resources: what the factory draws from the map, and what it imports.
+    var ids = Object.keys(solved.items).filter(function (id) { return solved.items[id].supplied > EPS; })
+      .sort(function (a, b) { return solved.items[b].supplied - solved.items[a].supplied; });
+    var raw = ids.filter(function (id) { return DATA.items[id].raw; });
+    var brought = ids.filter(function (id) { return !DATA.items[id].raw; });
+    var rows = raw.map(function (id) {
+      var e = solved.items[id];
+      return row(itemName(id), e.cap != null ? 'of ' + fmtNum(e.cap) : 'no cap', rateText(id, e.supplied),
+        function () { focusOn('raw:' + id); }, e.short > EPS);
+    }).concat(brought.map(function (id) {
+      return row(itemName(id), state.imports[id] ? 'imported' : blocked[id] ? 'no ' + buildingName(blocked[id]) : 'brought in',
+        rateText(id, solved.items[id].supplied), function () { focusOn('raw:' + id); });
+    }));
+    el.appendChild(boxed('Resources', raw.length + ' from the map' + (brought.length ? ', ' + brought.length + ' brought in' : ''),
+      rows.length ? rows : [quietRow('Nothing yet')]));
+
+    // Production: what it's for, and what it makes on the side.
+    var outs = Object.keys(solved.targets).filter(function (id) { return solved.targets[id] > EPS; });
+    var spare = Object.keys(solved.items).filter(function (id) { return solved.items[id].surplus > EPS; });
+    rows = outs.map(function (id) {
+      return row(itemName(id), 'output', rateText(id, solved.targets[id]), function () { focusOn('out:' + id); });
+    }).concat(spare.map(function (id) {
+      var r = row(itemName(id), 'spare', rateText(id, solved.items[id].surplus));
+      r.classList.add('quiet');
+      return r;
+    }));
+    el.appendChild(boxed('Production', 'per minute', rows.length ? rows : [quietRow('No outputs yet')]));
+
+    // Machines: how many of each building.
+    var mids = Object.keys(t.byMachine).sort(function (a, b) { return t.byMachine[b].built - t.byMachine[a].built; });
+    rows = mids.map(function (mid) {
+      var m = t.byMachine[mid];
+      return row(m.name, fmtNum(m.exact) + ' running', String(m.built));
+    });
+    if (t.shards) rows.push(row('Power Shards', 'for overclocking', String(t.shards)));
+    el.appendChild(boxed('Machines', t.buildings + (t.buildings === 1 ? ' building' : ' buildings'),
+      rows.length ? rows : [quietRow('None yet')]));
+
+    // Power: the total, split between making and extracting.
+    var made = t.draws.filter(function (d) { return !d.extraction; }).reduce(function (s, d) { return s + d.power; }, 0);
+    rows = [
+      row('Production buildings', '', fmtPower(made)),
+      row('Miners and extractors', '', fmtPower(t.power - made))
+    ];
+    var total = row('Total', 'average draw', fmtPower(t.power));
+    total.classList.add('total-row');
+    rows.push(total);
+    el.appendChild(boxed('Power', 'itemised under Power', rows));
+
+    // Alternates in use.
+    var alts = Object.keys(solved.recipes).filter(unlockable).sort(function (a, b) {
+      return DATA.recipes[a].name.localeCompare(DATA.recipes[b].name);
+    });
+    rows = alts.map(function (rid) {
+      return row(DATA.recipes[rid].name, itemName(solved.recipes[rid].item) + ' · ' + machineName(rid),
+        '', function () { focusOn('r:' + rid); });
+    });
+    el.appendChild(boxed('Alternate recipes used', alts.length ? String(alts.length) : '',
+      rows.length ? rows : [quietRow('Standard recipes only')]));
+  }
+
+  /** Everything that draws power, biggest first, each with its share. */
+  function renderPower(draws, total) {
+    var el = document.getElementById('power-list');
+    el.innerHTML = '';
+    var head = row('Total', 'average draw', fmtPower(total));
+    head.classList.add('total-row');
+    el.appendChild(boxed('Power', draws.length + (draws.length === 1 ? ' step' : ' steps'), [head]));
+    if (!draws.length) return;
+    var rows = draws.slice().sort(function (a, b) { return b.power - a.power; }).map(function (d) {
+      var r = row(d.label, d.note, fmtPower(d.power), function () { focusOn(d.node); });
+      var share = total > EPS ? d.power / total : 0;
+      r.classList.add('draw-row');
+      var bar = document.createElement('span');
+      bar.className = 'draw-bar';
+      bar.style.width = Math.max(1, share * 100) + '%';
+      r.appendChild(bar);
+      r.title = d.label + ' · ' + d.note + ' · ' + fmtPower(d.power) + ' (' + Math.round(share * 100) + '% of the total)';
+      return r;
+    });
+    el.appendChild(boxed('Itemised', 'biggest first', rows));
   }
 
   document.getElementById('data-build').textContent =
@@ -4645,8 +4764,10 @@
   var balanceSeg = document.getElementById('balance');
   balanceSeg.addEventListener('click', function (e) {
     var btn = e.target.closest('.seg-btn');
-    if (!btn || btn.dataset.balance === state.balance) return;
-    state.balance = btn.dataset.balance;
+    if (!btn || btn.disabled) return;
+    state.balance = btn.dataset.balance === state.balance
+      ? (state.balance === 'manifold' ? 'balancer' : 'manifold')
+      : btn.dataset.balance;
     refreshModeSeg();
     recompute();
     fitView();
@@ -4654,8 +4775,10 @@
 
   modeSeg.addEventListener('click', function (e) {
     var btn = e.target.closest('.seg-btn');
-    if (!btn || btn.dataset.mode === state.mode) return;
-    state.mode = btn.dataset.mode;
+    if (!btn) return;
+    state.mode = btn.dataset.mode === state.mode
+      ? (state.mode === 'items' ? 'machines' : 'items')
+      : btn.dataset.mode;
     refreshModeSeg();
     closeAll();
     recompute();

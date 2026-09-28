@@ -1831,3 +1831,29 @@ html, body {
   color: var(--ink-faint);
   font-size: 12.5px;
 }
+
+/* ---------- round 11 ---------- */
+
+/* The tab strip is see-through, so the toolbar's top line shows along its
+   whole length (the strip overlaps it by a pixel to meet the open tab). */
+.tabs { background: none; }
+
+/* A lighter plan panel. */
+.summary { background: var(--panel-2); }
+
+/* Overview and Power. */
+.sum-row.quiet .sum-row-name,
+.sum-row.quiet .sum-row-price { color: var(--ink-faint); }
+.sum-row.total-row { border-top: 1px solid var(--edge); border-radius: 0 0 5px 5px; margin-top: 3px; padding-top: 7px; }
+.sum-row.total-row .sum-row-name,
+.sum-row.total-row .sum-row-price { color: var(--ink); font-weight: 600; }
+.sum-row.draw-row { position: relative; flex-wrap: wrap; padding-bottom: 8px; }
+.draw-bar {
+  position: absolute;
+  left: 6px;
+  bottom: 3px;
+  max-width: calc(100% - 12px);
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(var(--machine), .6);
+}

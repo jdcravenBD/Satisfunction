@@ -198,8 +198,12 @@ which saved and imported plans keep.
 
 The plan panel is a rounded panel of its own, running the full height to the
 right of the canvas; the tabs and toolbar stop where the canvas does. It has
-three pages: **Details** (everything below), **Overview** and **Power** (both
-still to come). Factory names in
+three pages: **Details** (everything below); **Overview** (resources from the
+map and brought in, production and spare, machines and Power Shards, power split
+between making and extracting, and alternate recipes in use); and **Power**
+(every step and extractor drawing power, biggest first with a bar for its
+share, and the total). Items / Machines and Manifold / Balancer each act as one
+toggle: pressing the side that's already on flips to the other. Factory names in
 a save are kept distinct: a clash gets the next number ("New factory 2",
 "Motor 3"). It boxes Inputs, Outputs, Machines, recipe settings and layout
 settings; the first three fold away from their heading. Machines lists every
