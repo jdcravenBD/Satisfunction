@@ -1863,3 +1863,19 @@ html, body {
    through to the panel; only the wrapper's contents catch them. */
 .top { pointer-events: none; }
 .top > * { pointer-events: auto; }
+
+/* ---------- round 12 ---------- */
+
+/* The canvas sits as far below the toolbar as it does from the window's side. */
+#stage { top: calc(var(--bar-h) + var(--frame)); }
+
+/* Selected nodes: a bright outline and a soft ring. */
+.node.selected {
+  border-color: var(--bright);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .14), 0 6px 20px rgba(0, 0, 0, .5);
+}
+.node.output.selected { border-color: rgb(var(--output)); box-shadow: 0 0 0 3px rgba(var(--output), .22), 0 6px 20px rgba(0, 0, 0, .5); }
+
+/* A menu option that doesn't apply to what's selected. */
+.ctx button:disabled { opacity: .38; cursor: default; }
+.ctx button:disabled:hover { background: none; color: var(--ink-dim); }

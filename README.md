@@ -191,6 +191,8 @@ which saved and imported plans keep.
 | Change a recipe | Click the machine line on a node (e.g. "Smelter ×2") |
 | Import an item instead of making it | Same menu, **Import from elsewhere** |
 | Move a node | Drag it (Items view). It stays put through re-solves; a dot marks it pinned |
+| Select nodes | Click one; **Ctrl+click** adds or removes; **Shift+click** takes everything between (along the lines, or in the area the two span); **Ctrl/Shift+drag** a box; **Ctrl+A** all; **Esc** clears |
+| Act on a selection | Right-click a selected node: remove the nodes (steps are brought in instead, outputs dropped, extra resource nodes removed), make them outputs, or remove outputs; options that don't apply are dimmed. **Delete** removes. Dragging a selected node moves the whole selection |
 | Unpin one | Right-click it, **Unpin** |
 | Unpin everything | Right-click the canvas, **Tidy layout** |
 | Fit the plan to the window | Click the zoom percentage |
@@ -213,7 +215,7 @@ alternates, then any), miners drop to the next mark down, and anything only
 that building makes is brought in and flagged "no <building>". The whole app is
 set in Space Grotesk.
 
-Hovering a node lights up its own lines and fades the rest. Outputs are tinted
+Hovering a node lights up its own lines and fades the rest. The browser's own hover tooltips are switched off. Outputs are tinted
 green.
 
 ### Layout

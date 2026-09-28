@@ -798,6 +798,7 @@
       graph.nodes.forEach(place);
       renderWires();
     }
+    keepSelection();
     renderBreakdown();
     refreshMaxRates();
     refreshOptNote();
@@ -1350,6 +1351,11 @@
       e.preventDefault();
       e.stopPropagation();
       closeAll();
+      if (selected[n.key] && selectedNodes().length > 1) {
+        openSelectionMenu(e.clientX, e.clientY);
+        return;
+      }
+      if (!selected[n.key]) selectOnly(n.key);
       menu(n, e.clientX, e.clientY, true);
     });
 
@@ -2973,7 +2979,10 @@
 
       var startX = e.clientX;
       var startY = e.clientY;
-      var origin = { x: n.x, y: n.y };
+      var mods = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey };
+      // A selected node brings the rest of the selection with it.
+      var group = selected[n.key] ? selectedNodes() : [n];
+      var origins = group.map(function (g) { return { x: g.x, y: g.y }; });
       var moved = false;
 
       function onMove(ev) {
@@ -2986,12 +2995,14 @@
           dragging = true;
           el.classList.add('dragging');
         }
-        n.x = Math.round(origin.x + dx);
-        n.y = Math.round(origin.y + dy);
-        n.pinned = true;
-        pins()[n.key] = { x: n.x, y: n.y };
-        place(n);
-        renderWires(); // lines follow the node as it moves
+        group.forEach(function (g, i) {
+          g.x = Math.round(origins[i].x + dx);
+          g.y = Math.round(origins[i].y + dy);
+          g.pinned = true;
+          pins()[g.key] = { x: g.x, y: g.y };
+          place(g);
+        });
+        renderWires(); // lines follow the nodes as they move
       }
 
       function onUp(ev) {
@@ -3002,6 +3013,7 @@
         el.removeEventListener('pointercancel', onUp);
         dragging = false;
         if (moved) save();
+        else pickNode(n, mods);
       }
 
       el.addEventListener('pointermove', onMove);
@@ -3009,6 +3021,203 @@
       el.addEventListener('pointercancel', onUp);
     });
   }
+
+  /* ------------------------------------------------------------ selection */
+
+  // Nodes picked in the Items view, by key, so a selection survives any
+  // re-solve that keeps them. selAnchor is where a Shift+click range starts.
+  var selected = {};
+  var selAnchor = null;
+
+  function selectedNodes() {
+    return graph.nodes.filter(function (n) { return selected[n.key] && n.el; });
+  }
+  function applySelection() {
+    graph.nodes.forEach(function (n) {
+      if (n.el) n.el.classList.toggle('selected', !!selected[n.key]);
+    });
+  }
+  function selectOnly(key) {
+    selected = {};
+    if (key) selected[key] = true;
+    selAnchor = key || null;
+    applySelection();
+  }
+  function clearSelection() { selectOnly(null); }
+
+  /** After a redraw: drop what's gone, and in the Machines view, everything. */
+  function keepSelection() {
+    if (state.mode !== 'items') {
+      selected = {};
+      selAnchor = null;
+      return;
+    }
+    Object.keys(selected).forEach(function (k) { if (!graph.byKey[k]) delete selected[k]; });
+    if (selAnchor && !graph.byKey[selAnchor]) selAnchor = null;
+    applySelection();
+  }
+
+  /** A click on a node: select it; Ctrl adds or removes it; Shift takes the range. */
+  function pickNode(n, mods) {
+    if (mods.shift && selAnchor && graph.byKey[selAnchor] && selAnchor !== n.key) {
+      var range = between(graph.byKey[selAnchor], n);
+      if (!mods.ctrl) selected = {};
+      range.forEach(function (m) { selected[m.key] = true; });
+      applySelection();
+      return;
+    }
+    if (mods.ctrl) {
+      if (selected[n.key]) delete selected[n.key];
+      else selected[n.key] = true;
+      selAnchor = n.key;
+      applySelection();
+      return;
+    }
+    selectOnly(n.key);
+  }
+
+  /**
+   * Everything between two nodes. Where one leads to the other along the
+   * lines, the nodes on those paths (Iron Ingot to Reinforced Iron Plate takes
+   * in the rods, screws and plates). Otherwise, everything in the area the
+   * two span (the middle three of five ore nodes stacked in a column).
+   */
+  function between(a, b) {
+    function reach(from, dir) {
+      var seen = {};
+      var queue = [from];
+      seen[from.key] = true;
+      while (queue.length) {
+        var n = queue.shift();
+        n[dir].forEach(function (e) {
+          var next = graph.byKey[dir === 'out' ? e.to : e.from];
+          if (next && !seen[next.key]) {
+            seen[next.key] = true;
+            queue.push(next);
+          }
+        });
+      }
+      return seen;
+    }
+    function path(x, y) {
+      var down = reach(x, 'out');
+      if (!down[y.key]) return null;
+      var up = reach(y, 'inn');
+      return graph.nodes.filter(function (n) { return down[n.key] && up[n.key]; });
+    }
+    var list = path(a, b) || path(b, a);
+    if (list) return list;
+    var x0 = Math.min(a.x, b.x);
+    var x1 = Math.max(a.x + a.w, b.x + b.w);
+    var y0 = Math.min(a.y, b.y);
+    var y1 = Math.max(a.y + a.h, b.y + b.h);
+    return graph.nodes.filter(function (n) {
+      var cx = n.x + n.w / 2;
+      var cy = n.y + n.h / 2;
+      return n.el && cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+    });
+  }
+
+  /** Whether a node can be removed: a step, an output, or one of several resource nodes. */
+  function canRemove(n) {
+    if (n.kind === 'recipe' || n.kind === 'output') return true;
+    return n.kind === 'raw' && n.slot != null && storedNodes(n.item).length > 1;
+  }
+
+  /**
+   * Removes nodes: an output stops being asked for; a step stops being made
+   * here and is brought in instead; a resource node comes off its resource.
+   */
+  function removeNodes(list) {
+    list = list.filter(canRemove);
+    if (!list.length) return;
+    var dropTargets = {};
+    var slots = {};
+    list.forEach(function (n) {
+      if (n.kind === 'output') dropTargets[n.item] = true;
+      else if (n.kind === 'recipe') {
+        state.imports[n.item] = true;
+        delete state.recipes[n.item];
+      } else {
+        (slots[n.item] = slots[n.item] || []).push(n.slot);
+      }
+    });
+    state.targets = state.targets.filter(function (t) { return !dropTargets[t.item]; });
+    Object.keys(slots).forEach(function (id) {
+      var s = state.supply[id] || {};
+      var nodes = storedNodes(id).filter(function (_, i) { return slots[id].indexOf(i) < 0; });
+      if (!nodes.length) return;  // a resource keeps at least one node
+      state.supply[id] = { nodes: nodes, miner: s.miner };
+    });
+    clearSelection();
+    renderTargets();
+    changed();
+  }
+
+  function makeOutputs(items) {
+    items.forEach(function (id) {
+      if (!targetFor(id)) state.targets.push({ item: id, rate: NEW_TARGET_RATE, max: true });
+    });
+    renderTargets();
+    changed();
+  }
+
+  function removeOutputs(items) {
+    state.targets = state.targets.filter(function (t) { return items.indexOf(t.item) < 0; });
+    clearSelection();
+    renderTargets();
+    changed();
+  }
+
+  function uniq(list) { return list.filter(function (x, i) { return list.indexOf(x) === i; }); }
+
+  /** What can be done to the selection; anything that doesn't apply is shown dimmed. */
+  function openSelectionMenu(x, y) {
+    var nodes = selectedNodes();
+    var removable = nodes.filter(canRemove);
+    var toOutput = uniq(nodes.filter(function (n) { return n.kind === 'recipe' && !targetFor(n.item); })
+      .map(function (n) { return n.item; }));
+    var outputs = uniq(nodes.filter(function (n) { return targetFor(n.item); })
+      .map(function (n) { return n.item; }));
+    openCtx(x, y, [
+      { head: nodes.length + ' selected' },
+      {
+        label: removable.length === 1 ? 'Remove this node' : 'Remove these nodes',
+        note: removable.length ? removable.length + ' · steps are brought in instead' : 'Nothing here can be removed',
+        disabled: !removable.length,
+        run: function () { removeNodes(removable); }
+      },
+      {
+        label: toOutput.length === 1 ? 'Make this an output' : 'Make these outputs',
+        note: toOutput.length ? toOutput.map(itemName).join(', ') : 'Only steps that aren\u2019t outputs yet',
+        disabled: !toOutput.length,
+        run: function () { makeOutputs(toOutput); }
+      },
+      {
+        label: outputs.length === 1 ? 'Remove output' : 'Remove outputs',
+        note: outputs.length ? outputs.map(itemName).join(', ') : 'No outputs selected',
+        disabled: !outputs.length,
+        run: function () { removeOutputs(outputs); }
+      }
+    ]);
+  }
+
+  // Delete removes the selection; Escape lets it go; Ctrl+A takes every node.
+  document.addEventListener('keydown', function (e) {
+    var el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+    if (state.mode !== 'items') return;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes().length) {
+      e.preventDefault();
+      removeNodes(selectedNodes());
+    } else if (e.key === 'Escape' && selectedNodes().length) {
+      clearSelection();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      graph.nodes.forEach(function (n) { if (n.el) selected[n.key] = true; });
+      applySelection();
+    }
+  });
 
   function unpin(key) {
     delete pins()[key];
@@ -3067,11 +3276,16 @@
 
   var marquee = document.getElementById('marquee');
 
-  /** Draws the selection rectangle. Purely visual at this stage. */
+  /**
+   * Draws the selection rectangle; on release, every node it touches joins
+   * the selection (Items view).
+   */
   function startMarquee(e) {
     var box = stage.getBoundingClientRect();
     var x0 = e.clientX - box.left;
     var y0 = e.clientY - box.top;
+    var x1 = x0;
+    var y1 = y0;
 
     marquee.classList.add('on');
     marquee.style.left = x0 + 'px';
@@ -3082,8 +3296,8 @@
     try { stage.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
 
     function onMove(ev) {
-      var x1 = ev.clientX - box.left;
-      var y1 = ev.clientY - box.top;
+      x1 = ev.clientX - box.left;
+      y1 = ev.clientY - box.top;
       marquee.style.left = Math.min(x0, x1) + 'px';
       marquee.style.top = Math.min(y0, y1) + 'px';
       marquee.style.width = Math.abs(x1 - x0) + 'px';
@@ -3096,6 +3310,17 @@
       stage.removeEventListener('pointerup', onUp);
       stage.removeEventListener('pointercancel', onUp);
       marquee.classList.remove('on');
+      if (state.mode !== 'items' || Math.abs(x1 - x0) + Math.abs(y1 - y0) < 4) return;
+      // The box in world coordinates.
+      var v = state.view;
+      var wx0 = (Math.min(x0, x1) - v.x) / v.s;
+      var wx1 = (Math.max(x0, x1) - v.x) / v.s;
+      var wy0 = (Math.min(y0, y1) - v.y) / v.s;
+      var wy1 = (Math.max(y0, y1) - v.y) / v.s;
+      graph.nodes.forEach(function (n) {
+        if (n.el && n.x < wx1 && n.x + n.w > wx0 && n.y < wy1 && n.y + n.h > wy0) selected[n.key] = true;
+      });
+      applySelection();
     }
 
     stage.addEventListener('pointermove', onMove);
@@ -3132,6 +3357,8 @@
     // a wheel-zoom mid-drag doesn't make the view lurch.
     var lastX = e.clientX;
     var lastY = e.clientY;
+    var panStartX = e.clientX;
+    var panStartY = e.clientY;
 
     function onMove(ev) {
       state.view.x += ev.clientX - lastX;
@@ -3146,6 +3373,7 @@
       stage.removeEventListener('pointermove', onMove);
       stage.removeEventListener('pointerup', onUp);
       stage.removeEventListener('pointercancel', onUp);
+      if (Math.abs(ev.clientX - panStartX) + Math.abs(ev.clientY - panStartY) < 4) clearSelection();
       writeNow();
     }
 
@@ -3308,6 +3536,7 @@
       }
       if (item.danger) b.classList.add('danger');
       if (item.on) b.classList.add('on');
+      if (item.disabled) b.disabled = true;
       b.addEventListener('click', function () {
         // The menu stays open behind the confirmation, dimmed, with the popup
         // straddling the row so the two read as one control.
@@ -4262,6 +4491,8 @@
   function switchTo(saveId, factoryId) {
     writeNow();
     closeAll();
+    selected = {};
+    selAnchor = null;
     store.active = saveId;
     var sv = currentSave();
     if (factoryId) sv.active = factoryId;
@@ -4999,6 +5230,20 @@
       changed();
     });
   });
+
+  /* ------------------------------------------------------------- tooltips */
+
+  // No browser tooltips anywhere: the moment the pointer reaches something
+  // with a title, the title moves to aria-label (for screen readers, where
+  // there's no visible text) and is dropped.
+  document.addEventListener('mouseover', function (e) {
+    for (var el = e.target; el && el.getAttribute; el = el.parentNode) {
+      var t = el.getAttribute('title');
+      if (t == null) continue;
+      if (t && !el.hasAttribute('aria-label') && !el.textContent.trim()) el.setAttribute('aria-label', t);
+      el.removeAttribute('title');
+    }
+  }, true);
 
   /* ----------------------------------------------------------------- boot */
 
