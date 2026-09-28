@@ -1879,3 +1879,19 @@ html, body {
 /* A menu option that doesn't apply to what's selected. */
 .ctx button:disabled { opacity: .38; cursor: default; }
 .ctx button:disabled:hover { background: none; color: var(--ink-dim); }
+
+/* ---------- round 13 ---------- */
+
+/* Selected: a solid white line just outside the node's own border. */
+.node.selected,
+.node.output.selected {
+  border-color: var(--edge);
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+}
+
+/* The support button, top right of the header. */
+.bar-right { margin-left: auto; display: flex; align-items: center; }
+#support { color: #ffd3b0; }
+#support:hover { color: #fff; }

@@ -184,6 +184,7 @@ which saved and imported plans keep.
 | Choose a node's purity and miner | Click "Normal node · Mk.1" on an ore, oil or gas block |
 | Add another resource node | The tall **+** down the left of the block, in the Items view. Each node is its own block with its own purity and miner; **Remove this node** is in its menu |
 | Save now | **Ctrl+S** (or the ring beside the save's name) |
+| Support the app | The thumbs-up heart, top right: **Donate with PayPal** |
 | Manifold or balancer | **Manifold** / **Balancer** in the header, in the Machines view |
 | Buildings you don't have yet | Untick them under **Machines** in the Plan panel |
 | Labels on the canvas | The sliders button, top right: resource names, rates, two-letter building names |
@@ -191,7 +192,7 @@ which saved and imported plans keep.
 | Change a recipe | Click the machine line on a node (e.g. "Smelter ×2") |
 | Import an item instead of making it | Same menu, **Import from elsewhere** |
 | Move a node | Drag it (Items view). It stays put through re-solves; a dot marks it pinned |
-| Select nodes | Click one; **Ctrl+click** adds or removes; **Shift+click** takes everything between (along the lines, or in the area the two span); **Ctrl/Shift+drag** a box; **Ctrl+A** all; **Esc** clears |
+| Select nodes | Click one; **Ctrl+click** adds or removes; **Shift+click** takes everything in a line between (the chain of belts that keeps closest to the straight line between the two, or, if no belts join them, whatever that line passes through); **Ctrl/Shift+drag** a box (each box replaces the selection); **Ctrl+A** all; **Esc** clears |
 | Act on a selection | Right-click a selected node: remove the nodes (steps are brought in instead, outputs dropped, extra resource nodes removed), make them outputs, or remove outputs; options that don't apply are dimmed. **Delete** removes. Dragging a selected node moves the whole selection |
 | Unpin one | Right-click it, **Unpin** |
 | Unpin everything | Right-click the canvas, **Tidy layout** |

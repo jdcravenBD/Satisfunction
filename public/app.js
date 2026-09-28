@@ -3077,12 +3077,21 @@
   }
 
   /**
-   * Everything between two nodes. Where one leads to the other along the
-   * lines, the nodes on those paths (Iron Ingot to Reinforced Iron Plate takes
-   * in the rods, screws and plates). Otherwise, everything in the area the
-   * two span (the middle three of five ore nodes stacked in a column).
+   * Everything in a line between two nodes. Where belts join them, the one
+   * chain of belts that keeps closest to the straight line between the two
+   * (Iron Ingot to Reinforced Iron Plate takes the rods and screws in that
+   * row, not the plates off to the side). Otherwise, whatever that straight
+   * line passes through (the bottom of five stacked ore nodes to the second
+   * from the top takes all but the top one).
    */
   function between(a, b) {
+    var ax = a.x + a.w / 2, ay = a.y + a.h / 2;
+    var bx = b.x + b.w / 2, by = b.y + b.h / 2;
+    var len = Math.hypot(bx - ax, by - ay) || 1;
+    function offLine(n) {
+      var cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+      return Math.abs((bx - ax) * (ay - cy) - (ax - cx) * (by - ay)) / len;
+    }
     function reach(from, dir) {
       var seen = {};
       var queue = [from];
@@ -3099,22 +3108,56 @@
       }
       return seen;
     }
-    function path(x, y) {
+    // A chain's score: its furthest node from the line, then its average.
+    function better(p, q) {
+      if (!q) return true;
+      if (Math.abs(p.worst - q.worst) > 0.5) return p.worst < q.worst;
+      if (Math.abs(p.mean - q.mean) > 0.5) return p.mean < q.mean;
+      return p.nodes.length < q.nodes.length;
+    }
+    function chain(x, y) {
       var down = reach(x, 'out');
       if (!down[y.key]) return null;
       var up = reach(y, 'inn');
-      return graph.nodes.filter(function (n) { return down[n.key] && up[n.key]; });
+      var best = null;
+      var tried = 0;
+      (function walk(n, trail) {
+        if (tried > 2000) return;
+        if (n === y) {
+          tried++;
+          var offs = trail.slice(1, -1).map(offLine);
+          var cand = {
+            nodes: trail.slice(),
+            worst: offs.length ? Math.max.apply(null, offs) : 0,
+            mean: offs.length ? offs.reduce(function (s, o) { return s + o; }, 0) / offs.length : 0
+          };
+          if (better(cand, best)) best = cand;
+          return;
+        }
+        n.out.forEach(function (e) {
+          var next = graph.byKey[e.to];
+          if (!next || !down[next.key] || !up[next.key] || trail.indexOf(next) >= 0) return;
+          trail.push(next);
+          walk(next, trail);
+          trail.pop();
+        });
+      })(x, [x]);
+      return best && best.nodes;
     }
-    var list = path(a, b) || path(b, a);
+    var list = chain(a, b) || chain(b, a);
     if (list) return list;
-    var x0 = Math.min(a.x, b.x);
-    var x1 = Math.max(a.x + a.w, b.x + b.w);
-    var y0 = Math.min(a.y, b.y);
-    var y1 = Math.max(a.y + a.h, b.y + b.h);
+    // Not joined by belts: what a band along the line, half a node high,
+    // passes through.
+    var band = Math.min(a.h, b.h) / 4;
+    var steps = Math.max(2, Math.ceil(len / 4));
     return graph.nodes.filter(function (n) {
-      var cx = n.x + n.w / 2;
-      var cy = n.y + n.h / 2;
-      return n.el && cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+      if (!n.el) return false;
+      for (var i = 0; i <= steps; i++) {
+        var px = ax + (bx - ax) * i / steps;
+        var py = ay + (by - ay) * i / steps;
+        if (px >= n.x && px <= n.x + n.w && py >= n.y - band && py <= n.y + n.h + band) return true;
+      }
+      return false;
     });
   }
 
@@ -3277,7 +3320,7 @@
   var marquee = document.getElementById('marquee');
 
   /**
-   * Draws the selection rectangle; on release, every node it touches joins
+   * Draws the selection rectangle; on release, the nodes it touches become
    * the selection (Items view).
    */
   function startMarquee(e) {
@@ -3317,6 +3360,7 @@
       var wx1 = (Math.max(x0, x1) - v.x) / v.s;
       var wy0 = (Math.min(y0, y1) - v.y) / v.s;
       var wy1 = (Math.max(y0, y1) - v.y) / v.s;
+      selected = {};
       graph.nodes.forEach(function (n) {
         if (n.el && n.x < wx1 && n.x + n.w > wx0 && n.y < wy1 && n.y + n.h > wy0) selected[n.key] = true;
       });
@@ -5229,6 +5273,32 @@
       refreshRecipeControls();
       changed();
     });
+  });
+
+  /* ---------------------------------------------------------------- focus */
+
+  // A button keeps focus after it's clicked, and the first key pressed after
+  // (even Shift) makes the browser draw its focus ring. Pressing anywhere
+  // else lets go of it.
+  document.addEventListener('pointerdown', function (e) {
+    var a = document.activeElement;
+    if (a && a !== document.body && (a.tagName === 'BUTTON' || a.tagName === 'A') && !a.contains(e.target)) a.blur();
+  }, true);
+
+  /* -------------------------------------------------------------- support */
+
+  var SUPPORT_URL = 'https://www.paypal.com/donate/?business=D67ZNGBK6W99W&no_recurring=1&item_name=Your+support+is+enough%2C+but+if+you+have+an+abnormally+sized+heart%2C+then+I%27ll+be+more+than+grateful%21&currency_code=USD';
+  var supportBtn = document.getElementById('support');
+  supportBtn.addEventListener('click', function () {
+    var r = supportBtn.getBoundingClientRect();
+    openCtx(r.right - 230, r.bottom + 6, [
+      { head: 'Support Satisfunction' },
+      {
+        label: 'Donate with PayPal',
+        note: 'Opens PayPal in a new tab',
+        run: function () { window.open(SUPPORT_URL, '_blank', 'noopener'); }
+      }
+    ]);
   });
 
   /* ------------------------------------------------------------- tooltips */
