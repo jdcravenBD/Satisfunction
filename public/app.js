@@ -801,6 +801,7 @@
     }
     keepSelection();
     lowestAdders();
+    hideHoverInfo();
     renderBreakdown();
     refreshMaxRates();
     refreshOptNote();
@@ -1341,8 +1342,14 @@
       return el;
     }
 
-    el.addEventListener('pointerenter', function () { focusNode(n.key, true); });
-    el.addEventListener('pointerleave', function () { focusNode(n.key, false); });
+    el.addEventListener('pointerenter', function () {
+      focusNode(n.key, true);
+      showHoverInfo(n);
+    });
+    el.addEventListener('pointerleave', function () {
+      focusNode(n.key, false);
+      if (!dragging) hideHoverInfo();
+    });
 
     recipeBtn.addEventListener('click', function () {
       if (recipeBtn.disabled) return;
@@ -1364,6 +1371,72 @@
 
     dragBehaviour(el, n);
     return el;
+  }
+
+  /* ------------------------------------------------------------ hover info */
+
+  // The hovered node's figures, bottom left of the canvas: what it is, how
+  // fast, which machines, what they draw, and what goes in and out.
+  var hoverInfo = document.getElementById('hover-info');
+
+  function hideHoverInfo() { hoverInfo.hidden = true; }
+
+  function showHoverInfo(n) {
+    if (!solved) return;
+    var lines = [];
+    function add(text, cls) { lines.push({ text: text, cls: cls || '' }); }
+    function flows(net, sign) {
+      return Object.keys(net).filter(function (id) { return net[id] * sign > EPS; })
+        .map(function (id) { return rateText(id, Math.abs(net[id])) + ' ' + itemName(id); });
+    }
+
+    if (n.kind === 'recipe') {
+      var r = DATA.recipes[n.rid];
+      var per = SOLVER.perMinute(r);
+      var net = {};
+      Object.keys(per).forEach(function (id) { net[id] = per[id] * n.count; });
+      var clocks = recipeClocks(n.rid, n.count);
+      add(itemName(n.item), 'hi-title');
+      add(rateText(n.item, net[n.item] || 0) + (r.name !== itemName(n.item) ? ' · ' + r.name : ''));
+      add(clocks.length + ' × ' + machineName(n.rid) + ' · ' + fmtNum(n.count) + ' running');
+      add(fmtPower(SOLVER.recipePower(DATA, n.rid, n.count, state.clock, clockTop(n.rid))) + ' average');
+      var ins = flows(net, -1);
+      var outs = flows(net, 1);
+      if (ins.length) add('In: ' + ins.join(', '));
+      if (outs.length) add('Out: ' + outs.join(', '));
+    } else if (n.kind === 'output') {
+      var t = targetFor(n.item);
+      add(itemName(n.item), 'hi-title');
+      add(rateText(n.item, n.rate) + ' · ' + (t && t.max ? 'output, as much as possible' : 'output'));
+      if (t && t.max && solved.limitedBy) add('Limited by ' + itemName(solved.limitedBy));
+    } else if (n.kind === 'raw') {
+      var e = solved.items[n.item];
+      add(itemName(n.item), 'hi-title');
+      add(rateText(n.item, n.rate));
+      if (DATA.items[n.item].raw) {
+        var info = supplyInfo(n.item);
+        var nd = info && info.nodeList && n.slot != null ? info.nodeList[n.slot] : null;
+        if (nd) {
+          add(nodeLabel(n.item, nd) + ' · gives up to ' + rateText(n.item, nd.rate));
+        } else if (info) {
+          add(supplyLabel(n.item, info));
+        }
+        if (e && e.cap != null) add('Resource in use: ' + fmtNum(e.supplied) + ' of ' + rateText(n.item, e.cap));
+      } else {
+        add(state.imports[n.item] ? 'Imported' : blocked[n.item] ? 'No ' + buildingName(blocked[n.item]) : 'Brought in');
+      }
+    } else {
+      return;
+    }
+
+    hoverInfo.innerHTML = '';
+    lines.forEach(function (l) {
+      var div = document.createElement('div');
+      div.className = 'hi-line ' + l.cls;
+      div.textContent = l.text;
+      hoverInfo.appendChild(div);
+    });
+    hoverInfo.hidden = false;
   }
 
   function setRate(el, id, n) {
@@ -2875,12 +2948,13 @@
   }
 
   /** A belt, or for fluids a pipe: drawn as a hollow double line. */
-  function line(d, fluid, keys, layer) {
+  function line(d, fluid, keys, layer, extra) {
+    var more = extra ? ' ' + extra : '';
     if (fluid) {
-      relate(keys, svg('path', { d: d, 'class': 'wire pipe' }, layer));
-      relate(keys, svg('path', { d: d, 'class': 'wire pipe-core' }, layer));
+      relate(keys, svg('path', { d: d, 'class': 'wire pipe' + more }, layer));
+      relate(keys, svg('path', { d: d, 'class': 'wire pipe-core' + more }, layer));
     } else {
-      relate(keys, svg('path', { d: d, 'class': 'wire' }, layer));
+      relate(keys, svg('path', { d: d, 'class': 'wire' + more }, layer));
     }
   }
 
@@ -2976,12 +3050,12 @@
       var tipD = len - exitAt(b, true);
       var startD = exitAt(a, false);
       if (tipD <= startD + 4) return;
-      var ARROW = 16, HALF = 3.5;
+      var ARROW = 20, HALF = 5;
       var tip = { x: ax + ux * tipD, y: ay + uy * tipD };
       var base = { x: tip.x - ux * ARROW, y: tip.y - uy * ARROW };
       var keys = [e.from, e.to];
       var fluid = isFluid(e.item);
-      line('M ' + ax + ' ' + ay + ' L ' + base.x + ' ' + base.y, fluid, keys);
+      line('M ' + ax + ' ' + ay + ' L ' + base.x + ' ' + base.y, fluid, keys, null, 'thin');
       var px = -uy * HALF, py = ux * HALF;
       relate(keys, svg('path', {
         d: 'M ' + tip.x + ' ' + tip.y + ' L ' + (base.x + px) + ' ' + (base.y + py) +

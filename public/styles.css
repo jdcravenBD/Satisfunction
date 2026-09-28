@@ -1938,3 +1938,31 @@ html, body {
 .vo-seg-row .vo-main { color: var(--ink-dim); }
 .vo-seg { margin: 0 0 0 auto; }
 .vo-seg .seg-btn { flex: 0 0 auto; padding: 4px 12px; }
+
+/* ---------- round 16 ---------- */
+
+/* Straight lines: thinner, so the arrows lead. */
+.wire.thin { stroke-width: 1.25; }
+.wire.pipe.thin { stroke-width: 4; }
+.wire.pipe-core.thin { stroke-width: 1.6; }
+
+/* The hovered node's figures: just text, bottom left, over a soft blur of
+   whatever is behind. */
+.hover-info {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  z-index: 24;
+  max-width: min(460px, calc(100% - 32px));
+  padding: 6px 8px;
+  border-radius: 8px;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  color: var(--ink-dim);
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+}
+.hi-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hi-title { color: var(--ink); font-size: 14px; font-weight: 600; margin-bottom: 1px; }
