@@ -1857,3 +1857,9 @@ html, body {
   border-radius: 2px;
   background: rgba(var(--machine), .6);
 }
+
+/* The wrapper round the header, tabs and toolbar spans the window but is
+   empty beside the tabs and toolbar, over the plan panel. Presses there go
+   through to the panel; only the wrapper's contents catch them. */
+.top { pointer-events: none; }
+.top > * { pointer-events: auto; }
