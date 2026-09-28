@@ -238,16 +238,23 @@ for (const c of resourceClasses) {
   }
 }
 
-const version = (() => {
+// The build's .version file: its branch and changelist, and the version
+// players know it by ("1.2.4.0").
+const versionFile = (() => {
   // Steam and Epic name the file differently (FactoryGameSteam / FactoryGameEGS).
   try {
     const dir = path.join(src, '..', '..', '..', 'Engine', 'Binaries', 'Win64');
     const file = fs.readdirSync(dir).find((f) => /-Win64-Shipping\.version$/.test(f));
-    const v = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
-    return v.BranchName.replace(/^\+\+FactoryGame\+/, '') + ' CL ' + v.Changelist;
+    return JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
   } catch (e) {
     return null;
   }
+})();
+const gameVersion = versionFile && versionFile.GameVersion ? versionFile.GameVersion : null;
+
+const version = (() => {
+  if (!versionFile) return null;
+  return versionFile.BranchName.replace(/^\+\+FactoryGame\+/, '') + ' CL ' + versionFile.Changelist;
 })();
 
 /* ------------------------------------------------------------ logistics */
@@ -296,6 +303,7 @@ const logistics = {
 const data = {
   source: path.basename(src),
   build: version,
+  gameVersion: gameVersion,
   generated: new Date().toISOString().slice(0, 10),
   items,
   recipes,

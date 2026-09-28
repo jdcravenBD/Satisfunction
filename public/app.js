@@ -51,7 +51,7 @@
     view: { x: 60, y: 40, s: 1 },
     mode: 'items', // 'items' or 'machines'
     folds: {},     // panel sections the user has collapsed: { inputs: true }
-    show: { products: true, rates: true, clocks: true, short: false }, // what the canvas labels
+    show: { products: true, rates: true, clocks: true, short: false, lines: 'curved' }, // what the canvas labels
     page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
     balance: 'manifold' // machine view inputs: 'manifold' or 'balancer'
   };
@@ -529,7 +529,8 @@
       products: show.products !== false,
       rates: show.rates !== false,
       clocks: show.clocks !== false,
-      short: !!show.short
+      short: !!show.short,
+      lines: show.lines === 'straight' ? 'straight' : 'curved'
     };
     state.belt = clamp(Math.round(Number(data.belt)) || DATA.logistics.belts.length, 1, DATA.logistics.belts.length);
     state.pipe = clamp(Math.round(Number(data.pipe)) || DATA.logistics.pipes.length, 1, DATA.logistics.pipes.length);
@@ -2914,7 +2915,13 @@
       });
     });
 
+    var straight = state.show.lines === 'straight';
+
     graph.edges.forEach(function (e) {
+      if (straight) {
+        straightWire(e);
+        return;
+      }
       var p1 = outPos[edgeId(e)];
       var p2 = inPos[edgeId(e)];
       var pts = [p1].concat(viaOf(e).map(function (d) { return { x: d.x, y: d.y }; }), [p2]);
@@ -2945,6 +2952,62 @@
       labelsEl.appendChild(label);
       relate(keys, label);
     });
+
+    /**
+     * Straight: from the middle of the node it leaves (hidden under that
+     * node) to the edge of the node it feeds, where a long, narrow arrow
+     * points in.
+     */
+    function straightWire(e) {
+      var a = byKey[e.from];
+      var b = byKey[e.to];
+      var ax = a.x + a.w / 2, ay = a.y + a.h / 2;
+      var bx = b.x + b.w / 2, by = b.y + b.h / 2;
+      var dx = bx - ax, dy = by - ay;
+      var len = Math.hypot(dx, dy);
+      if (len < 1) return;
+      var ux = dx / len, uy = dy / len;
+      // How far along the line each box's edge is.
+      function exitAt(n, fromEnd) {
+        var tx = ux ? (n.w / 2) / Math.abs(ux) : Infinity;
+        var ty = uy ? (n.h / 2) / Math.abs(uy) : Infinity;
+        return Math.min(tx, ty) + (fromEnd ? 3 : 0);
+      }
+      var tipD = len - exitAt(b, true);
+      var startD = exitAt(a, false);
+      if (tipD <= startD + 4) return;
+      var ARROW = 16, HALF = 3.5;
+      var tip = { x: ax + ux * tipD, y: ay + uy * tipD };
+      var base = { x: tip.x - ux * ARROW, y: tip.y - uy * ARROW };
+      var keys = [e.from, e.to];
+      var fluid = isFluid(e.item);
+      line('M ' + ax + ' ' + ay + ' L ' + base.x + ' ' + base.y, fluid, keys);
+      var px = -uy * HALF, py = ux * HALF;
+      relate(keys, svg('path', {
+        d: 'M ' + tip.x + ' ' + tip.y + ' L ' + (base.x + px) + ' ' + (base.y + py) +
+          ' L ' + (base.x - px) + ' ' + (base.y - py) + ' Z',
+        'class': 'wire-arrow' + (fluid ? ' pipe' : '')
+      }));
+
+      // The rate, halfway along the part that shows.
+      var mid = (startD + tipD) / 2;
+      var label = document.createElement('div');
+      label.className = 'flow-label';
+      label.style.left = ax + ux * mid + 'px';
+      label.style.top = ay + uy * mid + 'px';
+      var bold = document.createElement('b');
+      bold.textContent = fmtNum(e.rate);
+      label.appendChild(bold);
+      label.appendChild(document.createTextNode((fluid ? ' m³' : '') + '/min'));
+      if (a.item !== e.item) {
+        var nm = document.createElement('span');
+        nm.className = 'fl-item';
+        nm.textContent = itemName(e.item);
+        label.appendChild(nm);
+      }
+      labelsEl.appendChild(label);
+      relate(keys, label);
+    }
 
     if (hovered) focusNode(hovered, true);
   }
@@ -5157,6 +5220,9 @@
     stage.classList.toggle('hide-rates', !state.show.rates);
     stage.classList.toggle('short-names', state.show.short);
     stage.classList.toggle('hide-clocks', !state.show.clocks);
+    voMenu.querySelectorAll('[data-lines]').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.lines === state.show.lines);
+    });
     voMenu.querySelectorAll('[data-show]').forEach(function (b) {
       var on = !!state.show[b.dataset.show];
       b.classList.toggle('on', on);
@@ -5172,6 +5238,17 @@
 
   voBtn.addEventListener('click', function () { setOptsOpen(voMenu.hidden); });
   voMenu.addEventListener('click', function (e) {
+    // Curved or straight: one toggle, pressing either side.
+    var l = e.target.closest('[data-lines]');
+    if (l) {
+      state.show.lines = l.dataset.lines === state.show.lines
+        ? (state.show.lines === 'curved' ? 'straight' : 'curved')
+        : l.dataset.lines;
+      applyShow();
+      writeNow();
+      if (state.mode === 'items') renderWires();
+      return;
+    }
     var b = e.target.closest('[data-show]');
     if (!b) return;
     state.show[b.dataset.show] = !state.show[b.dataset.show];
@@ -5373,19 +5450,24 @@
 
   // The game versions there have been. Only the data from the user's own
   // install is loaded; the rest are listed but can't be picked yet.
-  var VERSIONS = ['1.1', '1.0', 'Update 8', 'Update 7', 'Update 6', 'Update 5', 'Update 4',
+  var VERSIONS = ['1.2', '1.1', '1.0', 'Update 8', 'Update 7', 'Update 6', 'Update 5', 'Update 4',
     'Update 3', 'Update 2', 'Update 1'];
   var versionBtn = document.getElementById('save-version');
+  // "1.2.4.0" is shown as 1.2, the version players know.
+  var GAME_VERSION = DATA.gameVersion ? String(DATA.gameVersion).split('.').slice(0, 2).join('.') : '';
+  document.getElementById('version-num').textContent = GAME_VERSION;
   versionBtn.addEventListener('click', function () {
     var r = versionBtn.getBoundingClientRect();
-    var items = [{
-      label: 'Your game',
-      note: DATA.build ? 'Build ' + String(DATA.build).replace(/^.*CL\s*/, '') : 'The data in use',
-      on: true,
-      run: function () {}
-    }, '-'];
+    var items = [];
     VERSIONS.forEach(function (v) {
-      items.push({ label: v, note: 'Not supported yet', disabled: true, run: function () {} });
+      var current = v === GAME_VERSION;
+      items.push({
+        label: v,
+        note: current ? 'The data in use' : 'Not supported yet',
+        on: current,
+        disabled: !current,
+        run: function () {}
+      });
     });
     openCtx(r.left, r.bottom + 6, items, true);
   });

@@ -185,7 +185,8 @@ which saved and imported plans keep.
 | Add another resource node | The thin **+** under the resource's lowest block, in the Items view. Each node is its own block with its own purity and miner; **Remove this node** is in its menu |
 | Save now | **Ctrl+S** (or the ring beside the save's name) |
 | Support the app | **Support me**, top right: **Donate with PayPal** |
-| Game version | **Version**, beside export: lists the versions; only your own game's data is loaded for now |
+| Game version | **Version 1.2**, beside export: the version the data is from (read from the game's own version file by `npm run data`); older versions are listed but not supported yet |
+| Straight or curved lines | Display options (top right of the canvas): **Lines · Curved / Straight**. Straight runs from a node's middle to the edge of what it feeds, ending in a narrow arrow (Items view) |
 | Manifold or balancer | **Manifold** / **Balancer** in the header, in the Machines view |
 | Buildings you don't have yet | Untick them under **Machines** in the Plan panel |
 | Labels on the canvas | The sliders button, top right: resource names, rates, two-letter building names |

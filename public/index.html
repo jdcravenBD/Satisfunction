@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=20">
+<link rel="stylesheet" href="styles.css?v=21">
 </head>
 <body>
 
@@ -53,7 +53,7 @@
           <!-- Which version of the game the data is for. Only the one we have
                the data for, for now. -->
           <button type="button" id="save-version" class="hbtn version-btn" aria-haspopup="true">
-            <span>Version</span>
+            <span>Version <span id="version-num"></span></span>
             <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
         </div>
@@ -154,6 +154,14 @@
       </svg>
     </button>
     <div id="vo-menu" class="vo-menu" role="menu" hidden>
+      <!-- How the Items view draws its lines. -->
+      <div class="vo-seg-row">
+        <span class="vo-main">Lines</span>
+        <div class="seg vo-seg" id="lines-seg" role="group" aria-label="Lines">
+          <button type="button" class="seg-btn" data-lines="curved">Curved</button>
+          <button type="button" class="seg-btn" data-lines="straight">Straight</button>
+        </div>
+      </div>
       <button type="button" class="vo-row" data-show="products" role="menuitemcheckbox">
         <span class="vo-main">Resource names</span>
         <span class="vo-note">What each building makes, in the Machines view</span>
@@ -338,11 +346,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=20"></script>
-<script src="solver.js?v=20"></script>
-<script src="lp.js?v=20"></script>
-<script src="optimise.js?v=20"></script>
-<script src="examples.js?v=20"></script>
-<script src="app.js?v=20"></script>
+<script src="data.js?v=21"></script>
+<script src="solver.js?v=21"></script>
+<script src="lp.js?v=21"></script>
+<script src="optimise.js?v=21"></script>
+<script src="examples.js?v=21"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>

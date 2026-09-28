@@ -1915,3 +1915,26 @@ html, body {
   height: 14px;
   font-size: 12px;
 }
+
+/* ---------- round 15 ---------- */
+
+/* The resource +: a little taller. */
+.n-add { height: 20px; font-size: 13px; }
+
+/* Straight lines' arrowheads, faded with their lines. */
+.wire-arrow { fill: var(--wire); transition: opacity .14s ease; }
+.wire-arrow.pipe { fill: #6a6a6a; }
+#world.focusing .wire-arrow:not(.hot) { opacity: .18; }
+
+/* Curved or straight, at the top of the display options. */
+.vo-seg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--edge);
+}
+.vo-seg-row .vo-main { color: var(--ink-dim); }
+.vo-seg { margin: 0 0 0 auto; }
+.vo-seg .seg-btn { flex: 0 0 auto; padding: 4px 12px; }
