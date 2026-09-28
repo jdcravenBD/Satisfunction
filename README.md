@@ -296,9 +296,10 @@ resource nodes, clocks and view.
 - Factories are tabs over the top left of the canvas: **+** adds one,
   double-click renames, right-click for more, **×** deletes.
 - The toolbar under the tabs runs the width of the app: undo and redo,
-  Duplicate, Export, Import, Clear and Delete for the open factory on the
-  left; Items / Machines, Manifold / Balancer (greyed out in the Items view)
-  and zoom on the right.
+  Rename, Duplicate, Export, Import, Clear and Delete for the open factory on
+  the left; under **View** on the right, Items / Machines, Manifold / Balancer
+  (greyed out in the Items view) and zoom.
+- Every dropdown closes again when its own button is clicked.
 - **Import** takes either kind of file: a save file comes in as a new save, a
   factory file (or an export from before saves existed) as a new tab.
 - Undo history belongs to the open factory and starts fresh on switching.

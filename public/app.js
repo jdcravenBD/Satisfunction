@@ -3154,6 +3154,7 @@
 
   /** Drop the shared "Are you sure?" against `anchor`, running `onYes` if taken. */
   function askConfirm(anchor, onYes, overlap) {
+    popOpener = clickFrom;
     confirmAction = onYes;
     placePopup(confirmEl, anchor, overlap);
     confirmEl.classList.add('show');
@@ -3185,6 +3186,7 @@
    * Placed at the point given, nudged back inside the window if it overflows.
    */
   function openCtx(clientX, clientY, items, asPicker) {
+    popOpener = clickFrom;
     ctx.innerHTML = '';
     ctx.classList.toggle('picker', !!asPicker);
     items.forEach(function (item) {
@@ -3256,11 +3258,31 @@
 
   // Any press outside the popups dismisses them. Right-clicks land here first
   // and the contextmenu event that follows reopens the menu in the new place.
+  // A press on the button that opened the popup closes it too, and the click
+  // that follows is swallowed so it doesn't open it straight back up.
   document.addEventListener('pointerdown', function (e) {
     if (confirmEl.contains(e.target) || itemPop.contains(e.target)) return;
+    var open = ctx.classList.contains('show') || confirmEl.classList.contains('show') ||
+      itemPop.classList.contains('show');
+    swallow = open && popOpener && popOpener.contains(e.target) ? popOpener : null;
     if (!ctx.contains(e.target)) closeCtx();
     closeConfirm();
     closeItemPicker();
+  }, true);
+
+  var popOpener = null;  // the button that opened the popup showing
+  var clickFrom = null;  // the button being clicked right now
+  var swallow = null;
+  document.addEventListener('click', function (e) {
+    if (swallow && swallow.contains(e.target)) {
+      e.stopPropagation();
+      e.preventDefault();
+      swallow = null;
+      return;
+    }
+    swallow = null;
+    clickFrom = e.target.closest ? e.target.closest('button') : null;
+    setTimeout(function () { clickFrom = null; }, 0);
   }, true);
 
   document.addEventListener('keydown', function (e) {
@@ -3510,6 +3532,7 @@
    * `onPick(itemId)` with the choice.
    */
   function openItemPicker(anchor, onPick, x, y) {
+    popOpener = clickFrom;
     closeCtx();
     closeConfirm();
     ipPick = onPick;
@@ -4002,6 +4025,7 @@
   /** Everything on screen redrawn for the open factory. */
   function refreshAll() {
     saveNameInput.value = currentSave().name || '';
+    fitSaveName();
     refreshModeSeg();
     applyShow();
     refreshClockSeg();
@@ -4256,8 +4280,16 @@
 
   /* ---- saves ---- */
 
+  var saveNameFit = document.getElementById('save-name-fit');
+  function fitSaveName() {
+    saveNameFit.textContent = saveNameInput.value || saveNameInput.placeholder;
+    saveNameInput.style.width = Math.min(340, saveNameFit.offsetWidth + 20) + 'px';
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitSaveName);
+
   saveNameInput.addEventListener('input', function () {
     currentSave().name = saveNameInput.value;
+    fitSaveName();
     save();
   });
   saveNameInput.addEventListener('keydown', function (e) {
@@ -4383,6 +4415,10 @@
 
   /* ---- toolbar ---- */
 
+  document.getElementById('rename').addEventListener('click', function () {
+    var tab = tabsEl.querySelector('.tab.on');
+    if (tab) renameTab(tab, currentFactory());
+  });
   document.getElementById('duplicate').addEventListener('click', duplicateFactory);
   document.getElementById('export').addEventListener('click', exportFactory);
   var deleteBtn = document.getElementById('delete');

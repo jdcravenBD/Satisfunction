@@ -25,6 +25,8 @@
       <div class="board-name save-pick">
         <span class="bn-label">Save name</span>
         <input id="save-name" type="text" placeholder="Untitled save" spellcheck="false" title="Rename this save">
+        <!-- Measures the name, so the field is only as wide as it. -->
+        <span id="save-name-fit" class="save-name-fit" aria-hidden="true"></span>
         <div class="save-tools">
           <!-- Dim ring while changes wait to be written; green tick once they are. -->
           <button type="button" id="save-now" class="hbtn" title="Saved">
@@ -65,6 +67,7 @@
     </div>
     <span class="tb-sep"></span>
     <div class="group">
+      <button id="rename" class="tb-btn" title="Rename this factory (or double-click its tab)">Rename</button>
       <button id="duplicate" class="tb-btn" title="Copy this factory into a new tab">Duplicate</button>
       <button id="export" class="tb-btn" title="Save this factory as a file">Export</button>
       <button id="import" class="tb-btn" title="Open a factory file as a new tab, or a save file as a new save">Import</button>
@@ -76,6 +79,7 @@
     </div>
     <span class="tb-space"></span>
     <!-- Viewing it, on the right. -->
+    <span class="tb-label">View</span>
     <!-- Every step as one card, or every step expanded into its buildings. -->
     <div class="seg bar-seg" id="mode" role="group" aria-label="View">
       <button type="button" class="seg-btn" data-mode="items" title="One card per step">Items</button>
