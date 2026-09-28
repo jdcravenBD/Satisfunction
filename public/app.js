@@ -38,7 +38,7 @@
     targets: [],   // [{ item, rate, max }] — what the plan is for, per minute
     recipes: {},   // item -> recipe id, where the user overrode the default
     imports: {},   // item -> true, when it comes from outside this factory
-    supply: {},    // raw item -> { nodes: ['pure', ...], miner }
+    supply: {},    // raw item -> { nodes: [{ purity, miner }], miner }
     clock: 'even', // how work is split over machines: 'none', 'even', 'fill' or 'max'
     unavailable: [], // buildings the user doesn't have yet
     belt: 6,       // fastest conveyor tier the build may use, 1–6
@@ -131,10 +131,22 @@
 
   function supplyOf(id) {
     var s = state.supply[id];
+    var miner = availableMiner((s && s.miner) || state.defaultMiner);
     return {
-      nodes: s ? s.nodes || [] : DEFAULT_NODES.slice(),
-      miner: availableMiner((s && s.miner) || state.defaultMiner)
+      nodes: storedNodes(id).map(function (n) {
+        return { purity: n.purity, miner: availableMiner(n.miner || miner) };
+      }),
+      miner: miner
     };
+  }
+
+  /** A resource's nodes as the user set them: [{ purity, miner? }]. */
+  function storedNodes(id) {
+    var s = state.supply[id];
+    var list = s ? s.nodes || [] : DEFAULT_NODES;
+    return list.map(function (n) {
+      return typeof n === 'string' ? { purity: n } : { purity: n.purity, miner: n.miner };
+    });
   }
 
   /** How a raw input is extracted, or null if the user lacks the building. */
@@ -322,15 +334,17 @@
         info: info,
         list: SOLVER.clocks(used / info.baseRate, state.clock,
           DATA.logistics.pipes[state.pipe - 1] / info.baseRate).map(function (c) {
-          return { purity: null, clock: c };
+          return { purity: null, clock: c, extractor: info.extractor, rate: info.baseRate };
         })
       };
     }
-    if (!info.nodes.length) return null;
+    if (!info.nodeList.length) return null;
     var ratio = info.capacity > EPS ? Math.min(1, used / info.capacity) : 0;
     return {
       info: info,
-      list: info.nodes.map(function (p) { return { purity: p, clock: ratio }; })
+      list: info.nodeList.map(function (nd) {
+        return { purity: nd.purity, clock: ratio, extractor: nd.extractor, rate: nd.rate };
+      })
     };
   }
 
@@ -492,11 +506,17 @@
     Object.keys(data.supply || {}).forEach(function (id) {
       var s = data.supply[id];
       if (!s || !DATA.items[id] || !DATA.items[id].raw) return;
+      var miner = DATA.extractors[s.miner] ? s.miner : undefined;
       state.supply[id] = {
-        nodes: (Array.isArray(s.nodes) ? s.nodes : []).filter(function (p) {
-          return SOLVER.PURITIES.indexOf(p) >= 0;
-        }),
-        miner: DATA.extractors[s.miner] ? s.miner : undefined
+        nodes: (Array.isArray(s.nodes) ? s.nodes : []).map(function (n) {
+          var p = typeof n === 'string' ? n : n && n.purity;
+          if (SOLVER.PURITIES.indexOf(p) < 0) return null;
+          var out = { purity: p };
+          var m = n && typeof n === 'object' && DATA.extractors[n.miner] ? n.miner : miner;
+          if (m) out.miner = m;
+          return out;
+        }).filter(Boolean),
+        miner: miner
       };
     });
     state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'even';
@@ -797,9 +817,23 @@
       var r = solved.recipes[rid];
       add({ key: 'r:' + rid, kind: 'recipe', rid: rid, item: r.item, count: r.count });
     });
+    // A resource drawn from several nodes shows each node as a block of its
+    // own, all running at the same share of what they can give.
+    var rawParts = {};
     Object.keys(solved.items).forEach(function (id) {
       var e = solved.items[id];
-      if (e.supplied > EPS) add({ key: 'raw:' + id, kind: 'raw', item: id, rate: e.supplied });
+      if (!(e.supplied > EPS)) return;
+      var info = DATA.items[id].raw ? supplyInfo(id) : null;
+      if (!info || !info.purity || !info.nodeList.length) {
+        add({ key: 'raw:' + id, kind: 'raw', item: id, rate: e.supplied });
+        return;
+      }
+      rawParts[id] = info.nodeList.map(function (nd, i) {
+        var share = nd.rate / info.capacity;
+        var key = i ? 'raw:' + id + '#' + i : 'raw:' + id;
+        add({ key: key, kind: 'raw', item: id, rate: e.supplied * share, slot: i });
+        return { key: key, share: share };
+      });
     });
     // Each output is a node of its own, fed like any other consumer.
     Object.keys(solved.targets).forEach(function (id) {
@@ -810,13 +844,18 @@
     // One edge per source, destination and item.
     var edgeMap = {};
     var edges = [];
-    solved.flows.forEach(function (f) {
-      var k = f.from + '>' + f.to + '>' + f.item;
+    function addFlow(from, to, item, rate) {
+      var k = from + '>' + to + '>' + item;
       if (!edgeMap[k]) {
-        edgeMap[k] = { from: f.from, to: f.to, item: f.item, rate: 0 };
+        edgeMap[k] = { from: from, to: to, item: item, rate: 0 };
         edges.push(edgeMap[k]);
       }
-      edgeMap[k].rate += f.rate;
+      edgeMap[k].rate += rate;
+    }
+    solved.flows.forEach(function (f) {
+      var parts = f.from === 'raw:' + f.item ? rawParts[f.item] : null;
+      if (parts) parts.forEach(function (p) { addFlow(p.key, f.to, f.item, f.rate * p.share); });
+      else addFlow(f.from, f.to, f.item, f.rate);
     });
     edges = edges.filter(function (e) { return byKey[e.from] && byKey[e.to]; });
     edges.forEach(function (e) {
@@ -1223,21 +1262,38 @@
       var label;
       if (it.raw) {
         var info = supplyInfo(n.item);
-        label = supplyLabel(n.item, info);
+        var nd = info && info.nodeList && n.slot != null ? info.nodeList[n.slot] : null;
+        label = nd ? nodeLabel(n.item, nd) : supplyLabel(n.item, info);
         menu = openSupplyMenu;
-        recipeBtn.title = 'Choose resource nodes';
+        recipeBtn.title = 'Purity and miner';
         if (!info || !info.purity) {
           // Water Extractors go anywhere; there's nothing to choose.
           recipeBtn.disabled = true;
           recipeBtn.title = '';
         }
         if (entry && entry.cap != null) {
-          note('Uses ' + fmtNum(entry.supplied) + ' of ' + rateText(n.item, entry.cap));
-          if (entry.short > EPS) {
+          if (nd && info.nodeList.length > 1) note('Uses ' + fmtNum(n.rate) + ' of ' + rateText(n.item, nd.rate));
+          else note('Uses ' + fmtNum(entry.supplied) + ' of ' + rateText(n.item, entry.cap));
+          // What's true of the resource as a whole goes on its first block.
+          if (!n.slot && entry.short > EPS) {
             el.classList.add('short');
             note('Short by ' + rateText(n.item, entry.short), 'warn');
           }
-          if (solved.limitedBy === n.item) note('Sets the max output');
+          if (!n.slot && solved.limitedBy === n.item) note('Sets the max output');
+        }
+        if (nd && !readOnly) {
+          // A tall, thin + down the block's left side adds another node.
+          var more = document.createElement('button');
+          more.type = 'button';
+          more.className = 'n-add';
+          more.textContent = '+';
+          more.title = 'Add another ' + itemName(n.item) + ' node';
+          more.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+          more.addEventListener('click', function (e) {
+            e.stopPropagation();
+            addResourceNode(n.item, nd);
+          });
+          el.appendChild(more);
         }
         if (readOnly && n.kind === 'raw') {
           note('Pick a node purity in the Items view to place its ' +
@@ -1309,6 +1365,24 @@
 
   function targetFor(id) {
     return state.targets.filter(function (t) { return t.item === id; })[0] || null;
+  }
+
+  /** One resource node's block: "Pure node · Mk.2". */
+  function nodeLabel(id, nd) {
+    var text = titleCase(nd.purity) + ' node';
+    if (!isFluid(id)) text += ' · ' + DATA.extractors[nd.extractor].name.replace(/^Miner\s*/, '');
+    return text;
+  }
+
+  /** Another node for a resource: normal, with the same miner as the one beside it. */
+  function addResourceNode(id, like) {
+    var s = state.supply[id] || {};
+    var list = storedNodes(id);
+    var next = { purity: 'normal' };
+    if (!isFluid(id) && like && like.extractor) next.miner = like.extractor;
+    list.push(next);
+    state.supply[id] = { nodes: list, miner: s.miner };
+    changed();
   }
 
   /** "Pure node · Mk.2", "Mined · any node", "3 nodes · Mk.1". */
@@ -1471,11 +1545,12 @@
           addLines('raw:' + id, {
             item: id, name: spec.name, size: spec.size, ins: [], outs: [id],
             machines: ex.list.map(function (m) {
-              var rate = (m.purity ? ex.info.perNode(m.purity) : ex.info.baseRate) * m.clock;
+              var rate = m.rate * m.clock;
               var load = {};
               load[id] = rate;
               return {
                 clock: clockSetting(m.clock),
+                name: DATA.extractors[m.extractor].name,
                 product: itemName(id),
                 pre: m.purity ? titleCase(m.purity) : '',
                 sub: clockLabel(m.clock),
@@ -2640,7 +2715,7 @@
           .concat(g.belts.filter(function (b) { return b.branch; }))
           .forEach(function (b) { belt(b.pts.map(abs), isFluid(b.item), []); });
         g.machines.forEach(function (gm) {
-          var shape = machineShape(n.size, n.name, gm.m.product, gm.m.sub, gm.m.clock, n.ins, n.outs, gm.m.pre);
+          var shape = machineShape(n.size, gm.m.name || n.name, gm.m.product, gm.m.sub, gm.m.clock, n.ins, n.outs, gm.m.pre);
           // Miners and extractors bring things in rather than make them: grey.
           if (n.key.indexOf('raw:') === 0) shape.classList.add('extractor');
           shape.style.left = n.x + px(gm.x) + 'px';
@@ -3106,6 +3181,11 @@
   // browser's own text undo keeps working inside inputs.
   document.addEventListener('keydown', function (e) {
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (e.key.toLowerCase() === 's') {
+      e.preventDefault();  // not the browser's "save page"
+      writeNow();
+      return;
+    }
     var el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
 
@@ -3446,65 +3526,76 @@
     var info = supplyInfo(id);
     var items = [];
     if (info && info.purity) {
-      var nodes = info.nodes;
+      var s = state.supply[id] || {};
+      var nodes = storedNodes(id);
+      var slot = Math.min(n.slot || 0, Math.max(0, nodes.length - 1));
+      var here = nodes[slot];
+      var nd = info.nodeList[slot];
       var set = function (list, miner) {
-        var s = state.supply[id] || {};
         state.supply[id] = { nodes: list, miner: miner || s.miner };
         changed();
       };
-      var perNode = function (p) { return rateText(id, info.perNode(p)) + ' per node'; };
-      var exName = DATA.extractors[info.extractor].name;
+      // This node, changed; the others left alone.
+      // Every node keeps the miner it has now, so picking one here doesn't
+      // move the others (which may be following the last miner picked).
+      var withHere = function (change) {
+        var list = nodes.map(function (o, j) {
+          var copy = Object.assign({}, o);
+          if (!isFluid(id) && info.nodeList[j]) copy.miner = info.nodeList[j].extractor;
+          return copy;
+        });
+        if (!list.length) list = [{ purity: 'normal' }];
+        Object.assign(list[slot], change);
+        return list;
+      };
+      var minerHere = nd ? nd.extractor : info.extractor;
+      var rateFor = function (mid, p) {
+        return rateText(id, DATA.extractors[mid].rate * SOLVER.PURITY[p]) + ' per node';
+      };
 
-      items.push({ head: 'Resource node · ' + exName });
+      items.push({ head: nodes.length > 1
+        ? 'Node ' + (slot + 1) + ' of ' + nodes.length + ' · ' + rateText(id, info.capacity) + ' in all'
+        : 'Resource node · ' + DATA.extractors[minerHere].name });
       items.push({
         label: 'Any node',
-        note: 'As much as the plan needs',
+        note: nodes.length > 1 ? 'As much as the plan needs, in place of all ' + nodes.length + ' nodes' : 'As much as the plan needs',
         on: !nodes.length,
         run: function () { set([]); }
       });
       SOLVER.PURITIES.forEach(function (p) {
         items.push({
           label: titleCase(p),
-          note: perNode(p),
-          on: nodes.length === 1 && nodes[0] === p,
-          run: function () { set([p]); }
+          note: rateFor(minerHere, p),
+          on: !!here && here.purity === p,
+          run: function () { set(withHere({ purity: p })); }
         });
       });
 
-      if (nodes.length) {
-        items.push('-');
-        items.push({ head: 'Add another node' });
-        SOLVER.PURITIES.forEach(function (p) {
-          items.push({ label: '+ ' + titleCase(p), note: perNode(p), run: function () { set(nodes.concat([p])); } });
-        });
-        if (nodes.length > 1) {
-          items.push({ head: nodes.length + ' nodes · ' + rateText(id, info.capacity) + ' total' });
-          nodes.forEach(function (p, i) {
-            items.push({
-              label: titleCase(p) + ' node',
-              note: 'Click to remove',
-              run: function () { set(nodes.filter(function (_, j) { return j !== i; })); }
-            });
-          });
-        }
-      }
-
       if (!isFluid(id)) {
         items.push('-');
-        items.push({ head: 'Miner' });
-        ['Build_MinerMk1_C', 'Build_MinerMk2_C', 'Build_MinerMk3_C'].forEach(function (mid) {
+        items.push({ head: nodes.length > 1 ? 'Miner on this node' : 'Miner' });
+        MINERS.forEach(function (mid) {
           var ex = DATA.extractors[mid];
           if (!ex) return;
           items.push({
             label: ex.name,
             note: rateText(id, ex.rate) + ' on a normal node' + (hasBuilding(mid) ? '' : ' · not available'),
-            on: info.extractor === mid,
+            on: minerHere === mid,
             run: function () {
               // New resources start on whichever miner was picked last.
               state.defaultMiner = mid;
-              set(nodes, mid);
+              if (nodes.length) set(withHere({ miner: mid }));
+              else set([], mid);
             }
           });
+        });
+      }
+
+      if (nodes.length > 1) {
+        items.push('-');
+        items.push({
+          label: 'Remove this node',
+          run: function () { set(nodes.filter(function (_, j) { return j !== slot; })); }
         });
       }
     }
@@ -3856,12 +3947,16 @@
       if (!(e.supplied > EPS) || !DATA.items[id].raw) return;
       var ex = extractorsFor(id, e.supplied);
       if (!ex) return;
-      var clocksList = ex.list.map(function (m) { return m.clock; });
-      clocksList.forEach(function (c) { shards += shardsFor(c); });
-      tally(ex.info.extractor, DATA.extractors[ex.info.extractor].name,
-        clocksList.reduce(function (s, c) { return s + c; }, 0),
-        clocksList.length,
-        SOLVER.extractorPower(DATA, ex.info.extractor, clocksList, state.clock));
+      var byMark = {};
+      ex.list.forEach(function (m) { (byMark[m.extractor] = byMark[m.extractor] || []).push(m.clock); });
+      Object.keys(byMark).forEach(function (mid) {
+        var clocksList = byMark[mid];
+        clocksList.forEach(function (c) { shards += shardsFor(c); });
+        tally(mid, DATA.extractors[mid].name,
+          clocksList.reduce(function (s, c) { return s + c; }, 0),
+          clocksList.length,
+          SOLVER.extractorPower(DATA, mid, clocksList, state.clock));
+      });
     });
 
     var steps = Object.keys(solved.recipes).length;
@@ -4092,7 +4187,10 @@
       });
       tab.appendChild(x);
 
+      tab.dataset.id = f.id;
+      tab.addEventListener('pointerdown', function (e) { dragTab(tab, e); });
       tab.addEventListener('click', function () {
+        if (tabDragged) return;
         if (!on) switchTo(sv.id, f.id);
       });
       tab.addEventListener('dblclick', function () {
@@ -4115,6 +4213,50 @@
     add.textContent = '+';
     add.addEventListener('click', function () { addFactory(newFactoryRecord()); });
     tabsEl.appendChild(add);
+  }
+
+  // Dragging a tab sideways reorders it, the tab following the pointer and
+  // the others making room, as in a browser.
+  var tabDragged = false;
+  function dragTab(tab, e) {
+    if (e.button !== 0 || e.target.closest('.tab-x, .tab-input')) return;
+    var startX = e.clientX;
+    var grab = 0;
+    var moved = false;
+    function move(ev) {
+      if (!moved) {
+        if (Math.abs(ev.clientX - startX) < 5) return;
+        moved = true;
+        grab = startX - tab.getBoundingClientRect().left;
+        tab.classList.add('dragging');
+      }
+      var left = ev.clientX - grab;
+      var mid = left + tab.offsetWidth / 2;
+      var before = null;
+      tabsEl.querySelectorAll('.tab').forEach(function (t) {
+        if (t === tab || before) return;
+        var r = t.getBoundingClientRect();
+        if (mid < r.left + r.width / 2) before = t;
+      });
+      tabsEl.insertBefore(tab, before || tabsEl.querySelector('.tab-add'));
+      tab.style.transform = '';
+      tab.style.transform = 'translateX(' + (left - tab.getBoundingClientRect().left) + 'px)';
+    }
+    function up() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      if (!moved) return;
+      tabDragged = true;
+      setTimeout(function () { tabDragged = false; }, 0);
+      var order = [].map.call(tabsEl.querySelectorAll('.tab'), function (t) { return t.dataset.id; });
+      currentSave().factories.sort(function (x, y) { return order.indexOf(x.id) - order.indexOf(y.id); });
+      renderTabs();
+      save();
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   /** Renames the open factory in place, on its tab. */

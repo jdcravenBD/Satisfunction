@@ -181,7 +181,9 @@ which saved and imported plans keep.
 | Add an output | **+ Add output**, then type to search |
 | Set its rate | Type in the Plan panel; the plan re-solves as you type. 0 keeps it listed but makes none |
 | Make as much as possible | Outputs start on **max**; click **max** / **/min** to switch |
-| Choose resource nodes | Click "Normal node · Mk.1" on an ore, oil or gas node |
+| Choose a node's purity and miner | Click "Normal node · Mk.1" on an ore, oil or gas block |
+| Add another resource node | The tall **+** down the left of the block, in the Items view. Each node is its own block with its own purity and miner; **Remove this node** is in its menu |
+| Save now | **Ctrl+S** (or the ring beside the save's name) |
 | Manifold or balancer | **Manifold** / **Balancer** in the header, in the Machines view |
 | Buildings you don't have yet | Untick them under **Machines** in the Plan panel |
 | Labels on the canvas | The sliders button, top right: resource names, rates, two-letter building names |
@@ -294,7 +296,8 @@ resource nodes, clocks and view.
   **browse** (every save in a scrolling list to open or delete, and **New
   save**), **import** and **export**.
 - Factories are tabs over the top left of the canvas: **+** adds one,
-  double-click renames, right-click for more, **×** deletes.
+  double-click renames, drag sideways to reorder, right-click for more,
+  **×** deletes.
 - The toolbar under the tabs runs the width of the app: undo and redo,
   Rename, Duplicate, Export, Import, Clear and Delete for the open factory on
   the left; under **View** on the right, Items / Machines, Manifold / Balancer

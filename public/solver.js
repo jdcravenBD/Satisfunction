@@ -56,25 +56,34 @@
 
   /**
    * How a raw input is supplied. `supply` is the user's setting for it:
-   * { nodes: ['pure', 'normal'], miner } — no nodes means "as needed".
-   * Water Extractors go anywhere, so water has no purity and no cap.
+   * { nodes: [{ purity, miner }], miner } — no nodes means "as needed". A
+   * node is a purity ('pure') or { purity, miner }: each solid node can have
+   * its own miner, falling back to the resource's. Water Extractors go
+   * anywhere, so water has no purity and no cap.
    */
   function supplyInfo(data, item, supply) {
     var ex = extractorFor(data, item, supply);
     if (!ex) return null;
     var rate = data.extractors[ex].rate;
     var purity = ex !== WATER_PUMP;
-    var nodes = purity && supply && Array.isArray(supply.nodes)
-      ? supply.nodes.filter(function (p) { return PURITY[p]; })
+    var solid = data.items[item].form === 'solid';
+    var list = purity && supply && Array.isArray(supply.nodes)
+      ? supply.nodes.map(function (n) {
+        var p = typeof n === 'string' ? n : n && n.purity;
+        if (!PURITY[p]) return null;
+        var m = solid && n && typeof n === 'object' && data.extractors[n.miner] ? n.miner : ex;
+        return { purity: p, extractor: m, rate: data.extractors[m].rate * PURITY[p] };
+      }).filter(Boolean)
       : [];
     return {
       extractor: ex,
       purity: purity,
-      nodes: nodes,
+      nodes: list.map(function (n) { return n.purity; }),
+      nodeList: list,
       perNode: function (p) { return rate * (purity ? PURITY[p] : 1); },
       baseRate: rate,
-      capacity: nodes.length
-        ? nodes.reduce(function (s, p) { return s + rate * PURITY[p]; }, 0)
+      capacity: list.length
+        ? list.reduce(function (s, n) { return s + n.rate; }, 0)
         : null
     };
   }
@@ -497,7 +506,8 @@
     extractorPower: extractorPower,
     supplyInfo: supplyInfo,
     capsFrom: capsFrom,
-    PURITIES: PURITIES
+    PURITIES: PURITIES,
+    PURITY: PURITY
   };
   root.SF_SOLVER = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
 
@@ -305,11 +305,13 @@
   </article>
 </template>
 
-<script src="data.js"></script>
-<script src="solver.js"></script>
-<script src="lp.js"></script>
-<script src="optimise.js"></script>
-<script src="examples.js"></script>
-<script src="app.js"></script>
+<!-- ?v= is bumped whenever these files change, so a browser never mixes an old
+     copy of one with a new copy of another. -->
+<script src="data.js?v=9"></script>
+<script src="solver.js?v=9"></script>
+<script src="lp.js?v=9"></script>
+<script src="optimise.js?v=9"></script>
+<script src="examples.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

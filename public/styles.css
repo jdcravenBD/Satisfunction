@@ -1663,22 +1663,77 @@ html, body {
   width: 1px;
   background: var(--edge-hi);
 }
-.tab.on::after,
 .tab:hover::after,
 .tab:has(+ .tab.on)::after,
-.tab:has(+ .tab:hover)::after,
-.tab:has(+ .tab-add)::after { display: none; }
+.tab:has(+ .tab:hover)::after { display: none; }
 
 /* "View" heads the controls that change how the factory is shown. */
 .tb-label {
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  font-size: 12px;
   color: var(--ink-faint);
-  margin-right: -2px;
+  margin-right: 6px;
 }
 
 /* Room for everything on one row at ordinary widths. */
 .toolbar { gap: 6px; }
 .tb-btn { padding: 3px 8px; }
 .toolbar .bar-seg .seg-btn { padding: 3px 10px; }
+
+/* ---------- round 8 ---------- */
+
+/* The open tab flares out where it meets the toolbar, as in Chrome: a small
+   curve each side, filled with the toolbar's grey and edged in its line. */
+.tabs .tab.on { z-index: 1; }
+.tabs .tab.on::before,
+.tabs .tab.on::after,
+.tabs .tab.on:hover::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: auto;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+}
+.tabs .tab.on::before {
+  left: -9px;
+  background: radial-gradient(circle at 0 0, transparent 7px, var(--edge) 7.2px, var(--edge) 8px, var(--panel-2) 8.4px);
+}
+.tabs .tab.on::after,
+.tabs .tab.on:hover::after {
+  right: -9px;
+  background: radial-gradient(circle at 100% 0, transparent 7px, var(--edge) 7.2px, var(--edge) 8px, var(--panel-2) 8.4px);
+}
+
+/* A tab being dragged rides above the rest. */
+.tab.dragging { z-index: 2; background: var(--panel-2); color: var(--ink-dim); cursor: grabbing; }
+.tab.dragging::after { display: none; }
+
+/* A resource block's tall, thin + for another node, down its left side. */
+.n-add {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -22px;
+  width: 15px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--edge-hi);
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease, border-color .14s ease;
+}
+.n-add:hover {
+  border-style: solid;
+  border-color: var(--edge-focus);
+  background: rgba(255, 255, 255, .05);
+  color: var(--ink);
+}
