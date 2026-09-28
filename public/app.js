@@ -39,7 +39,7 @@
     recipes: {},   // item -> recipe id, where the user overrode the default
     imports: {},   // item -> true, when it comes from outside this factory
     supply: {},    // raw item -> { nodes: [{ purity, miner }], miner }
-    clock: 'even', // how work is split over machines: 'none', 'even', 'fill' or 'max'
+    clock: 'none', // how work is split over machines: 'none', 'even', 'fill' or 'max'
     unavailable: [], // buildings the user doesn't have yet
     belt: 6,       // fastest conveyor tier the build may use, 1–6
     pipe: 2,       // fastest pipeline tier, 1–2
@@ -420,7 +420,7 @@
 
   function newFactoryRecord(name) { return { id: uid(), name: name || '', plan: {} }; }
   function newSaveRecord(name) {
-    var f = newFactoryRecord();
+    var f = newFactoryRecord('New factory');
     return { id: uid(), name: name || '', active: f.id, progress: {}, factories: [f] };
   }
 
@@ -519,7 +519,7 @@
         miner: miner
       };
     });
-    state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'even';
+    state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'none';
     state.unavailable = (Array.isArray(data.unavailable) ? data.unavailable : []).filter(function (id) {
       return BUILDINGS.indexOf(id) >= 0;
     });
@@ -4061,7 +4061,9 @@
           if (t.max) out.max = true;
           return out;
         });
-        if (!state.name) state.name = ex.name;
+        if (!state.name || /^New factory( \d+)?$/.test(state.name)) {
+          state.name = uniqueName(ex.name, currentFactory());
+        }
         renderTabs();
         renderTargets();
         changed();
@@ -4103,9 +4105,9 @@
   var barEl = document.getElementById('top');
 
   function syncBarHeight() {
-    document.documentElement.style.setProperty(
-      '--bar-h', barEl.offsetHeight + 'px'
-    );
+    var root = document.documentElement.style;
+    root.setProperty('--bar-h', barEl.offsetHeight + 'px');
+    root.setProperty('--head-h', barEl.querySelector('.bar').offsetHeight + 'px');
   }
 
   if (window.ResizeObserver) new ResizeObserver(syncBarHeight).observe(barEl);
@@ -4152,6 +4154,23 @@
     writeNow();
   }
 
+  /**
+   * `name`, or if another factory in this save already has it, the next
+   * free number after it: "New factory", "New factory 2", "New factory 3".
+   */
+  function uniqueName(name, except) {
+    name = (name || '').trim() || 'New factory';
+    var taken = currentSave().factories
+      .filter(function (f) { return f !== except; })
+      .map(function (f) { return factoryLabel(f).toLowerCase(); });
+    if (taken.indexOf(name.toLowerCase()) < 0) return name;
+    var m = name.match(/^(.*?)(?: (\d+))?$/);
+    var stem = m[1];
+    var n = m[2] ? Number(m[2]) : 1;
+    do { n++; } while (taken.indexOf((stem + ' ' + n).toLowerCase()) >= 0);
+    return stem + ' ' + n;
+  }
+
   function factoryLabel(f) {
     var name = currentFactory() === f ? state.name : f.name;
     return (name || '').trim() || 'New factory';
@@ -4161,6 +4180,7 @@
 
   function renderTabs() {
     var sv = currentSave();
+    document.getElementById('plan-name').textContent = factoryLabel(currentFactory());
     tabsEl.innerHTML = '';
     sv.factories.forEach(function (f) {
       var on = f.id === sv.active;
@@ -4211,7 +4231,7 @@
     add.title = 'New factory';
     add.setAttribute('aria-label', 'New factory');
     add.textContent = '+';
-    add.addEventListener('click', function () { addFactory(newFactoryRecord()); });
+    add.addEventListener('click', function () { addFactory(newFactoryRecord(uniqueName('New factory'))); });
     tabsEl.appendChild(add);
   }
 
@@ -4275,7 +4295,7 @@
       if (done) return;
       done = true;
       if (keep) {
-        state.name = input.value.trim();
+        state.name = uniqueName(input.value, currentFactory());
         save();
       }
       renderTabs();
@@ -4320,7 +4340,7 @@
     var f = currentFactory();
     var copy = clone(f);
     copy.id = uid();
-    copy.name = factoryLabel(f) + ' copy';
+    copy.name = uniqueName(factoryLabel(f));
     addFactory(copy, f.id);
   }
 
@@ -4330,7 +4350,7 @@
     if (at < 0) return;
     writeNow();
     sv.factories.splice(at, 1);
-    if (!sv.factories.length) sv.factories.push(newFactoryRecord());
+    if (!sv.factories.length) sv.factories.push(newFactoryRecord('New factory'));
     if (sv.active === f.id) sv.active = sv.factories[Math.min(at, sv.factories.length - 1)].id;
     // Nothing of the deleted factory may be written back over its neighbour.
     PROGRESS.concat(FACTORY, ['name']).forEach(function (k) { state[k] = clone(DEFAULTS[k]); });
@@ -4412,7 +4432,7 @@
       store.saves.push(sv);
       switchTo(sv.id);
     } else if (data && Array.isArray(data.targets)) {
-      var f = newFactoryRecord(typeof data.name === 'string' ? data.name : '');
+      var f = newFactoryRecord(uniqueName(typeof data.name === 'string' ? data.name : ''));
       f.plan = pick(data, FACTORY);
       addFactory(f, currentFactory().id);
     } else {

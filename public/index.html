@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
 
@@ -164,7 +164,7 @@
      column, to the right of the canvas. -->
 <aside id="panel" class="summary" aria-label="Plan">
   <div class="sum-head">
-    <strong>Plan</strong>
+    <strong class="plan-title"><span id="plan-name">Factory</span> <span class="dim">details</span></strong>
   </div>
 
   <div class="sum-totals">
@@ -237,7 +237,7 @@
         <span class="sum-group-count">how work is split</span>
       </div>
       <div class="seg panel-seg" id="clock-seg">
-        <button type="button" class="seg-btn" data-clock="none" title="Nothing under- or overclocked: 2.5 machines' worth = 3 at 100%, the last one idling half the time. Every machine left as it's built.">All at 100%</button>
+        <button type="button" class="seg-btn" data-clock="none" title="Nothing under- or overclocked: 2.5 machines' worth = 3 at 100%, the last one idling half the time. Every machine left as it's built.">100% <span class="dim">(Default)</span></button>
         <button type="button" class="seg-btn" data-clock="even" title="2.5 machines' worth = 3 machines at 83.33%. Least power.">Spread evenly</button>
         <button type="button" class="seg-btn" data-clock="fill" title="2.5 machines' worth = 2 at 100% and 1 at 50%">Underclock last</button>
         <button type="button" class="seg-btn" data-clock="max" title="Fewest machines: 2.5 machines' worth = 1 at 250%, using Power Shards (one per 50% over 100%). Held lower where a belt couldn't keep up. Miners on resource nodes stay at 100%.">Overclock</button>
@@ -307,11 +307,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=9"></script>
-<script src="solver.js?v=9"></script>
-<script src="lp.js?v=9"></script>
-<script src="optimise.js?v=9"></script>
-<script src="examples.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="data.js?v=11"></script>
+<script src="solver.js?v=11"></script>
+<script src="lp.js?v=11"></script>
+<script src="optimise.js?v=11"></script>
+<script src="examples.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

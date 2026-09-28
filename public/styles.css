@@ -1681,8 +1681,11 @@ html, body {
 
 /* ---------- round 8 ---------- */
 
-/* The open tab flares out where it meets the toolbar, as in Chrome: a small
-   curve each side, filled with the toolbar's grey and edged in its line. */
+/* The open tab flares out where it meets the toolbar, as in Chrome: its side
+   line curves out into the toolbar's top line. Each corner is a small
+   drawing laid over the bottom of the tab's border, filled with the
+   toolbar's grey and stroked like the border (#232323 is --panel-2, #2e2e2e
+   is --edge; a var() can't reach inside the image). */
 .tabs .tab.on { z-index: 1; }
 .tabs .tab.on::before,
 .tabs .tab.on::after,
@@ -1692,18 +1695,18 @@ html, body {
   position: absolute;
   top: auto;
   bottom: 0;
-  width: 8px;
-  height: 8px;
-  pointer-events: none;
-}
-.tabs .tab.on::before {
   left: -9px;
-  background: radial-gradient(circle at 0 0, transparent 7px, var(--edge) 7.2px, var(--edge) 8px, var(--panel-2) 8.4px);
+  right: auto;
+  width: 9px;
+  height: 9px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 9 9'%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5L9 0.5L9 9L0.5 9Z' fill='%23232323'/%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5' fill='none' stroke='%232e2e2e' stroke-width='1'/%3E%3C/svg%3E") 0 0 / 9px 9px no-repeat;
+  pointer-events: none;
 }
 .tabs .tab.on::after,
 .tabs .tab.on:hover::after {
+  left: auto;
   right: -9px;
-  background: radial-gradient(circle at 100% 0, transparent 7px, var(--edge) 7.2px, var(--edge) 8px, var(--panel-2) 8.4px);
+  transform: scaleX(-1);
 }
 
 /* A tab being dragged rides above the rest. */
@@ -1737,3 +1740,24 @@ html, body {
   background: rgba(255, 255, 255, .05);
   color: var(--ink);
 }
+
+/* ---------- round 9 ---------- */
+
+/* Quieter half of a label: "(Default)", "details". */
+.seg-btn .dim { color: var(--ink-ghost); font-weight: 400; }
+.seg-btn.on .dim { color: var(--ink-faint); }
+.plan-title .dim { color: var(--ink-faint); font-weight: 500; }
+
+/* The plan column runs the full height under the header; the tabs and the
+   toolbar stop where the canvas does. */
+.tabs, .toolbar { margin-right: var(--plan-w); }
+.toolbar { border-right: 1px solid var(--edge); border-top-right-radius: 0; }
+.summary { top: calc(var(--head-h, 44px) + 6px); }
+
+/* The toolbar now stops at the canvas, so it's a little more compact: one
+   row down to about 1280 px wide. */
+.toolbar { gap: 5px; }
+.tb-btn { padding: 3px 7px; }
+.tb-btn.icon { width: 24px; }
+#zoom-fit { min-width: 44px; }
+.toolbar .bar-seg .seg-btn { padding: 3px 8px; }

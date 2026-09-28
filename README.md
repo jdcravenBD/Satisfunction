@@ -116,7 +116,7 @@ nothing capped is involved, the plan says so rather than going to infinity.
 ### Clocks and power
 
 When a step needs part of a machine, the Plan panel chooses how to split it:
-**All at 100%** (nothing clocked: 2.5 machines' worth → 3 at 100%, the last
+**100% (Default)**, which new factories start on (nothing clocked: 2.5 machines' worth → 3 at 100%, the last
 idling half the time, drawing power only while it works),
 **Spread evenly** (2.5 machines' worth → 3 at 83.33%, least power),
 **Underclock last** (2 at 100% and 1 at 50%) or **Overclock** (fewest
@@ -196,7 +196,10 @@ which saved and imported plans keep.
 | Fit the plan to the window | Click the zoom percentage |
 | Pan / zoom | Drag the background / scroll |
 
-The Plan column sits to the right of the canvas. It boxes Inputs, Outputs, Machines, recipe settings and layout
+The Plan column, titled "<factory> details", runs the full height to the right
+of the canvas; the tabs and toolbar stop where the canvas does. Factory names in
+a save are kept distinct: a clash gets the next number ("New factory 2",
+"Motor 3"). It boxes Inputs, Outputs, Machines, recipe settings and layout
 settings; the first three fold away from their heading. Machines lists every
 building with a tick for the ones you have. Unticking one re-plans without it:
 another recipe stands in where one exists (standard first, then unlocked
