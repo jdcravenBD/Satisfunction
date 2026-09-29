@@ -790,6 +790,7 @@ html, body {
 }
 .flow-label b { color: var(--ink); font-weight: 600; }
 .flow-label .fl-item { color: var(--ink-faint); margin-left: 4px; }
+.flow-label .fl-icon { width: 15px; height: 15px; object-fit: contain; margin: -2px 4px -3px -3px; vertical-align: middle; }
 
 /* ---------- nodes ---------- */
 
@@ -986,6 +987,11 @@ html, body {
   color: var(--ink-dim);
   vertical-align: 1px;
 }
+/* Rows with an item's icon ahead of the name. */
+.ctx button.with-icon { gap: 8px; }
+.ctx .ctx-icon { width: 22px; height: 22px; object-fit: contain; flex: none; }
+.ctx button.two-line.with-icon { grid-template-columns: auto 1fr; column-gap: 9px; }
+.ctx button.two-line .ctx-icon { grid-column: 1; grid-row: 1 / span 2; }
 .ctx .ctx-head {
   padding: 5px 9px 3px;
   font-size: 10px;
@@ -2233,10 +2239,6 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 .cnode {
   position: absolute;
   z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   border-radius: 10px;
   background: #38261a;
   border: 1px solid #6b482b;
@@ -2250,8 +2252,20 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 .cnode.cnode-resource, .cnode.cnode-import { background: var(--panel-2); border-color: #5a5a5a; border-style: dashed; }
 .cnode.cnode-sink { background: rgba(var(--output), .1); border-color: rgba(var(--output), .6); }
 .cnode.cnode-splitter, .cnode.cnode-merger { border-radius: 6px; background: #2b2b2b; border-color: #a0a0a0; }
-.cn-letter { font-size: 17px; font-weight: 700; color: var(--bright); }
-.cn-icon { width: 54px; height: 54px; object-fit: contain; pointer-events: none; margin-top: 10px; }
+.cn-body {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 14px;
+  pointer-events: none;
+}
+.cnode-splitter .cn-body, .cnode-merger .cn-body { padding-top: 0; }
+.cn-letter { font-size: 15px; font-weight: 700; color: var(--bright); }
+.cn-icon { width: 54px; height: 54px; object-fit: contain; }
 .cn-count {
   position: absolute;
   top: 5px;
@@ -2268,45 +2282,69 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 }
 .cn-count.set { background: #e08b3d; color: #1b1208; }
 .cn-count.short { box-shadow: 0 0 0 1.5px var(--warn); }
-.cn-caption { font-size: 10px; color: var(--ink-faint); margin-top: 1px; }
+.cn-caption { font-size: 10px; color: var(--ink-faint); margin-top: 1px; white-space: nowrap; }
 .cn-caption.alt { color: #e8c7a4; font-weight: 700; letter-spacing: .06em; }
 
-/* An input or output: its item's icon on the card's edge, and its rate. */
-.cn-slot {
+/* The inputs' strip down the left and the outputs' down the right, inside
+   the card: a cell per item, each where its line joins. */
+.cn-side {
   position: absolute;
-  z-index: 2;
-  width: 26px;
-  height: 26px;
-  margin-top: -13px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, .26);
+}
+.cn-side.in { left: 0; border-right: 1px solid rgba(255, 255, 255, .07); border-radius: 9px 0 0 9px; }
+.cn-side.out { right: 0; border-left: 1px solid rgba(255, 255, 255, .07); border-radius: 0 9px 9px 0; }
+.cnode-splitter .cn-side.in, .cnode-merger .cn-side.in { border-radius: 5px 0 0 5px; }
+.cnode-splitter .cn-side.out, .cnode-merger .cn-side.out { border-radius: 0 5px 5px 0; }
+.cn-slot {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  cursor: crosshair;
+  transition: background-color .12s ease;
+}
+.cn-slot + .cn-slot { border-top: 1px solid rgba(255, 255, 255, .06); }
+.cn-slot:hover { background: rgba(255, 255, 255, .08); }
+.cn-slot:first-child { border-top-left-radius: inherit; border-top-right-radius: inherit; }
+.cn-slot:last-child { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+.cn-slot img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
+.cnode-splitter .cn-slot img, .cnode-merger .cn-slot img { width: 14px; height: 14px; }
+/* Where the line joins: a pin on the card's edge. */
+.cn-pin {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 2px;
   background: #1c1c1c;
   border: 1.5px solid #8a8a8a;
-  cursor: crosshair;
-}
-.cn-slot.in { left: -13px; }
-.cn-slot.out { right: -13px; }
-.cn-slot.fluid { border-radius: 50%; border-color: #7fa8e0; }
-.cn-slot.linked { border-color: #e8e8e8; }
-.cn-slot img { width: 20px; height: 20px; object-fit: contain; pointer-events: none; }
-.cn-slot:hover { transform: scale(1.15); box-shadow: 0 0 0 3px rgba(255, 255, 255, .12); }
-.cnode-splitter .cn-slot, .cnode-merger .cn-slot { width: 18px; height: 18px; margin-top: -9px; border-radius: 5px; }
-.cnode-splitter .cn-slot.in, .cnode-merger .cn-slot.in { left: -9px; }
-.cnode-splitter .cn-slot.out, .cnode-merger .cn-slot.out { right: -9px; }
-.cnode-splitter .cn-slot img, .cnode-merger .cn-slot img { width: 13px; height: 13px; }
-.cn-rate {
-  position: absolute;
-  margin-top: -7px;
-  font-size: 10px;
-  line-height: 14px;
-  color: var(--ink-dim);
-  font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-.cn-rate.in { left: 17px; }
-.cn-rate.out { right: 17px; }
+.cn-slot.in .cn-pin { left: -5px; }
+.cn-slot.out .cn-pin { right: -5px; }
+.cn-slot.fluid .cn-pin { border-radius: 50%; border-color: #7fa8e0; }
+.cn-slot.linked .cn-pin { background: #e8e8e8; border-color: #e8e8e8; }
+.cn-slot.fluid.linked .cn-pin { background: #7fa8e0; }
+.cn-slot:hover .cn-pin { transform: scale(1.3); }
+
+/* Something's wrong: a flag off the card's top right corner. */
+.cn-flag {
+  position: absolute;
+  top: -13px;
+  right: -13px;
+  z-index: 3;
+  display: flex;
+  color: var(--warn);
+  cursor: default;
+}
+.cn-flag svg { width: 24px; height: 24px; }
 .cnode.has-problem { box-shadow: 0 0 0 2px rgba(var(--machine), .75), 0 6px 20px rgba(0, 0, 0, .5); }
 .cnode.selected { outline: 2px solid #fff; outline-offset: 3px; }
 

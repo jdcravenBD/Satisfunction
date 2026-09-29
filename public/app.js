@@ -3888,6 +3888,14 @@
       } else {
         b.textContent = item.label;
       }
+      if (item.icon) {
+        var ic = document.createElement('img');
+        ic.className = 'ctx-icon';
+        ic.src = item.icon;
+        ic.alt = '';
+        b.classList.add('with-icon');
+        b.insertBefore(ic, b.firstChild);
+      }
       if (item.danger) b.classList.add('danger');
       if (item.on) b.classList.add('on');
       if (item.disabled) b.disabled = true;
@@ -5749,11 +5757,19 @@
   var customHint = document.getElementById('custom-hint');
   var flow = null;   // the last Custom flow: see customFlow()
 
-  var CARD_W = { recipe: 150, resource: 132, import: 124, sink: 110, splitter: 54, merger: 54 };
+  var CNODE_W = { recipe: 170, resource: 156, import: 132, sink: 120, splitter: 64, merger: 64 };
   var SLOT = 38;       // room for each input or output
   var CARD_TOP = 28;   // room above the slots for the count
+  var STRIP = 36;      // the inputs' and outputs' strips down the card's sides
+  var STRIP_LOGI = 20; // the same on a splitter or merger
 
   function iconOf(id) { return 'icons/' + id + '.png'; }
+
+  // A rounded diamond with "!" in it, as on the Machines view's note.
+  var PROBLEM_ICON = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
+    '<rect x="4.1" y="4.1" width="11.8" height="11.8" rx="2.6" transform="rotate(45 10 10)" fill="#1e1e1e" stroke="currentColor" stroke-width="1.6"/>' +
+    '<path d="M10 6.7v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+    '<circle cx="10" cy="13.5" r="1.05" fill="currentColor"/></svg>';
   function isLogistic(n) { return n.type === 'splitter' || n.type === 'merger'; }
 
   function nodeRecipe(n) {
@@ -5775,19 +5791,21 @@
   function nodeSize(n) {
     var s = slotsOf(n);
     var rows = Math.max(1, s.ins.length, s.outs.length);
-    var w = CARD_W[n.type] || 140;
+    var w = CNODE_W[n.type] || 140;
     if (isLogistic(n)) return { w: w, h: rows * 24 + 12 };
-    return { w: w, h: CARD_TOP + rows * SLOT + 8 };
+    return { w: w, h: Math.max(86, CARD_TOP + rows * SLOT + 8) };
   }
 
-  /** Where an input (side 'in') or output ('out') sits on the canvas. */
+  /**
+   * Where an input (side 'in') or output ('out') meets its line: the card's
+   * edge, level with the middle of its cell. The cells share their strip's
+   * height evenly.
+   */
   function slotAt(n, side, k) {
     var s = slotsOf(n);
     var count = (side === 'in' ? s.ins : s.outs).length;
     var size = nodeSize(n);
-    var top = isLogistic(n) ? 6 : CARD_TOP;
-    var span = size.h - top - (isLogistic(n) ? 6 : 8);
-    return { x: side === 'in' ? n.x : n.x + size.w, y: n.y + top + span * (k + 0.5) / count };
+    return { x: side === 'in' ? n.x : n.x + size.w, y: n.y + size.h * (k + 0.5) / count };
   }
 
   /** The building a node stands for: a recipe's machine, or the extractor on a resource. */
@@ -6352,6 +6370,8 @@
   function cardEl(n) {
     var size = nodeSize(n);
     var st = (flow && flow.nodes[n.id]) || { ins: [], outs: [] };
+    var s = slotsOf(n);
+    var strip = isLogistic(n) ? STRIP_LOGI : STRIP;
     var el = document.createElement('div');
     el.className = 'cpart cnode cnode-' + n.type;
     el.dataset.id = n.id;
@@ -6360,13 +6380,19 @@
     el.style.width = size.w + 'px';
     el.style.height = size.h + 'px';
 
+    // The middle: the building's picture with the count over it, between
+    // the inputs' strip and the outputs'.
+    var body = document.createElement('div');
+    body.className = 'cn-body';
+    body.style.left = (s.ins.length ? strip : 0) + 'px';
+    body.style.right = (s.outs.length ? strip : 0) + 'px';
+    el.appendChild(body);
     if (isLogistic(n)) {
       var letter = document.createElement('span');
       letter.className = 'cn-letter';
       letter.textContent = n.type === 'splitter' ? 'S' : 'M';
-      el.appendChild(letter);
+      body.appendChild(letter);
     } else {
-      // The count, over the building's picture.
       var badge = document.createElement('span');
       badge.className = 'cn-count';
       if (n.type === 'recipe') {
@@ -6380,39 +6406,41 @@
       } else {
         badge.textContent = 'Storage';
       }
-      el.appendChild(badge);
+      body.appendChild(badge);
       var b = buildingOf(n);
       var pic = document.createElement('img');
       pic.className = 'cn-icon';
-      pic.src = iconOf(b || (n.type === 'sink' ? 'storage' : n.type === 'import' ? (isFluid(n.item) ? 'buffer' : 'storage') : 'storage'));
+      pic.src = iconOf(b || (n.type === 'import' && isFluid(n.item) ? 'buffer' : 'storage'));
       pic.alt = '';
       pic.draggable = false;
-      el.appendChild(pic);
+      body.appendChild(pic);
       if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
         var cap = document.createElement('span');
         cap.className = 'cn-caption';
         cap.textContent = titleCase(n.purity || 'normal') + (isFluid(n.item) ? '' : ' · ' + DATA.extractors[extractorOf(n)].name.replace(/^Miner\s*/, ''));
-        el.appendChild(cap);
+        body.appendChild(cap);
       } else if (n.type === 'recipe' && nodeRecipe(n) && nodeRecipe(n).alt) {
         var alt = document.createElement('span');
         alt.className = 'cn-caption alt';
         alt.textContent = 'ALT';
-        el.appendChild(alt);
+        body.appendChild(alt);
       }
     }
 
-    // Inputs down the left, outputs down the right, each its item's icon.
-    var s = slotsOf(n);
-    [['in', s.ins, st.ins], ['out', s.outs, st.outs]].forEach(function (side) {
+    // Inputs in a strip down the left, outputs down the right: a cell each,
+    // showing its item, with a pin on the card's edge where the line joins.
+    [['in', s.ins], ['out', s.outs]].forEach(function (side) {
+      if (!side[1].length) return;
+      var col = document.createElement('div');
+      col.className = 'cn-side ' + side[0];
+      col.style.width = strip + 'px';
       side[1].forEach(function (item, k) {
-        var at = slotAt(n, side[0], k);
         var shown = item || slotItem(n, side[0], k);
-        var slot = document.createElement('span');
+        var slot = document.createElement('div');
         slot.className = 'cn-slot ' + side[0] + (shown && isFluid(shown) ? ' fluid' : '') + (linkOn(n, side[0], k) ? ' linked' : '');
         slot.dataset.node = n.id;
         slot.dataset.side = side[0];
         slot.dataset.k = k;
-        slot.style.top = (at.y - n.y) + 'px';
         if (shown) {
           var img = document.createElement('img');
           img.src = iconOf(shown);
@@ -6420,20 +6448,40 @@
           img.draggable = false;
           slot.appendChild(img);
         }
+        var pin = document.createElement('span');
+        pin.className = 'cn-pin';
+        slot.appendChild(pin);
         slot.setAttribute('aria-label', (shown ? itemName(shown) : 'Any item') + (side[0] === 'in' ? ' in' : ' out'));
         slot.addEventListener('pointerdown', function (e) { dragFromSlot(n, side[0], k, e); });
-        el.appendChild(slot);
-        if (!isLogistic(n) && n.type !== 'sink') {
-          var rate = document.createElement('span');
-          rate.className = 'cn-rate ' + side[0];
-          rate.style.top = (at.y - n.y) + 'px';
-          rate.textContent = fmtNum(side[2][k] || 0);
-          el.appendChild(rate);
-        }
+        col.appendChild(slot);
       });
+      el.appendChild(col);
     });
 
-    if (flow && flow.bad[n.id]) el.classList.add('has-problem');
+    // Something wrong: a flag off the top right corner. Hovering it says what.
+    var mine = flow ? flow.problems.filter(function (pr) { return pr.part === n.id; }) : [];
+    if (mine.length) {
+      el.classList.add('has-problem');
+      var flag = document.createElement('span');
+      flag.className = 'cn-flag';
+      flag.innerHTML = PROBLEM_ICON;
+      flag.addEventListener('pointerenter', function () {
+        hoverInfo.innerHTML = '';
+        var head = document.createElement('div');
+        head.className = 'hi-line hi-title';
+        head.textContent = n.item ? itemName(n.item) : titleCase(n.type);
+        hoverInfo.appendChild(head);
+        mine.forEach(function (pr) {
+          var div = document.createElement('div');
+          div.className = 'hi-line';
+          div.textContent = pr.text;
+          hoverInfo.appendChild(div);
+        });
+        hoverInfo.hidden = false;
+      });
+      flag.addEventListener('pointerleave', hideHoverInfo);
+      el.appendChild(flag);
+    }
     el.setAttribute('aria-label', n.item ? itemName(n.item) : n.type);
     el.addEventListener('pointerdown', function (e) { dragCard(el, n, e); });
     el.addEventListener('contextmenu', function (e) {
@@ -6513,6 +6561,13 @@
         label.className = 'flow-label';
         label.style.left = path.mid.x + 'px';
         label.style.top = path.mid.y + 'px';
+        if (f.item) {
+          var icon = document.createElement('img');
+          icon.className = 'fl-icon';
+          icon.src = iconOf(f.item);
+          icon.alt = '';
+          label.appendChild(icon);
+        }
         var bold = document.createElement('b');
         bold.textContent = fmtNum(f.total);
         label.appendChild(bold);
@@ -6667,8 +6722,8 @@
         return (ra.alt ? 1 : 0) - (rb.alt ? 1 : 0) || ra.name.localeCompare(rb.name);
       });
       if (from.side === 'in') {
-        if (DATA.items[item].raw) items.push({ label: 'Resource node', note: 'Mine or extract it', run: make(item) });
-        items.push({ label: 'Bring it in', note: 'From outside this build', run: make(item, null, { type: 'import', rate: 60 }) });
+        if (DATA.items[item].raw) items.push({ label: 'Resource node', note: 'Mine or extract it', icon: iconOf(item), run: make(item) });
+        items.push({ label: 'Bring it in', note: 'From outside this build', icon: iconOf(item), run: make(item, null, { type: 'import', rate: 60 }) });
       }
       rids.forEach(function (rid) {
         var r = DATA.recipes[rid];
@@ -6676,13 +6731,14 @@
         items.push({
           label: from.side === 'out' ? product : r.name,
           note: (from.side === 'out' && r.name !== product ? r.name + ' · ' : '') + machineName(rid) + (r.alt ? ' · alternate' : ''),
+          icon: iconOf(r.out[0][0]),
           run: make(from.side === 'out' ? r.out[0][0] : item, rid)
         });
       });
-      if (from.side === 'out') items.push({ label: 'Storage', note: 'Collect it here', run: make('sink') });
+      if (from.side === 'out') items.push({ label: 'Storage', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
     }
     items.push('-');
-    items.push({ label: from.side === 'out' ? 'Splitter' : 'Merger', run: make(from.side === 'out' ? 'splitter' : 'merger') });
+    items.push({ label: from.side === 'out' ? 'Splitter' : 'Merger', icon: iconOf(from.side === 'out' ? 'splitter' : 'merger'), run: make(from.side === 'out' ? 'splitter' : 'merger') });
     openCtx(cx, cy, items);
     if (dropped) changed();
   }
