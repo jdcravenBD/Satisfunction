@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Satisfunction</title>
-<link rel="icon" href="favicon.svg?v=27" type="image/svg+xml">
-<link rel="icon" href="favicon-32.png?v=27" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon.svg?v=28" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=28" type="image/png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=27">
+<link rel="stylesheet" href="styles.css?v=28">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   <header class="bar">
     <div class="bar-left">
       <div class="brand">
-        <img class="mark-img" src="favicon.svg?v=27" alt="" width="20" height="20">
+        <img class="mark-img" src="favicon.svg?v=28" alt="" width="20" height="20">
         <strong>SATISFUNCTION</strong>
         <span class="sub">Production Planner</span>
       </div>
@@ -98,6 +98,12 @@
     </div>
     <span class="tb-space"></span>
     <!-- Viewing it, on the right. -->
+    <!-- Auto: the plan generates the build. Custom: you place every part. -->
+    <div class="seg bar-seg build-seg" id="build-seg" role="group" aria-label="Build">
+      <button type="button" class="seg-btn" data-build="custom">Custom</button>
+      <button type="button" class="seg-btn" data-build="auto">Auto</button>
+    </div>
+    <span class="tb-sep"></span>
     <span class="tb-label">View</span>
     <!-- Every step as one card, or every step expanded into its buildings. -->
     <div class="seg bar-seg" id="mode" role="group" aria-label="View">
@@ -126,6 +132,12 @@
     <!-- Rate labels ride above the lines but below the nodes. -->
     <div id="labels"></div>
   </div>
+  <!-- Custom build, before anything is placed. -->
+  <div id="custom-hint" class="custom-hint" hidden>
+    <p>Drag buildings and parts from the left to start building.</p>
+    <p class="eh-tip">Drag a part to move it &middot; Ctrl/Shift+drag to select several &middot; Delete removes</p>
+  </div>
+
   <div id="empty" class="empty-hint">
     <p class="eh-lead">Start from an example, or <button type="button" id="eh-blank" class="eh-link">pick an output</button>.</p>
     <div class="tpl-grid" id="tpl-grid"></div>
@@ -190,6 +202,9 @@
   <div id="marquee"></div>
 </main>
 
+<!-- Custom build: every building and part, to drag onto the canvas. -->
+<aside id="palette" class="palette" aria-label="Parts" hidden></aside>
+
 <!-- The plan: outputs you ask for, and what it takes to make them. Its own
      rounded panel, to the right of the canvas. -->
 <aside id="panel" class="summary" aria-label="Plan">
@@ -219,6 +234,7 @@
       <div class="fold-body">
         <div id="targets"></div>
         <button type="button" class="add-target" id="add-target">+ Add output</button>
+        <p class="custom-note">In Custom, outputs are whatever your build makes.</p>
       </div>
     </div>
 
@@ -231,12 +247,13 @@
         <span class="sum-group-name" data-icon="recipe">Recipes</span>
         <span class="sum-group-count" id="picker-sub"></span>
       </div>
+      <p class="custom-note">In Custom, each machine's recipe is picked on the machine.</p>
       <div class="seg panel-seg" id="picker-seg">
         <button type="button" class="seg-btn" data-picker="manual" title="Each item uses its standard recipe unless you pick another on its node">I pick</button>
         <button type="button" class="seg-btn" data-picker="optimise" title="The best mix of recipes for your outputs, redone as the plan changes">Optimise</button>
       </div>
       <div id="opt-settings" hidden>
-        <div class="sum-group-head sub-head">
+        <div class="sum-group-head sub-head aim-head">
           <span class="sum-group-name" data-icon="target">Aim for</span>
           <span class="sum-group-count">once max outputs are as high as they go</span>
         </div>
@@ -270,6 +287,7 @@
         <span class="sum-group-name" data-icon="gauge">Clock speeds</span>
         <span class="sum-group-count">how work is split</span>
       </div>
+      <p class="custom-note">In Custom, clock speed is set on each machine.</p>
       <div class="seg panel-seg" id="clock-seg">
         <button type="button" class="seg-btn" data-clock="none" title="Nothing under- or overclocked: 2.5 machines' worth = 3 at 100%, the last one idling half the time. Every machine left as it's built.">100% <span class="dim">(Default)</span></button>
         <button type="button" class="seg-btn" data-clock="even" title="2.5 machines' worth = 3 machines at 83.33%. Least power.">Spread evenly</button>
@@ -351,11 +369,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=27"></script>
-<script src="solver.js?v=27"></script>
-<script src="lp.js?v=27"></script>
-<script src="optimise.js?v=27"></script>
-<script src="examples.js?v=27"></script>
-<script src="app.js?v=27"></script>
+<script src="data.js?v=28"></script>
+<script src="solver.js?v=28"></script>
+<script src="lp.js?v=28"></script>
+<script src="optimise.js?v=28"></script>
+<script src="examples.js?v=28"></script>
+<script src="app.js?v=28"></script>
 </body>
 </html>

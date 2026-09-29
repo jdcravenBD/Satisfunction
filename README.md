@@ -23,6 +23,10 @@ size.
   plan can make. Outputs can be a fixed rate or "as much as possible".
 - **Clock speeds:** everything at 100%, spread evenly, underclock the last
   machine, or overclock with Power Shards.
+- **Auto and Custom:** Auto generates the whole build from your outputs.
+  Custom lets you place every building and part yourself from a parts panel,
+  at real size on the foundation grid (belts, recipes and rates are being
+  added).
 - **Saves and factories:** each save is one game, holding any number of
   factories as tabs. Export and import either.
 - **Overview and Power pages:** resources, production, machine counts,

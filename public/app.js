@@ -53,7 +53,9 @@
     folds: {},     // panel sections the user has collapsed: { inputs: true }
     show: { products: true, rates: true, clocks: true, short: false, lines: 'curved' }, // what the canvas labels
     page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
-    balance: 'manifold' // machine view inputs: 'manifold' or 'balancer'
+    balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
+    build: 'auto',  // 'auto': the plan generates the build; 'custom': placed by hand
+    custom: { parts: [] } // Custom's parts: [{ id, kind, x, y }] in metres
   };
 
   // What a new factory starts from.
@@ -408,7 +410,7 @@
   var STORE_KEY = 'satisfunction.saves.v1';
   var PROGRESS = ['unlocked', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
   var FACTORY = ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal',
-    'pins', 'view', 'mode', 'balance'];
+    'pins', 'view', 'mode', 'balance', 'build', 'custom'];
   var store = null;  // { active, saves: [{ id, name, active, progress, factories: [{ id, name, plan }] }], prefs }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -521,6 +523,12 @@
       };
     });
     state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'none';
+    state.build = data.build === 'custom' ? 'custom' : 'auto';
+    state.custom = { parts: [] };
+    ((data.custom && data.custom.parts) || []).forEach(function (p) {
+      if (!p || !partSpec(p.kind) || !isFinite(p.x) || !isFinite(p.y)) return;
+      state.custom.parts.push({ id: String(p.id || uid()), kind: p.kind, x: Math.round(p.x), y: Math.round(p.y) });
+    });
     state.unavailable = (Array.isArray(data.unavailable) ? data.unavailable : []).filter(function (id) {
       return BUILDINGS.indexOf(id) >= 0;
     });
@@ -596,7 +604,7 @@
   var MAX_HISTORY = 80;
 
   var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe',
-    'picker', 'goal', 'unlocked', 'unavailable', 'pins'];
+    'picker', 'goal', 'unlocked', 'unavailable', 'pins', 'custom'];
 
   function snapshot() {
     var snap = {};
@@ -681,7 +689,7 @@
     // Drag the plus field along with the nodes, and scale it with the zoom,
     // so the canvas reads as one surface rather than a fixed backdrop. In the
     // machine view the pluses mark the corners of 8 m foundations.
-    var machines = state.mode === 'machines';
+    var machines = state.mode === 'machines' || state.build === 'custom';
     var cell = (machines ? FOUNDATION_PX : CELL) * v.s;
     var shift = machines ? cell / 2 : 0;
     stage.style.backgroundSize = cell + 'px ' + cell + 'px';
@@ -713,7 +721,7 @@
 
   /** Frames the whole plan in whatever part of the canvas is visible. */
   function fitView() {
-    var nodes = graph.nodes;
+    var nodes = state.build === 'custom' ? customBoxes() : graph.nodes;
     if (!nodes.length) {
       state.view = { x: 60, y: 40, s: 1 };
       applyView();
@@ -754,6 +762,10 @@
    * survives any change that doesn't remove that step outright.
    */
   function recompute() {
+    if (state.build === 'custom') {
+      renderCustomView();
+      return;
+    }
     var built = buildablePlan();
     var plan = {
       targets: state.targets,
@@ -3193,6 +3205,9 @@
     graph.nodes.forEach(function (n) {
       if (n.el) n.el.classList.toggle('selected', !!selected[n.key]);
     });
+    world.querySelectorAll('.cpart').forEach(function (el) {
+      el.classList.toggle('selected', !!selected[el.dataset.id]);
+    });
   }
   function selectOnly(key) {
     selected = {};
@@ -3429,6 +3444,19 @@
   document.addEventListener('keydown', function (e) {
     var el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+    if (state.build === 'custom') {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedParts().length) {
+        e.preventDefault();
+        removeParts(selectedParts());
+      } else if (e.key === 'Escape') {
+        clearSelection();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        state.custom.parts.forEach(function (p) { selected[p.id] = true; });
+        applySelection();
+      }
+      return;
+    }
     if (state.mode !== 'items') return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes().length) {
       e.preventDefault();
@@ -3476,7 +3504,8 @@
    */
   function onCanvas(target) {
     if (target === stage || target === world || emptyHint.contains(target)) return true;
-    return state.mode === 'machines' && world.contains(target);
+    if (customHint.contains(target)) return true;
+    return (state.mode === 'machines' || state.build === 'custom') && world.contains(target);
   }
 
   // Right-click on bare canvas.
@@ -3485,6 +3514,14 @@
     e.preventDefault();
     closeAll();
 
+    if (state.build === 'custom') {
+      openCtx(e.clientX, e.clientY, [
+        { label: 'Fit to view', run: fitView },
+        '-',
+        { label: 'Clear build', note: 'Removes every placed part', danger: true, confirm: true, run: clearPlan }
+      ]);
+      return;
+    }
     var items = [
       { label: '+ Add output…', run: function () { askForOutput(null, e.clientX, e.clientY); } },
       { label: 'Fit to view', run: fitView }
@@ -3533,7 +3570,19 @@
       stage.removeEventListener('pointerup', onUp);
       stage.removeEventListener('pointercancel', onUp);
       marquee.classList.remove('on');
-      if (state.mode !== 'items' || Math.abs(x1 - x0) + Math.abs(y1 - y0) < 4) return;
+      if (Math.abs(x1 - x0) + Math.abs(y1 - y0) < 4) return;
+      if (state.build === 'custom') {
+        var cv = state.view;
+        var cx0 = (Math.min(x0, x1) - cv.x) / cv.s, cx1 = (Math.max(x0, x1) - cv.x) / cv.s;
+        var cy0 = (Math.min(y0, y1) - cv.y) / cv.s, cy1 = (Math.max(y0, y1) - cv.y) / cv.s;
+        selected = {};
+        customBoxes().forEach(function (b) {
+          if (b.x < cx1 && b.x + b.w > cx0 && b.y < cy1 && b.y + b.h > cy0) selected[b.id] = true;
+        });
+        applySelection();
+        return;
+      }
+      if (state.mode !== 'items') return;
       // The box in world coordinates.
       var v = state.view;
       var wx0 = (Math.min(x0, x1) - v.x) / v.s;
@@ -4494,6 +4543,14 @@
       });
     });
 
+    // In Custom, every placed building counts. Recipes and clocks come later,
+    // so for now they're built but not yet running.
+    if (solved.custom) {
+      state.custom.parts.forEach(function (p) {
+        if (DATA.machines[p.kind]) tally(p.kind, DATA.machines[p.kind].name, 0, 1, 0);
+        else if (DATA.extractors[p.kind]) tally(p.kind, DATA.extractors[p.kind].name, 0, 1, 0);
+      });
+    }
     var steps = Object.keys(solved.recipes).length;
     renderOverview({ power: power, buildings: buildings, shards: shards, byMachine: byMachine, draws: draws });
     renderPower(draws, power);
@@ -4660,6 +4717,11 @@
   /* ------------------------------------------------------------- examples */
 
   function refreshEmptyHint() {
+    customHint.hidden = state.build !== 'custom' || state.custom.parts.length > 0;
+    if (state.build === 'custom') {
+      emptyHint.hidden = true;
+      return;
+    }
     var empty = state.targets.length === 0;
     emptyHint.hidden = !empty;
     if (empty) {
@@ -4728,8 +4790,15 @@
     state.pins = {};
   }
 
-  /** Empties the plan but keeps its name. Callers ask for confirmation. */
+  /** Empties the plan (or in Custom, the build) but keeps its name. Callers ask for confirmation. */
   function clearPlan() {
+    if (state.build === 'custom') {
+      state.custom.parts = [];
+      clearSelection();
+      changed();
+      fitView();
+      return;
+    }
     emptyPlan();
     renderTargets();
     changed();
@@ -5252,7 +5321,7 @@
 
   var clearBtn = document.getElementById('clear');
   clearBtn.addEventListener('click', function () {
-    if (!state.targets.length) return;
+    if (state.build === 'custom' ? !state.custom.parts.length : !state.targets.length) return;
     askConfirm(clearBtn, clearPlan);
   });
 
@@ -5269,15 +5338,42 @@
     // How inputs are fed only means something in the machine view, so it's
     // greyed out in the item view; and only the machine view can't be
     // rearranged by hand.
-    var machinesOn = state.mode === 'machines';
+    var custom = state.build === 'custom';
+    var machinesOn = state.mode === 'machines' && !custom;
     balanceSeg.classList.toggle('disabled', !machinesOn);
-    balanceSeg.title = machinesOn ? '' : 'Only in the Machines view';
     balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) { b.disabled = !machinesOn; });
+    // Custom has one view of its own: the build as placed.
+    modeSeg.classList.toggle('disabled', custom);
+    modeSeg.querySelectorAll('.seg-btn').forEach(function (b) { b.disabled = custom; });
     document.getElementById('view-note').hidden = !machinesOn;
+    buildSeg.querySelectorAll('.seg-btn').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.build === state.build);
+    });
+    document.body.classList.toggle('custom-build', custom);
+    palette.hidden = !custom;
     balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.balance === state.balance);
     });
   }
+
+  // Auto or Custom, one toggle like the others: pressing the side that's
+  // on flips to the other.
+  var buildSeg = document.getElementById('build-seg');
+  buildSeg.addEventListener('click', function (e) {
+    var btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    state.build = btn.dataset.build === state.build
+      ? (state.build === 'auto' ? 'custom' : 'auto')
+      : btn.dataset.build;
+    closeAll();
+    clearSelection();
+    hideHoverInfo();
+    refreshModeSeg();
+    refreshRecipeControls();
+    recompute();
+    fitView();
+    save();
+  });
 
   // Manifold: one belt past every machine, a splitter at each. Balancer: a
   // tree of splitters giving every machine exactly the same share.
@@ -5438,8 +5534,10 @@
     var optimising = state.picker === 'optimise';
     markSeg(pickerSeg, 'picker', state.picker);
     markSeg(goalSeg, 'goal', state.goal);
-    optSettings.hidden = !optimising;
-    document.getElementById('picker-sub').textContent = optimising ? 'picked for you' : 'picked by you';
+    // Custom keeps the alternates list: it limits what a placed machine can run.
+    optSettings.hidden = !optimising && state.build !== 'custom';
+    document.getElementById('picker-sub').textContent = state.build === 'custom' ? 'on each machine'
+      : optimising ? 'picked for you' : 'picked by you';
     altCount.textContent = state.unlocked.length + ' of ' + UNLOCKABLE.length + ' ticked';
   }
 
@@ -5533,6 +5631,272 @@
       changed();
     });
   });
+
+  /* ========================================================= custom build */
+
+  // Custom: buildings and parts placed by hand at their real footprints, on
+  // the same 8 px-to-the-metre foundation grid as the Machines view. For now
+  // they're placed, moved and removed; belts, recipes and rates come next.
+  var palette = document.getElementById('palette');
+  var customHint = document.getElementById('custom-hint');
+
+  function storageSize(which) { return DATA.logistics.storage[which].size; }
+
+  // Logistics parts, by the key their icon is filed under.
+  var LOGISTICS = {
+    splitter: { name: 'Conveyor Splitter', w: DATA.logistics.splitter, h: DATA.logistics.splitter, cls: 'part splitter', text: 'S' },
+    merger: { name: 'Conveyor Merger', w: DATA.logistics.merger, h: DATA.logistics.merger, cls: 'part merger', text: 'M' },
+    junction: { name: 'Pipeline Junction', w: DATA.logistics.junction, h: DATA.logistics.junction, cls: 'part junction', text: '+' },
+    storage: { name: DATA.logistics.storage.items.name, w: storageSize('items').l, h: storageSize('items').w, cls: 'machine logistic' },
+    buffer: { name: DATA.logistics.storage.fluids.name, w: storageSize('fluids').l, h: storageSize('fluids').w, cls: 'machine logistic' },
+    sink: { name: DATA.logistics.storage.sink.name, w: storageSize('sink').l, h: storageSize('sink').w, cls: 'machine logistic' }
+  };
+
+  /** What a part is: its name, footprint in metres (w across, h down) and look. */
+  function partSpec(kind) {
+    var m = DATA.machines[kind];
+    if (m) return { name: m.name, w: m.size ? m.size.l : 10, h: m.size ? m.size.w : 8, cls: 'machine', building: true };
+    var x = DATA.extractors[kind];
+    if (x) return { name: x.name, w: x.size ? x.size.l : 14, h: x.size ? x.size.w : 6, cls: 'machine extractor', building: true };
+    return LOGISTICS[kind] || null;
+  }
+
+  // The parts panel, in the order the game unlocks things.
+  var PALETTE = [
+    { head: 'Production', kinds: BUILDINGS.filter(function (id) { return DATA.machines[id]; }) },
+    { head: 'Extraction', kinds: BUILDINGS.filter(function (id) { return DATA.extractors[id]; }) },
+    { head: 'Logistics', kinds: ['splitter', 'merger', 'junction', 'storage', 'buffer', 'sink'] }
+  ];
+
+  function renderPalette() {
+    palette.innerHTML = '';
+    var title = document.createElement('div');
+    title.className = 'pal-title';
+    title.textContent = 'Parts';
+    palette.appendChild(title);
+    PALETTE.forEach(function (sec) {
+      var head = document.createElement('div');
+      head.className = 'pal-head';
+      head.textContent = sec.head;
+      palette.appendChild(head);
+      var grid = document.createElement('div');
+      grid.className = 'pal-grid';
+      sec.kinds.forEach(function (kind) {
+        var spec = partSpec(kind);
+        var tile = document.createElement('button');
+        tile.type = 'button';
+        tile.className = 'pal-tile';
+        tile.dataset.kind = kind;
+        // Buildings unticked under Machines aren't on offer.
+        var have = !spec.building || hasBuilding(kind);
+        tile.disabled = !have;
+        var img = document.createElement('img');
+        img.src = 'icons/' + kind + '.png';
+        img.alt = '';
+        img.draggable = false;
+        var name = document.createElement('span');
+        name.className = 'pal-name';
+        name.textContent = spec.name;
+        tile.appendChild(img);
+        tile.appendChild(name);
+        tile.setAttribute('aria-label', spec.name + (have ? '' : ' (unticked under Machines)'));
+        tile.addEventListener('pointerdown', function (e) { if (have) dragFromPalette(kind, e); });
+        grid.appendChild(tile);
+      });
+      palette.appendChild(grid);
+    });
+  }
+
+  /**
+   * Drag a part off the panel: a ghost follows the pointer, and letting go
+   * over the canvas places it there, centred on the pointer. A plain click
+   * places it in the middle of the view.
+   */
+  function dragFromPalette(kind, e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    closeAll();
+    var startX = e.clientX, startY = e.clientY;
+    var moved = false;
+    var ghost = document.createElement('img');
+    ghost.className = 'pal-ghost';
+    ghost.src = 'icons/' + kind + '.png';
+    ghost.alt = '';
+    function follow(ev) {
+      ghost.style.left = ev.clientX + 'px';
+      ghost.style.top = ev.clientY + 'px';
+    }
+    function move(ev) {
+      if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 4) return;
+      if (!moved) {
+        moved = true;
+        document.body.appendChild(ghost);
+      }
+      follow(ev);
+    }
+    function up(ev) {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      ghost.remove();
+      if (!moved) {
+        var r = stage.getBoundingClientRect();
+        var mid = toWorld(r.left + r.width / 2, r.top + r.height / 2);
+        placePart(kind, mid.x, mid.y);
+        return;
+      }
+      var over = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (!over || !stage.contains(over) || over.closest('.view-opts, .hover-info')) return;
+      var at = toWorld(ev.clientX, ev.clientY);
+      placePart(kind, at.x, at.y);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  /** A new part, centred on a world point, on whole metres. */
+  function placePart(kind, wx, wy) {
+    var spec = partSpec(kind);
+    var p = {
+      id: 'p' + uid(),
+      kind: kind,
+      x: Math.round(wx / PX_PER_M - spec.w / 2),
+      y: Math.round(wy / PX_PER_M - spec.h / 2)
+    };
+    state.custom.parts.push(p);
+    selectOnly(p.id);
+    changed();
+  }
+
+  function selectedParts() {
+    return state.custom.parts.filter(function (p) { return selected[p.id]; });
+  }
+
+  function removeParts(list) {
+    var gone = {};
+    list.forEach(function (p) { gone[p.id] = true; });
+    state.custom.parts = state.custom.parts.filter(function (p) { return !gone[p.id]; });
+    clearSelection();
+    changed();
+  }
+
+  /** Every placed part's box on the canvas, in world pixels. */
+  function customBoxes() {
+    return state.custom.parts.map(function (p) {
+      var spec = partSpec(p.kind);
+      return { id: p.id, x: px(p.x), y: px(p.y), w: px(spec.w), h: px(spec.h) };
+    });
+  }
+
+  function customEl(p) {
+    var spec = partSpec(p.kind);
+    var el = document.createElement('div');
+    el.className = 'cpart ' + spec.cls;
+    el.dataset.id = p.id;
+    el.style.left = px(p.x) + 'px';
+    el.style.top = px(p.y) + 'px';
+    el.style.width = px(spec.w) + 'px';
+    el.style.height = px(spec.h) + 'px';
+    if (spec.text) {
+      el.textContent = spec.text;
+    } else {
+      var img = document.createElement('img');
+      img.className = 'cp-icon';
+      img.src = 'icons/' + p.kind + '.png';
+      img.alt = '';
+      img.draggable = false;
+      var name = document.createElement('span');
+      name.className = 'm-name';
+      el.appendChild(img);
+      el.appendChild(nameSpans(name, spec.name));
+    }
+    el.setAttribute('aria-label', spec.name);
+    el.addEventListener('pointerdown', function (e) { dragPart(el, p, e); });
+    el.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAll();
+      if (!selected[p.id]) selectOnly(p.id);
+      var list = selectedParts();
+      openCtx(e.clientX, e.clientY, [
+        { head: list.length > 1 ? list.length + ' selected' : spec.name },
+        { label: list.length > 1 ? 'Remove these' : 'Remove', run: function () { removeParts(list); } }
+      ]);
+    });
+    return el;
+  }
+
+  /** Moves a part (and the rest of the selection, if it's in it), on whole metres. */
+  function dragPart(el, p, e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeAll();
+    var mods = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey };
+    var group = selected[p.id] ? selectedParts() : [p];
+    var origins = group.map(function (g) { return { x: g.x, y: g.y }; });
+    var startX = e.clientX, startY = e.clientY;
+    var moved = false;
+    function move(ev) {
+      var dx = (ev.clientX - startX) / state.view.s;
+      var dy = (ev.clientY - startY) / state.view.s;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 3 / state.view.s) return;
+      if (!moved) {
+        moved = true;
+        el.classList.add('dragging');
+      }
+      group.forEach(function (g, i) {
+        g.x = Math.round(origins[i].x + dx / PX_PER_M);
+        g.y = Math.round(origins[i].y + dy / PX_PER_M);
+        var ge = world.querySelector('.cpart[data-id="' + g.id + '"]');
+        if (ge) {
+          ge.style.left = px(g.x) + 'px';
+          ge.style.top = px(g.y) + 'px';
+        }
+      });
+    }
+    function up() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      el.classList.remove('dragging');
+      if (moved) {
+        save();
+        return;
+      }
+      if (mods.ctrl || mods.shift) {
+        if (selected[p.id]) delete selected[p.id];
+        else selected[p.id] = true;
+        applySelection();
+      } else {
+        selectOnly(p.id);
+      }
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  /** Custom's canvas: the placed parts, and the panel worked out from them. */
+  function renderCustomView() {
+    solved = { recipes: {}, items: {}, targets: {}, flows: [], custom: true };
+    graph = { nodes: [], edges: [], byKey: {} };
+    errorEl.hidden = true;
+    world.classList.remove('machines');
+    world.querySelectorAll('.node, .machine, .part').forEach(function (el) { el.remove(); });
+    while (wires.firstChild) wires.removeChild(wires.firstChild);
+    labelsEl.innerHTML = '';
+    state.custom.parts.forEach(function (p) { world.appendChild(customEl(p)); });
+    Object.keys(selected).forEach(function (k) {
+      if (!state.custom.parts.some(function (p) { return p.id === k; })) delete selected[k];
+    });
+    applySelection();
+    renderPalette();
+    renderBreakdown();
+    refreshOptNote();
+    refreshEmptyHint();
+  }
 
   /* ---------------------------------------------------------------- focus */
 
