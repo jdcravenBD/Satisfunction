@@ -24,17 +24,13 @@ size.
 - **Clock speeds:** everything at 100%, spread evenly, underclock the last
   machine, or overclock with Power Shards.
 - **Auto and Custom:** Auto generates the whole build from your outputs.
-  Custom lets you place every building and part yourself from a parts panel,
-  at real size on the foundation grid, turn them with **R**, and join their
-  ports with belts and pipes by dragging from one port to another. Select a
-  part to set its recipe, resource, node purity and clock speed; every belt
-  shows its rate and tier, and a problems list flags anything unconnected,
-  jammed with the wrong item, or over a belt's limit. Switching carries the
-  factory across: Auto to Custom lays the plan out as parts, and Custom to
-  Auto keeps the build's inputs and outputs and lets Auto redo the machines in
-  between. Pop over to Auto and straight back, and your layout is untouched.
-  A Storage Container or Fluid Buffer with nothing feeding it can bring an
-  item in, like a train delivery.
+  Custom works like Satisfactory Modeler: drag items onto the canvas (a
+  resource, or a part to make) and each becomes a card showing its building
+  and its items' icons at the inputs and outputs. Join an output to an input
+  by dragging, or drop a line on empty space to pick what could use (or make)
+  its item. Each step's machine count is worked out for you, from what flows
+  in, or from what a step you've Set asks for; splitters share evenly and
+  Storage takes what's left. Switching carries the factory across both ways.
 - **Saves and factories:** each save is one game, holding any number of
   factories as tabs. Export and import either.
 - **Overview and Power pages:** resources, production, machine counts,
@@ -91,9 +87,9 @@ This finds a Steam or Epic install on its own; pass a path to use a different
   found from the resource node caps.
 - `optimise.js` sets the recipe choice up as a linear program and solves it
   with its own simplex solver in `lp.js`.
-- In Custom, the build's rates come from one linear program over the placed
-  parts: machines held to their recipe and clock, splitters and mergers
-  balanced, belts within the fastest tier allowed.
+- In Custom, demand from Set steps is passed upstream first, then items are
+  pushed forward from the resources: each step takes what it needs (or, left
+  on Auto, grows to use what it's given).
 - `app.js` lays out the graph in columns, cutting line crossings, and builds
   the Machines view from it: machine lines, manifolds or balancer trees, and
   belt routing between columns.

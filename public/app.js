@@ -56,7 +56,7 @@
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     build: 'auto',  // 'auto': the plan generates the build; 'custom': placed by hand
     customKept: null, // the hand-built layout, kept while Auto shows its plan: { custom, key }
-    custom: { parts: [], links: [] } // Custom: parts [{ id, kind, x, y, r, recipe?, clock?, item?, purity? }] (metres, quarter turns), links [{ id, a, ap, b, bp }]
+    custom: { nodes: [], links: [] } // Custom: cards [{ id, type, x, y, … }] and lines [{ id, from, fk, to, tk }]
   };
 
   // What a new factory starts from.
@@ -478,6 +478,50 @@
     return !f.plan.view;
   }
 
+  /**
+   * A saved Custom build, cleaned: cards of a known type with what they
+   * need, and lines between slots that exist. (Builds from before Custom
+   * placed items, rather than buildings, are left behind.)
+   */
+  function readCustom(c) {
+    var out = { nodes: [], links: [] };
+    if (!c || !Array.isArray(c.nodes)) return out;
+    var byId = {};
+    c.nodes.forEach(function (n) {
+      if (!n || !isFinite(n.x) || !isFinite(n.y)) return;
+      var q = { id: String(n.id || uid()), type: n.type, x: Math.round(n.x), y: Math.round(n.y) };
+      if (n.type === 'recipe') {
+        if (!DATA.recipes[n.recipe]) return;
+        q.recipe = n.recipe;
+        q.item = DATA.items[n.item] ? n.item : DATA.recipes[n.recipe].out[0][0];
+        if (n.set) { q.set = true; q.count = Math.max(0, Number(n.count) || 0); }
+      } else if (n.type === 'resource') {
+        if (!DATA.items[n.item] || !DATA.items[n.item].raw) return;
+        q.item = n.item;
+        q.purity = SOLVER.PURITIES.indexOf(n.purity) >= 0 ? n.purity : 'normal';
+        if (DATA.extractors[n.miner]) q.miner = n.miner;
+        q.count = Math.max(1, Math.round(Number(n.count) || 1));
+        q.clock = clamp(Number(n.clock) || 1, 0.01, SOLVER.MAX_CLOCK);
+      } else if (n.type === 'import') {
+        if (!DATA.items[n.item]) return;
+        q.item = n.item;
+        q.rate = Math.max(0, Number(n.rate) || 0);
+      } else if (['splitter', 'merger', 'sink'].indexOf(n.type) < 0) {
+        return;
+      }
+      out.nodes.push(q);
+      byId[q.id] = q;
+    });
+    (c.links || []).forEach(function (l) {
+      var a = l && byId[l.from], b = l && byId[l.to];
+      if (!a || !b || a === b) return;
+      var fk = l.fk | 0, tk = l.tk | 0;
+      if (fk < 0 || fk >= slotsOf(a).outs.length || tk < 0 || tk >= slotsOf(b).ins.length) return;
+      out.links.push({ id: String(l.id || uid()), from: a.id, fk: fk, to: b.id, tk: tk });
+    });
+    return out;
+  }
+
   /** Copies a saved or imported plan into state, dropping anything unknown. */
   function adopt(data) {
     if (!data || typeof data !== 'object') return false;
@@ -526,30 +570,8 @@
     state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'none';
     state.build = data.build === 'custom' ? 'custom' : 'auto';
     state.customKept = data.customKept && data.customKept.custom && typeof data.customKept.key === 'string'
-      ? { custom: clone(data.customKept.custom), key: data.customKept.key } : null;
-    state.custom = { parts: [], links: [] };
-    var partById = {};
-    ((data.custom && data.custom.parts) || []).forEach(function (p) {
-      if (!p || !partSpec(p.kind) || !isFinite(p.x) || !isFinite(p.y)) return;
-      var q = { id: String(p.id || uid()), kind: p.kind, x: Math.round(p.x), y: Math.round(p.y), r: ((p.r | 0) % 4 + 4) % 4 };
-      if (DATA.machines[p.kind] && DATA.recipes[p.recipe] && DATA.recipes[p.recipe].machine === p.kind) q.recipe = p.recipe;
-      if (DATA.machines[p.kind] || DATA.extractors[p.kind]) q.clock = clamp(Number(p.clock) || 1, 0.01, SOLVER.MAX_CLOCK);
-      if ((p.kind === 'storage' || p.kind === 'buffer') && DATA.items[p.item] && isFluid(p.item) === (p.kind === 'buffer')) q.item = p.item;
-      if (DATA.extractors[p.kind]) {
-        if (extractorItems(p.kind).indexOf(p.item) >= 0) q.item = p.item;
-        q.purity = SOLVER.PURITIES.indexOf(p.purity) >= 0 ? p.purity : 'normal';
-      }
-      state.custom.parts.push(q);
-      partById[q.id] = q;
-    });
-    // A link joins an output port (a, ap) to an input port (b, bp).
-    ((data.custom && data.custom.links) || []).forEach(function (l) {
-      var a = l && partById[l.a];
-      var b = l && partById[l.b];
-      if (!a || !b || a === b) return;
-      if (!(l.ap >= 0 && l.ap < portsOf(a.kind).length && l.bp >= 0 && l.bp < portsOf(b.kind).length)) return;
-      state.custom.links.push({ id: String(l.id || uid()), a: a.id, ap: l.ap | 0, b: b.id, bp: l.bp | 0 });
-    });
+      ? { custom: readCustom(data.customKept.custom), key: data.customKept.key } : null;
+    state.custom = readCustom(data.custom);
     state.unavailable = (Array.isArray(data.unavailable) ? data.unavailable : []).filter(function (id) {
       return BUILDINGS.indexOf(id) >= 0;
     });
@@ -710,7 +732,7 @@
     // Drag the plus field along with the nodes, and scale it with the zoom,
     // so the canvas reads as one surface rather than a fixed backdrop. In the
     // machine view the pluses mark the corners of 8 m foundations.
-    var machines = state.mode === 'machines' || state.build === 'custom';
+    var machines = state.mode === 'machines' && state.build !== 'custom';
     var cell = (machines ? FOUNDATION_PX : CELL) * v.s;
     var shift = machines ? cell / 2 : 0;
     stage.style.backgroundSize = cell + 'px ' + cell + 'px';
@@ -3473,14 +3495,11 @@
       if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedParts().length || selectedLinks().length)) {
         e.preventDefault();
         removeParts(selectedParts(), selectedLinks());
-      } else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey && selectedParts().length) {
-        e.preventDefault();
-        rotateParts(selectedParts());
       } else if (e.key === 'Escape') {
         clearSelection();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        state.custom.parts.forEach(function (p) { selected[p.id] = true; });
+        state.custom.nodes.forEach(function (n) { selected[n.id] = true; });
         applySelection();
       }
       return;
@@ -4584,21 +4603,10 @@
 
     // In Custom, every placed building counts, running as the flow found.
     if (solved.custom) {
-      state.custom.parts.forEach(function (p) {
-        var st = flow.parts[p.id];
-        if (!st || !st.building) return;
-        var name = DATA.machines[p.kind] ? DATA.machines[p.kind].name : DATA.extractors[p.kind].name;
-        shards += shardsFor(p.clock || 1);
-        tally(p.kind, name, (p.clock || 1) * st.util, 1, st.power);
-        if (st.power > EPS) {
-          draws.push({
-            label: st.label,
-            note: name + ' · ' + fmtClock(p.clock || 1),
-            power: st.power,
-            extraction: !!DATA.extractors[p.kind],
-            part: p.id
-          });
-        }
+      flow.tally.forEach(function (t) {
+        shards += t.shards;
+        tally(t.mid, t.name, t.exact, t.built, t.power);
+        if (t.power > EPS) draws.push({ label: t.label, note: t.note, power: t.power, extraction: !!t.extraction, part: t.id });
       });
       renderCustomPanel();
     }
@@ -4769,7 +4777,7 @@
   /* ------------------------------------------------------------- examples */
 
   function refreshEmptyHint() {
-    customHint.hidden = state.build !== 'custom' || state.custom.parts.length > 0;
+    customHint.hidden = state.build !== 'custom' || state.custom.nodes.length > 0;
     if (state.build === 'custom') {
       emptyHint.hidden = true;
       return;
@@ -4845,7 +4853,7 @@
   /** Empties the plan (or in Custom, the build) but keeps its name. Callers ask for confirmation. */
   function clearPlan() {
     if (state.build === 'custom') {
-      state.custom.parts = [];
+      state.custom.nodes = [];
       state.custom.links = [];
       clearSelection();
       changed();
@@ -5374,7 +5382,7 @@
 
   var clearBtn = document.getElementById('clear');
   clearBtn.addEventListener('click', function () {
-    if (state.build === 'custom' ? !state.custom.parts.length : !state.targets.length) return;
+    if (state.build === 'custom' ? !state.custom.nodes.length : !state.targets.length) return;
     askConfirm(clearBtn, clearPlan);
   });
 
@@ -5418,7 +5426,7 @@
     var next = btn.dataset.build === state.build
       ? (state.build === 'auto' ? 'custom' : 'auto')
       : btn.dataset.build;
-    if (next === 'auto' && state.custom.parts.length) {
+    if (next === 'auto' && state.custom.nodes.length) {
       askConfirm(btn, function () { switchBuild('auto'); }, false, {
         q: 'Switch to Auto? It keeps your build\u2019s inputs and outputs, but may rearrange the machines in between.',
         yes: 'Switch',
@@ -5426,7 +5434,7 @@
       });
       return;
     }
-    if (next === 'custom' && !keptStillFits() && state.custom.parts.length) {
+    if (next === 'custom' && !keptStillFits() && state.custom.nodes.length) {
       askConfirm(btn, function () { switchBuild('custom'); }, false, {
         q: 'Switch to Custom? This plan will be laid out as parts, replacing your current custom build.',
         yes: 'Switch',
@@ -5452,7 +5460,7 @@
     clearSelection();
     hideHoverInfo();
     if (next === 'auto' && state.build === 'custom') {
-      if (state.custom.parts.length) {
+      if (state.custom.nodes.length) {
         customToAuto();
         // Coming straight back, with the plan untouched, restores this layout.
         state.customKept = { custom: clone(state.custom), key: autoKey() };
@@ -5730,84 +5738,498 @@
 
   /* ========================================================= custom build */
 
-  // Custom: buildings and parts placed by hand at their real footprints, on
-  // the same 8 px-to-the-metre foundation grid as the Machines view. For now
-  // they're placed, moved and removed; belts, recipes and rates come next.
+  // Custom works like Satisfactory Modeler: you place items, not machines.
+  // Each node is one step (a recipe, a resource, something brought in), drawn
+  // as a card with its building's picture and its items' icons at the inputs
+  // and outputs. How many machines a step needs is worked out for you: from
+  // what flows into it (Auto), or fixed by you (Set), in which case the Auto
+  // steps feeding it size themselves to what it asks for. Splitters share
+  // evenly, as in the game; Storage takes whatever's left.
   var palette = document.getElementById('palette');
   var customHint = document.getElementById('custom-hint');
+  var flow = null;   // the last Custom flow: see customFlow()
 
-  function storageSize(which) { return DATA.logistics.storage[which].size; }
+  var CARD_W = { recipe: 150, resource: 132, import: 124, sink: 110, splitter: 54, merger: 54 };
+  var SLOT = 38;       // room for each input or output
+  var CARD_TOP = 28;   // room above the slots for the count
 
-  // Logistics parts, by the key their icon is filed under.
-  var LOGISTICS = {
-    splitter: { name: 'Conveyor Splitter', w: DATA.logistics.splitter, h: DATA.logistics.splitter, cls: 'part splitter', text: 'S' },
-    merger: { name: 'Conveyor Merger', w: DATA.logistics.merger, h: DATA.logistics.merger, cls: 'part merger', text: 'M' },
-    junction: { name: 'Pipeline Junction', w: DATA.logistics.junction, h: DATA.logistics.junction, cls: 'part junction', text: '+' },
-    storage: { name: DATA.logistics.storage.items.name, w: storageSize('items').l, h: storageSize('items').w, cls: 'machine logistic' },
-    buffer: { name: DATA.logistics.storage.fluids.name, w: storageSize('fluids').l, h: storageSize('fluids').w, cls: 'machine logistic' },
-    sink: { name: DATA.logistics.storage.sink.name, w: storageSize('sink').l, h: storageSize('sink').w, cls: 'machine logistic' }
-  };
+  function iconOf(id) { return 'icons/' + id + '.png'; }
+  function isLogistic(n) { return n.type === 'splitter' || n.type === 'merger'; }
 
-  /** What a part is: its name, footprint in metres (w across, h down) and look. */
-  function partSpec(kind) {
-    var m = DATA.machines[kind];
-    if (m) return { name: m.name, w: m.size ? m.size.l : 10, h: m.size ? m.size.w : 8, cls: 'machine', building: true };
-    var x = DATA.extractors[kind];
-    if (x) return { name: x.name, w: x.size ? x.size.l : 14, h: x.size ? x.size.w : 6, cls: 'machine extractor', building: true };
-    return LOGISTICS[kind] || null;
+  function nodeRecipe(n) {
+    return n.type === 'recipe' && DATA.recipes[n.recipe] ? DATA.recipes[n.recipe] : null;
   }
 
-  // The parts panel, in the order the game unlocks things.
-  var PALETTE = [
-    { head: 'Production', kinds: BUILDINGS.filter(function (id) { return DATA.machines[id]; }) },
-    { head: 'Extraction', kinds: BUILDINGS.filter(function (id) { return DATA.extractors[id]; }) },
-    { head: 'Logistics', kinds: ['splitter', 'merger', 'junction', 'storage', 'buffer', 'sink'] }
-  ];
+  /** A node's inputs and outputs, each an item (null: whatever its line carries). */
+  function slotsOf(n) {
+    var r = nodeRecipe(n);
+    if (r) return { ins: r.in.map(function (q) { return q[0]; }), outs: r.out.map(function (q) { return q[0]; }) };
+    if (n.type === 'resource' || n.type === 'import') return { ins: [], outs: [n.item] };
+    if (n.type === 'sink') return { ins: [null], outs: [] };
+    if (n.type === 'splitter') return { ins: [null], outs: [null, null, null] };
+    if (n.type === 'merger') return { ins: [null, null, null], outs: [null] };
+    return { ins: [], outs: [] };
+  }
 
+  /** A card's size: as tall as its most inputs or outputs need. */
+  function nodeSize(n) {
+    var s = slotsOf(n);
+    var rows = Math.max(1, s.ins.length, s.outs.length);
+    var w = CARD_W[n.type] || 140;
+    if (isLogistic(n)) return { w: w, h: rows * 24 + 12 };
+    return { w: w, h: CARD_TOP + rows * SLOT + 8 };
+  }
+
+  /** Where an input (side 'in') or output ('out') sits on the canvas. */
+  function slotAt(n, side, k) {
+    var s = slotsOf(n);
+    var count = (side === 'in' ? s.ins : s.outs).length;
+    var size = nodeSize(n);
+    var top = isLogistic(n) ? 6 : CARD_TOP;
+    var span = size.h - top - (isLogistic(n) ? 6 : 8);
+    return { x: side === 'in' ? n.x : n.x + size.w, y: n.y + top + span * (k + 0.5) / count };
+  }
+
+  /** The building a node stands for: a recipe's machine, or the extractor on a resource. */
+  function buildingOf(n) {
+    var r = nodeRecipe(n);
+    if (r) return r.machine;
+    if (n.type === 'resource') return extractorOf(n);
+    return null;
+  }
+
+  function extractorOf(n) {
+    if (!n.item) return null;
+    if (!isFluid(n.item)) return DATA.extractors[n.miner] ? n.miner : 'Build_MinerMk1_C';
+    var ids = Object.keys(DATA.extractors).filter(function (id) {
+      var x = DATA.extractors[id];
+      return x.resources && x.resources.indexOf(n.item) >= 0;
+    });
+    return ids.filter(function (id) { return id !== 'Build_FrackingExtractor_C'; })[0] || ids[0] || null;
+  }
+
+  /** Most a resource node gives: its nodes at their purity, its miner, its clock. */
+  function resourceCap(n) {
+    var ex = DATA.extractors[extractorOf(n)];
+    if (!ex) return 0;
+    var purity = n.item === 'Desc_Water_C' ? 1 : SOLVER.PURITY[n.purity || 'normal'];
+    return ex.rate * purity * (n.count || 1) * (n.clock || 1);
+  }
+
+  function nodeById(id) {
+    return state.custom.nodes.filter(function (n) { return n.id === id; })[0] || null;
+  }
+
+  /** The item a slot carries: its own, or for splitters and mergers, their line's. */
+  function slotItem(n, side, k, guard) {
+    var s = slotsOf(n);
+    var it = (side === 'in' ? s.ins : s.outs)[k];
+    if (it) return it;
+    return isLogistic(n) || n.type === 'sink' ? lineItem(n, guard) : null;
+  }
+
+  function lineItem(n, guard) {
+    guard = guard || {};
+    if (guard[n.id]) return null;
+    guard[n.id] = true;
+    var links = state.custom.links;
+    for (var i = 0; i < links.length; i++) {
+      var l = links[i];
+      if (l.to === n.id) {
+        var src = nodeById(l.from);
+        var a = src && slotItem(src, 'out', l.fk, guard);
+        if (a) return a;
+      }
+    }
+    for (var j = 0; j < links.length; j++) {
+      var m = links[j];
+      if (m.from === n.id) {
+        var dst = nodeById(m.to);
+        var b = dst && slotItem(dst, 'in', m.tk, guard);
+        if (b) return b;
+      }
+    }
+    return null;
+  }
+
+  function linkOn(n, side, k) {
+    return state.custom.links.filter(function (l) {
+      return side === 'out' ? l.from === n.id && l.fk === k : l.to === n.id && l.tk === k;
+    })[0] || null;
+  }
+
+  /* ---- flow ---- */
+
+  /** Shares F out evenly; what one branch can't take goes to the others. */
+  function evenShare(F, caps) {
+    var got = caps.map(function () { return 0; });
+    var open = caps.map(function (_, i) { return i; });
+    var left = F;
+    for (var guard = 0; left > 1e-9 && open.length && guard < 20; guard++) {
+      var each = left / open.length;
+      var still = [];
+      open.forEach(function (i) {
+        var give = Math.min(each, caps[i] - got[i]);
+        got[i] += give;
+        left -= give;
+        if (caps[i] - got[i] > 1e-9) still.push(i);
+      });
+      if (still.length === open.length) break;
+      open = still;
+    }
+    return got;
+  }
+
+  /**
+   * The whole build's rates. First what each Set step asks for is passed up
+   * through the Auto steps feeding it (their "wanted" counts). Then items are
+   * pushed forward from the resources: every step takes what it needs, an
+   * Auto step with nothing asked of it grows to use all it's given, splitters
+   * share evenly, and Storage takes what's left over.
+   */
+  function customFlow() {
+    var nodes = state.custom.nodes;
+    var links = state.custom.links;
+    var byId = {};
+    nodes.forEach(function (n) { byId[n.id] = n; });
+    var outL = {}, inL = {};
+    links.forEach(function (l) {
+      (outL[l.from] = outL[l.from] || []).push(l);
+      (inL[l.to] = inL[l.to] || []).push(l);
+    });
+    var itemOf = {};
+    links.forEach(function (l) { itemOf[l.id] = byId[l.from] ? slotItem(byId[l.from], 'out', l.fk) : null; });
+    var perOf = {};
+    nodes.forEach(function (n) { var r = nodeRecipe(n); perOf[n.id] = r ? SOLVER.perMinute(r) : {}; });
+    function need(n, item) { return Math.max(0, -(perOf[n.id][item] || 0)); }
+    function make(n, item) { return Math.max(0, perOf[n.id][item] || 0); }
+    function outLink(n, k) { return (outL[n.id] || []).filter(function (l) { return l.fk === k; })[0] || null; }
+    function inLink(n, k) { return (inL[n.id] || []).filter(function (l) { return l.tk === k; })[0] || null; }
+
+    // 1. Demand, passed upstream from Set steps.
+    var wantMemo = {};
+    var asking = {};
+    function request(l, depth) {
+      if (depth > 60) return 0;
+      var n = byId[l.to];
+      if (!n) return 0;
+      if (n.type === 'recipe') {
+        if (!nodeRecipe(n)) return 0;
+        var c = n.set ? (n.count || 0) : wanted(n, depth + 1);
+        return c * need(n, itemOf[l.id]);
+      }
+      if (n.type === 'splitter') {
+        return (outL[n.id] || []).reduce(function (s, o) { return s + request(o, depth + 1); }, 0);
+      }
+      if (n.type === 'merger') {
+        var o1 = (outL[n.id] || [])[0];
+        var ins = (inL[n.id] || []).length || 1;
+        return o1 ? request(o1, depth + 1) / ins : 0;
+      }
+      return 0;
+    }
+    function wanted(n, depth) {
+      if (wantMemo[n.id] != null) return wantMemo[n.id];
+      if (asking[n.id]) return 0;
+      asking[n.id] = true;
+      var w = 0;
+      slotsOf(n).outs.forEach(function (item, k) {
+        var l = outLink(n, k);
+        if (l && make(n, item) > 0) w = Math.max(w, request(l, depth) / make(n, item));
+      });
+      asking[n.id] = false;
+      wantMemo[n.id] = w;
+      return w;
+    }
+    // The count each step aims for (null: Auto with nothing asked of it,
+    // settled by its inputs below).
+    var aim = {};
+    nodes.forEach(function (n) {
+      if (!nodeRecipe(n)) return;
+      if (n.set) aim[n.id] = n.count || 0;
+      else { var w = wanted(n, 0); aim[n.id] = w > 1e-9 ? w : null; }
+    });
+
+    // How much a link's far end will take.
+    function accept(l, depth) {
+      if ((depth || 0) > 60) return Infinity;
+      var n = byId[l.to];
+      if (!n) return 0;
+      if (n.type === 'recipe') {
+        if (!nodeRecipe(n)) return 0;
+        var nd = need(n, itemOf[l.id]);
+        if (!nd) return 0;
+        return aim[n.id] == null ? Infinity : nd * aim[n.id];
+      }
+      if (n.type === 'sink') return Infinity;
+      if (n.type === 'splitter') {
+        return (outL[n.id] || []).reduce(function (s, o) { return s + accept(o, (depth || 0) + 1); }, 0);
+      }
+      if (n.type === 'merger') {
+        var o1 = (outL[n.id] || [])[0];
+        return o1 ? accept(o1, (depth || 0) + 1) : 0;
+      }
+      return 0;
+    }
+
+    // 2. Items pushed forward, sources first (loops go round a few times).
+    var order = [];
+    var indeg = {};
+    nodes.forEach(function (n) { indeg[n.id] = 0; });
+    links.forEach(function (l) { if (indeg[l.to] != null) indeg[l.to]++; });
+    var queue = nodes.filter(function (n) { return !indeg[n.id]; });
+    var seen = {};
+    while (queue.length) {
+      var q = queue.shift();
+      if (seen[q.id]) continue;
+      seen[q.id] = true;
+      order.push(q);
+      (outL[q.id] || []).forEach(function (l) { if (--indeg[l.to] === 0 && byId[l.to]) queue.push(byId[l.to]); });
+    }
+    nodes.forEach(function (n) { if (!seen[n.id]) order.push(n); });
+
+    var flowOf = {};
+    links.forEach(function (l) { flowOf[l.id] = 0; });
+    var count = {}, run = {}, avail = {};
+    for (var pass = 0; pass < 4; pass++) {
+      order.forEach(function (n) {
+        var ins = inL[n.id] || [];
+        var outs = [];
+        if (n.type === 'recipe') {
+          var r = nodeRecipe(n);
+          if (!r) { count[n.id] = 0; run[n.id] = 0; avail[n.id] = []; return; }
+          var got = {};
+          ins.forEach(function (l) { got[itemOf[l.id]] = (got[itemOf[l.id]] || 0) + flowOf[l.id]; });
+          var limit = Infinity;
+          r.in.forEach(function (q) { var nd = need(n, q[0]); if (nd > 0) limit = Math.min(limit, (got[q[0]] || 0) / nd); });
+          var c = aim[n.id] != null ? aim[n.id] : (limit === Infinity ? 0 : limit);
+          var a = Math.min(c, limit);
+          count[n.id] = c;
+          run[n.id] = a;
+          // What it can't use backs up on its belts.
+          r.in.forEach(function (q) {
+            var use = need(n, q[0]) * a;
+            var into = ins.filter(function (l) { return itemOf[l.id] === q[0]; });
+            var total = into.reduce(function (s, l) { return s + flowOf[l.id]; }, 0);
+            if (total > use + 1e-9) into.forEach(function (l) { flowOf[l.id] *= use / total; });
+          });
+          slotsOf(n).outs.forEach(function (item, k) { outs[k] = make(n, item) * a; });
+        } else if (n.type === 'resource') {
+          outs[0] = resourceCap(n);
+        } else if (n.type === 'import') {
+          outs[0] = n.rate || 0;
+        } else if (n.type === 'splitter') {
+          var F = ins.reduce(function (s, l) { return s + flowOf[l.id]; }, 0);
+          var branches = (outL[n.id] || []).slice().sort(function (a2, b2) { return a2.fk - b2.fk; });
+          // Branches to Storage only take the overflow.
+          var main = branches.filter(function (l) { return !(byId[l.to] && byId[l.to].type === 'sink'); });
+          var spill = branches.filter(function (l) { return byId[l.to] && byId[l.to].type === 'sink'; });
+          var shares = evenShare(F, main.map(function (l) { return accept(l); }));
+          var left = F;
+          main.forEach(function (l, i) { outs[l.fk] = shares[i]; left -= shares[i]; });
+          var spillShares = evenShare(Math.max(0, left), spill.map(function () { return Infinity; }));
+          spill.forEach(function (l, i) { outs[l.fk] = spillShares[i]; });
+        } else if (n.type === 'merger') {
+          outs[0] = ins.reduce(function (s, l) { return s + flowOf[l.id]; }, 0);
+        }
+        avail[n.id] = outs;
+        (outL[n.id] || []).forEach(function (l) {
+          flowOf[l.id] = Math.min(outs[l.fk] || 0, accept(l));
+        });
+        // A merger that can't pass everything on backs up evenly.
+        if (n.type === 'merger') {
+          var o1 = (outL[n.id] || [])[0];
+          var sent = o1 ? flowOf[o1.id] : 0;
+          var total2 = outs[0] || 0;
+          if (total2 > sent + 1e-9) ins.forEach(function (l) { flowOf[l.id] *= total2 > 0 ? sent / total2 : 0; });
+        }
+      });
+    }
+
+    // 3. What it comes to.
+    var res = { nodes: {}, links: {}, items: {}, outputs: {}, recipes: {}, problems: [], bad: {}, steps: 0, tally: [] };
+    links.forEach(function (l) {
+      var it = itemOf[l.id];
+      res.links[l.id] = { total: flowOf[l.id], item: it, fluid: it ? isFluid(it) : false };
+    });
+    function problem(n, text) {
+      res.problems.push({ part: n.id, text: text });
+      res.bad[n.id] = true;
+    }
+    nodes.forEach(function (n) {
+      var s = slotsOf(n);
+      var st = { count: 0, run: 0, ins: [], outs: [] };
+      s.ins.forEach(function (item, k) { var l = inLink(n, k); st.ins[k] = l ? flowOf[l.id] : 0; });
+      s.outs.forEach(function (item, k) { st.outs[k] = (avail[n.id] || [])[k] || 0; });
+      if (n.type === 'recipe') {
+        var r = nodeRecipe(n);
+        if (!r) {
+          problem(n, 'A step has no recipe');
+        } else {
+          var c = count[n.id] || 0, a = run[n.id] || 0;
+          st.count = c;
+          st.run = a;
+          var label = itemName(n.item || r.out[0][0]);
+          var top = clockTop(n.recipe);
+          var list = SOLVER.clocks(c, state.clock, top);
+          var m = DATA.machines[r.machine];
+          res.tally.push({
+            mid: r.machine, name: m.name, exact: a, built: list.length,
+            power: SOLVER.recipePower(DATA, n.recipe, a, state.clock, top),
+            label: label, note: list.length + ' × ' + m.name, id: n.id,
+            shards: list.reduce(function (t, x) { return t + shardsFor(x); }, 0)
+          });
+          var main = r.out[0][0];
+          res.recipes[n.recipe] = res.recipes[n.recipe] || { item: main, count: 0 };
+          res.recipes[n.recipe].count += a;
+          res.steps++;
+          r.in.forEach(function (q, k) {
+            var wantIn = need(n, q[0]) * c;
+            if (!inLink(n, k)) {
+              problem(n, label + ': nothing brings in ' + itemName(q[0]));
+            } else if (c > 1e-9 && st.ins[k] < wantIn * (1 - 1e-3) - 1e-6) {
+              problem(n, label + ': gets ' + fmtNum(st.ins[k]) + ' of the ' + fmtNum(wantIn) + '/min ' + itemName(q[0]) + ' it needs');
+            }
+          });
+          s.outs.forEach(function (item, k) {
+            var l = outLink(n, k);
+            if (!l) {
+              if (st.outs[k] > 1e-6) res.outputs[item] = (res.outputs[item] || 0) + st.outs[k];
+            } else if (st.outs[k] - flowOf[l.id] > Math.max(0.01, st.outs[k] * 1e-3)) {
+              problem(n, fmtNum(st.outs[k] - flowOf[l.id]) + '/min ' + itemName(item) + ' backs up');
+            }
+          });
+        }
+      } else if (n.type === 'resource') {
+        var cap = resourceCap(n);
+        var lo = outLink(n, 0);
+        var used = lo ? flowOf[lo.id] : 0;
+        st.count = n.count || 1;
+        st.run = used;
+        var exId = extractorOf(n);
+        var ex = DATA.extractors[exId];
+        if (ex) {
+          var util = cap > 0 ? used / cap : 0;
+          var each = SOLVER.clocks(n.count || 1, 'even').map(function () { return n.clock || 1; });
+          res.tally.push({
+            mid: exId, name: ex.name, exact: (n.count || 1) * util, built: n.count || 1,
+            power: SOLVER.extractorPower(DATA, exId, each, state.clock) * util,
+            label: itemName(n.item), note: (n.count || 1) + ' × ' + ex.name, id: n.id, extraction: true,
+            shards: each.reduce(function (t, x) { return t + shardsFor(x); }, 0)
+          });
+        }
+        if (used > 1e-6) {
+          var it = res.items[n.item] || (res.items[n.item] = { supplied: 0, cap: 0, short: 0, surplus: 0, producers: [] });
+          it.supplied += used;
+          it.cap += cap;
+        }
+        if (!lo) problem(n, itemName(n.item) + ' isn’t connected to anything');
+        else {
+          var asked = request(lo, 0);
+          if (asked > cap * (1 + 1e-3) + 1e-6) problem(n, itemName(n.item) + ': the steps ask for ' + fmtNum(asked) + '/min, but its nodes give ' + fmtNum(cap));
+        }
+      } else if (n.type === 'import') {
+        var li = outLink(n, 0);
+        var brought = li ? flowOf[li.id] : 0;
+        st.run = brought;
+        if (brought > 1e-6) {
+          var bi = res.items[n.item] || (res.items[n.item] = { supplied: 0, short: 0, surplus: 0, producers: [], imported: true });
+          bi.supplied += brought;
+          bi.imported = true;
+        }
+        if (!li) problem(n, itemName(n.item) + ' (brought in) isn’t connected to anything');
+      } else if (n.type === 'sink') {
+        var ls = inLink(n, 0);
+        if (ls && flowOf[ls.id] > 1e-6) {
+          var si = itemOf[ls.id];
+          res.outputs[si] = (res.outputs[si] || 0) + flowOf[ls.id];
+        }
+      } else if (isLogistic(n)) {
+        // One item per line: a splitter or merger can't mix them.
+        var kinds = {};
+        (inL[n.id] || []).concat(outL[n.id] || []).forEach(function (l) { if (itemOf[l.id]) kinds[itemOf[l.id]] = true; });
+        if (Object.keys(kinds).length > 1) problem(n, (n.type === 'splitter' ? 'A splitter' : 'A merger') + ' mixes ' + Object.keys(kinds).map(itemName).join(' and '));
+      }
+      res.nodes[n.id] = st;
+    });
+    return res;
+  }
+
+  /* ---- palette ---- */
+
+  var palQuery = '';
+
+  /** The items panel: resources, parts, and the logistics nodes, with a search. */
   function renderPalette() {
+    if (palette.dataset.built) { filterPalette(); return; }
+    palette.dataset.built = '1';
     palette.innerHTML = '';
     var title = document.createElement('div');
     title.className = 'pal-title';
-    title.textContent = 'Parts';
+    title.textContent = 'Items';
     palette.appendChild(title);
-    PALETTE.forEach(function (sec) {
+    var search = document.createElement('input');
+    search.type = 'text';
+    search.className = 'pal-search';
+    search.placeholder = 'Search items';
+    search.spellcheck = false;
+    search.addEventListener('input', function () { palQuery = search.value.trim().toLowerCase(); filterPalette(); });
+    palette.appendChild(search);
+    var sections = [
+      { head: 'Resources', kinds: RAW_ITEMS.slice().sort(function (a, b) { return itemName(a).localeCompare(itemName(b)); }) },
+      { head: 'Parts', kinds: PICKABLE.slice() },
+      { head: 'Logistics', kinds: ['splitter', 'merger', 'sink'] }
+    ];
+    var NAMES = { splitter: 'Splitter', merger: 'Merger', sink: 'Storage' };
+    var ICONS = { splitter: 'splitter', merger: 'merger', sink: 'storage' };
+    sections.forEach(function (sec) {
+      var wrap = document.createElement('div');
+      wrap.className = 'pal-section';
       var head = document.createElement('div');
       head.className = 'pal-head';
       head.textContent = sec.head;
-      palette.appendChild(head);
+      wrap.appendChild(head);
       var grid = document.createElement('div');
       grid.className = 'pal-grid';
       sec.kinds.forEach(function (kind) {
-        var spec = partSpec(kind);
+        var name = NAMES[kind] || itemName(kind);
         var tile = document.createElement('button');
         tile.type = 'button';
         tile.className = 'pal-tile';
         tile.dataset.kind = kind;
-        // Buildings unticked under Machines aren't on offer.
-        var have = !spec.building || hasBuilding(kind);
-        tile.disabled = !have;
+        tile.dataset.name = name.toLowerCase();
         var img = document.createElement('img');
-        img.src = 'icons/' + kind + '.png';
+        img.src = iconOf(ICONS[kind] || kind);
         img.alt = '';
         img.draggable = false;
-        var name = document.createElement('span');
-        name.className = 'pal-name';
-        name.textContent = spec.name;
+        var label = document.createElement('span');
+        label.className = 'pal-name';
+        label.textContent = name;
         tile.appendChild(img);
-        tile.appendChild(name);
-        tile.setAttribute('aria-label', spec.name + (have ? '' : ' (unticked under Machines)'));
-        tile.addEventListener('pointerdown', function (e) { if (have) dragFromPalette(kind, e); });
+        tile.appendChild(label);
+        tile.setAttribute('aria-label', name);
+        tile.addEventListener('pointerdown', function (e) { dragFromPalette(kind, e); });
         grid.appendChild(tile);
       });
-      palette.appendChild(grid);
+      wrap.appendChild(grid);
+      palette.appendChild(wrap);
+    });
+    filterPalette();
+  }
+
+  function filterPalette() {
+    palette.querySelectorAll('.pal-section').forEach(function (sec) {
+      var any = false;
+      sec.querySelectorAll('.pal-tile').forEach(function (t) {
+        var show = !palQuery || t.dataset.name.indexOf(palQuery) >= 0;
+        t.hidden = !show;
+        if (show) any = true;
+      });
+      sec.hidden = !any;
     });
   }
 
-  /**
-   * Drag a part off the panel: a ghost follows the pointer, and letting go
-   * over the canvas places it there, centred on the pointer. A plain click
-   * places it in the middle of the view.
-   */
+  /** Drag an item off the panel onto the canvas; a plain click drops it mid-view. */
   function dragFromPalette(kind, e) {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -5816,19 +6238,13 @@
     var moved = false;
     var ghost = document.createElement('img');
     ghost.className = 'pal-ghost';
-    ghost.src = 'icons/' + kind + '.png';
+    ghost.src = e.currentTarget.querySelector('img').src;
     ghost.alt = '';
-    function follow(ev) {
-      ghost.style.left = ev.clientX + 'px';
-      ghost.style.top = ev.clientY + 'px';
-    }
     function move(ev) {
       if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 4) return;
-      if (!moved) {
-        moved = true;
-        document.body.appendChild(ghost);
-      }
-      follow(ev);
+      if (!moved) { moved = true; document.body.appendChild(ghost); }
+      ghost.style.left = ev.clientX + 'px';
+      ghost.style.top = ev.clientY + 'px';
     }
     function up(ev) {
       window.removeEventListener('pointermove', move);
@@ -5838,232 +6254,272 @@
       if (!moved) {
         var r = stage.getBoundingClientRect();
         var mid = toWorld(r.left + r.width / 2, r.top + r.height / 2);
-        placePart(kind, mid.x, mid.y);
+        placeItem(kind, mid.x, mid.y);
         return;
       }
       var over = document.elementFromPoint(ev.clientX, ev.clientY);
       if (!over || !stage.contains(over) || over.closest('.view-opts, .hover-info')) return;
       var at = toWorld(ev.clientX, ev.clientY);
-      placePart(kind, at.x, at.y);
+      placeItem(kind, at.x, at.y);
     }
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   }
 
-  /** A new part, centred on a world point, on whole metres. */
-  function placePart(kind, wx, wy) {
-    var spec = partSpec(kind);
-    var p = {
-      id: 'p' + uid(),
-      kind: kind,
-      x: Math.round(wx / PX_PER_M - spec.w / 2),
-      y: Math.round(wy / PX_PER_M - spec.h / 2),
-      r: 0
-    };
-    // Buildings start at 100%; an extractor with only one thing to take
-    // (oil, water) starts on it, on a normal node.
-    if (DATA.machines[kind] || DATA.extractors[kind]) p.clock = 1;
-    if (DATA.extractors[kind]) {
-      p.purity = 'normal';
-      var only = extractorItems(kind);
-      if (only.length === 1) p.item = only[0];
+  /** The recipe a new step for an item starts on: its usual one if you can build it. */
+  function startRecipe(item) {
+    var def = DATA.defaults[item];
+    if (def && canBuild(def) && recipeAllowed(def)) return def;
+    var list = (producersOf[item] || []).filter(function (rid) {
+      return canBuild(rid) && recipeAllowed(rid) && DATA.recipes[rid].out[0][0] === item;
+    });
+    return list[0] || fallbackRecipe(item);
+  }
+
+  /** A new node for an item (a step, a resource, or something brought in), centred on a point. */
+  function newNode(kind, wx, wy) {
+    var n;
+    if (kind === 'splitter' || kind === 'merger' || kind === 'sink') {
+      n = { type: kind };
+    } else if (DATA.items[kind].raw) {
+      n = { type: 'resource', item: kind, purity: 'normal', count: 1, clock: 1 };
+      if (!isFluid(kind)) n.miner = availableMiner(state.defaultMiner);
+    } else {
+      var rid = startRecipe(kind);
+      n = rid ? { type: 'recipe', recipe: rid, item: kind } : { type: 'import', item: kind, rate: 60 };
     }
-    state.custom.parts.push(p);
-    selectOnly(p.id);
+    n.id = 'n' + uid();
+    var size = nodeSize(n);
+    n.x = Math.round(wx - size.w / 2);
+    n.y = Math.round(wy - size.h / 2);
+    state.custom.nodes.push(n);
+    return n;
+  }
+
+  function placeItem(kind, wx, wy) {
+    var n = newNode(kind, wx, wy);
+    selectOnly(n.id);
     changed();
   }
 
+  /* ---- selection helpers ---- */
+
   function selectedParts() {
-    return state.custom.parts.filter(function (p) { return selected[p.id]; });
+    return state.custom.nodes.filter(function (n) { return selected[n.id]; });
+  }
+  function selectedLinks() {
+    return state.custom.links.filter(function (l) { return selected[l.id]; });
   }
 
-  /** Removes parts, with every belt on them, and any belts listed. */
+  /** Removes nodes, with every line on them, and any lines listed. */
   function removeParts(list, links) {
     var gone = {};
-    list.forEach(function (p) { gone[p.id] = true; });
+    list.forEach(function (n) { gone[n.id] = true; });
     var cut = {};
     (links || []).forEach(function (l) { cut[l.id] = true; });
-    state.custom.parts = state.custom.parts.filter(function (p) { return !gone[p.id]; });
+    state.custom.nodes = state.custom.nodes.filter(function (n) { return !gone[n.id]; });
     state.custom.links = state.custom.links.filter(function (l) {
-      return !cut[l.id] && !gone[l.a] && !gone[l.b];
+      return !cut[l.id] && !gone[l.from] && !gone[l.to];
     });
     clearSelection();
     changed();
   }
 
-  /** A quarter turn clockwise, about each part's middle. */
-  function rotateParts(list) {
-    list.forEach(function (p) {
-      var box = partBox(p);
-      var cx = p.x + box.w / 2;
-      var cy = p.y + box.h / 2;
-      p.r = ((p.r || 0) + 1) % 4;
-      var nb = partBox(p);
-      p.x = Math.round(cx - nb.w / 2);
-      p.y = Math.round(cy - nb.h / 2);
-    });
-    changed();
-  }
-
-  /** A part's footprint as placed: width and height swap on a quarter turn. */
-  function partBox(p) {
-    var spec = partSpec(p.kind);
-    return (p.r || 0) % 2 ? { w: spec.h, h: spec.w } : { w: spec.w, h: spec.h };
-  }
-
-  /** Every placed part's box on the canvas, in world pixels. */
+  /** Every card's box on the canvas. */
   function customBoxes() {
-    return state.custom.parts.map(function (p) {
-      var box = partBox(p);
-      return { id: p.id, x: px(p.x), y: px(p.y), w: px(box.w), h: px(box.h) };
+    return state.custom.nodes.map(function (n) {
+      var size = nodeSize(n);
+      return { id: n.id, x: n.x, y: n.y, w: size.w, h: size.h };
     });
   }
 
-  function selectedLinks() {
-    return state.custom.links.filter(function (l) { return selected[l.id]; });
+  /** Centres the view on a node and selects it. */
+  function focusPart(id) {
+    var n = nodeById(id);
+    if (!n) return;
+    var size = nodeSize(n);
+    var v = state.view;
+    v.x = usableWidth() / 2 - (n.x + size.w / 2) * v.s;
+    v.y = stage.clientHeight / 2 - (n.y + size.h / 2) * v.s;
+    applyView();
+    selectOnly(id);
+    writeNow();
   }
 
-  /* ---- ports ---- */
+  /* ---- cards ---- */
 
-  // How many belts and pipes each production building takes in and gives
-  // out: the most any of its recipes needs.
-  var MACHINE_PORTS = {};
-  Object.keys(DATA.recipes).forEach(function (rid) {
-    var r = DATA.recipes[rid];
-    var m = MACHINE_PORTS[r.machine] || (MACHINE_PORTS[r.machine] = { si: 0, fi: 0, so: 0, fo: 0 });
-    var si = 0, fi = 0, so = 0, fo = 0;
-    r.in.forEach(function (p) { if (isFluid(p[0])) fi++; else si++; });
-    r.out.forEach(function (p) { if (isFluid(p[0])) fo++; else so++; });
-    m.si = Math.max(m.si, si);
-    m.fi = Math.max(m.fi, fi);
-    m.so = Math.max(m.so, so);
-    m.fo = Math.max(m.fo, fo);
-  });
+  function cardEl(n) {
+    var size = nodeSize(n);
+    var st = (flow && flow.nodes[n.id]) || { ins: [], outs: [] };
+    var el = document.createElement('div');
+    el.className = 'cpart cnode cnode-' + n.type;
+    el.dataset.id = n.id;
+    el.style.left = n.x + 'px';
+    el.style.top = n.y + 'px';
+    el.style.width = size.w + 'px';
+    el.style.height = size.h + 'px';
 
-  /**
-   * A part's ports, unrotated, in metres from its top-left: side 'in', 'out'
-   * or (junctions) 'any'; fluid or not; where; and the way it faces.
-   * Inputs are down the left, outputs down the right, belts above pipes.
-   */
-  var portCache = {};
-  function portsOf(kind) {
-    if (portCache[kind]) return portCache[kind];
-    var spec = partSpec(kind);
-    var w = spec.w, h = spec.h;
-    var list = [];
-    function edge(side, fluids, solids) {
-      var all = [];
-      for (var i = 0; i < solids; i++) all.push(false);
-      for (var j = 0; j < fluids; j++) all.push(true);
-      all.forEach(function (fluid, k) {
-        var y = h * (k + 1) / (all.length + 1);
-        list.push(side === 'in'
-          ? { side: 'in', fluid: fluid, x: 0, y: y, nx: -1, ny: 0 }
-          : { side: 'out', fluid: fluid, x: w, y: y, nx: 1, ny: 0 });
-      });
-    }
-    var left = { x: 0, y: h / 2, nx: -1, ny: 0 };
-    var right = { x: w, y: h / 2, nx: 1, ny: 0 };
-    var top = { x: w / 2, y: 0, nx: 0, ny: -1 };
-    var bottom = { x: w / 2, y: h, nx: 0, ny: 1 };
-    function at(where, side, fluid) { list.push(Object.assign({ side: side, fluid: fluid }, where)); }
-    if (DATA.machines[kind]) {
-      var mp = MACHINE_PORTS[kind] || { si: 1, fi: 0, so: 1, fo: 0 };
-      edge('in', mp.fi, mp.si);
-      edge('out', mp.fo, mp.so);
-    } else if (DATA.extractors[kind]) {
-      var ex = DATA.extractors[kind];
-      var liquid = ex.resources ? ex.resources.some(isFluid) : false;
-      edge('out', liquid ? 1 : 0, liquid ? 0 : 1);
-    } else if (kind === 'splitter') {
-      at(left, 'in', false); at(top, 'out', false); at(right, 'out', false); at(bottom, 'out', false);
-    } else if (kind === 'merger') {
-      at(left, 'in', false); at(top, 'in', false); at(bottom, 'in', false); at(right, 'out', false);
-    } else if (kind === 'junction') {
-      at(left, 'any', true); at(top, 'any', true); at(right, 'any', true); at(bottom, 'any', true);
-    } else if (kind === 'storage') {
-      at(left, 'in', false); at(right, 'out', false);
-    } else if (kind === 'buffer') {
-      at(left, 'in', true); at(right, 'out', true);
-    } else if (kind === 'sink') {
-      at(left, 'in', false);
-    }
-    portCache[kind] = list;
-    return list;
-  }
-
-  /** Port k of a placed part, turned with it: where it is (metres) and which way it faces. */
-  function portAt(p, k) {
-    var port = portsOf(p.kind)[k];
-    var spec = partSpec(p.kind);
-    var x = port.x, y = port.y, nx = port.nx, ny = port.ny;
-    var w = spec.w, h = spec.h;
-    for (var t = 0; t < (p.r || 0); t++) {
-      // A quarter turn clockwise (y runs down): (x, y) in a w × h box goes to
-      // (h − y, x) in an h × w one.
-      var x2 = h - y, y2 = x;
-      var nx2 = -ny, ny2 = nx;
-      x = x2; y = y2; nx = nx2; ny = ny2;
-      var tmp = w; w = h; h = tmp;
-    }
-    return { side: port.side, fluid: port.fluid, x: p.x + x, y: p.y + y, nx: nx, ny: ny };
-  }
-
-  function linkOn(partId, k) {
-    return state.custom.links.filter(function (l) {
-      return (l.a === partId && l.ap === k) || (l.b === partId && l.bp === k);
-    })[0] || null;
-  }
-
-  /**
-   * A belt's corner points, in world pixels: straight out of one port, round
-   * square corners, and straight into the other.
-   */
-  function linkRoute(A, B) {
-    var OUT = 1.5;
-    var s = { x: px(A.x), y: px(A.y) };
-    var e = { x: px(B.x), y: px(B.y) };
-    var p1 = { x: s.x + px(A.nx * OUT), y: s.y + px(A.ny * OUT) };
-    var p3 = { x: e.x + px(B.nx * OUT), y: e.y + px(B.ny * OUT) };
-    var pts = [[s.x, s.y], [p1.x, p1.y]];
-    var aH = A.nx !== 0, bH = B.nx !== 0;
-    if (aH && bH) {
-      var mx = (p1.x + p3.x) / 2;
-      pts.push([mx, p1.y], [mx, p3.y]);
-    } else if (!aH && !bH) {
-      var my = (p1.y + p3.y) / 2;
-      pts.push([p1.x, my], [p3.x, my]);
-    } else if (aH) {
-      pts.push([p3.x, p1.y]);
+    if (isLogistic(n)) {
+      var letter = document.createElement('span');
+      letter.className = 'cn-letter';
+      letter.textContent = n.type === 'splitter' ? 'S' : 'M';
+      el.appendChild(letter);
     } else {
-      pts.push([p1.x, p3.y]);
+      // The count, over the building's picture.
+      var badge = document.createElement('span');
+      badge.className = 'cn-count';
+      if (n.type === 'recipe') {
+        badge.textContent = nodeRecipe(n) ? '×' + fmtCount(st.count || 0) : '?';
+        if (n.set) badge.classList.add('set');
+        if (st.run < (st.count || 0) - 1e-6) badge.classList.add('short');
+      } else if (n.type === 'resource') {
+        badge.textContent = '×' + (n.count || 1);
+      } else if (n.type === 'import') {
+        badge.textContent = fmtNum(n.rate || 0) + '/min';
+      } else {
+        badge.textContent = 'Storage';
+      }
+      el.appendChild(badge);
+      var b = buildingOf(n);
+      var pic = document.createElement('img');
+      pic.className = 'cn-icon';
+      pic.src = iconOf(b || (n.type === 'sink' ? 'storage' : n.type === 'import' ? (isFluid(n.item) ? 'buffer' : 'storage') : 'storage'));
+      pic.alt = '';
+      pic.draggable = false;
+      el.appendChild(pic);
+      if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
+        var cap = document.createElement('span');
+        cap.className = 'cn-caption';
+        cap.textContent = titleCase(n.purity || 'normal') + (isFluid(n.item) ? '' : ' · ' + DATA.extractors[extractorOf(n)].name.replace(/^Miner\s*/, ''));
+        el.appendChild(cap);
+      } else if (n.type === 'recipe' && nodeRecipe(n) && nodeRecipe(n).alt) {
+        var alt = document.createElement('span');
+        alt.className = 'cn-caption alt';
+        alt.textContent = 'ALT';
+        el.appendChild(alt);
+      }
     }
-    pts.push([p3.x, p3.y], [e.x, e.y]);
-    return simplify(pts.map(function (q) { return [Math.round(q[0] * 2) / 2, Math.round(q[1] * 2) / 2]; }));
+
+    // Inputs down the left, outputs down the right, each its item's icon.
+    var s = slotsOf(n);
+    [['in', s.ins, st.ins], ['out', s.outs, st.outs]].forEach(function (side) {
+      side[1].forEach(function (item, k) {
+        var at = slotAt(n, side[0], k);
+        var shown = item || slotItem(n, side[0], k);
+        var slot = document.createElement('span');
+        slot.className = 'cn-slot ' + side[0] + (shown && isFluid(shown) ? ' fluid' : '') + (linkOn(n, side[0], k) ? ' linked' : '');
+        slot.dataset.node = n.id;
+        slot.dataset.side = side[0];
+        slot.dataset.k = k;
+        slot.style.top = (at.y - n.y) + 'px';
+        if (shown) {
+          var img = document.createElement('img');
+          img.src = iconOf(shown);
+          img.alt = '';
+          img.draggable = false;
+          slot.appendChild(img);
+        }
+        slot.setAttribute('aria-label', (shown ? itemName(shown) : 'Any item') + (side[0] === 'in' ? ' in' : ' out'));
+        slot.addEventListener('pointerdown', function (e) { dragFromSlot(n, side[0], k, e); });
+        el.appendChild(slot);
+        if (!isLogistic(n) && n.type !== 'sink') {
+          var rate = document.createElement('span');
+          rate.className = 'cn-rate ' + side[0];
+          rate.style.top = (at.y - n.y) + 'px';
+          rate.textContent = fmtNum(side[2][k] || 0);
+          el.appendChild(rate);
+        }
+      });
+    });
+
+    if (flow && flow.bad[n.id]) el.classList.add('has-problem');
+    el.setAttribute('aria-label', n.item ? itemName(n.item) : n.type);
+    el.addEventListener('pointerdown', function (e) { dragCard(el, n, e); });
+    el.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAll();
+      if (!selected[n.id]) selectOnly(n.id);
+      var list = selectedParts();
+      openCtx(e.clientX, e.clientY, [
+        { head: list.length > 1 ? list.length + ' selected' : (n.item ? itemName(n.item) : titleCase(n.type)) },
+        { label: list.length > 1 ? 'Remove these' : 'Remove', run: function () { removeParts(list, selectedLinks()); } }
+      ]);
+    });
+    return el;
   }
 
-  /** Every belt and pipe, redrawn (they follow parts as they move). */
+  /** Moves a card (and the rest of the selection, if it's in it). */
+  function dragCard(el, n, e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeAll();
+    var mods = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey };
+    var group = selected[n.id] ? selectedParts() : [n];
+    var origins = group.map(function (g) { return { x: g.x, y: g.y }; });
+    var startX = e.clientX, startY = e.clientY;
+    var moved = false;
+    function move(ev) {
+      var dx = (ev.clientX - startX) / state.view.s;
+      var dy = (ev.clientY - startY) / state.view.s;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 3 / state.view.s) return;
+      if (!moved) { moved = true; el.classList.add('dragging'); }
+      group.forEach(function (g, i) {
+        g.x = Math.round(origins[i].x + dx);
+        g.y = Math.round(origins[i].y + dy);
+        var ge = world.querySelector('.cnode[data-id="' + g.id + '"]');
+        if (ge) { ge.style.left = g.x + 'px'; ge.style.top = g.y + 'px'; }
+      });
+      renderLinks();
+    }
+    function up() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      el.classList.remove('dragging');
+      if (moved) { save(); return; }
+      if (mods.ctrl || mods.shift) {
+        if (selected[n.id]) delete selected[n.id];
+        else selected[n.id] = true;
+        applySelection();
+      } else {
+        selectOnly(n.id);
+      }
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  /* ---- lines ---- */
+
+  /** Every line between cards: a curve from an output to an input, with its rate. */
   function renderLinks() {
     while (wires.firstChild) wires.removeChild(wires.firstChild);
     labelsEl.innerHTML = '';
-    var byId = {};
-    state.custom.parts.forEach(function (p) { byId[p.id] = p; });
     state.custom.links.forEach(function (l) {
-      var a = byId[l.a], b = byId[l.b];
+      var a = nodeById(l.from), b = nodeById(l.to);
       if (!a || !b) return;
-      var A = portAt(a, l.ap), B = portAt(b, l.bp);
-      var d = roundedPath(linkRoute(A, B));
-      svg('path', { d: d, 'class': 'belt-casing' });
-      if (A.fluid) {
-        svg('path', { d: d, 'class': 'belt pipe', 'data-link': l.id });
-        svg('path', { d: d, 'class': 'belt pipe-core' });
-      } else {
-        svg('path', { d: d, 'class': 'belt', 'data-link': l.id });
+      var p1 = slotAt(a, 'out', l.fk), p2 = slotAt(b, 'in', l.tk);
+      var path = wirePath(p1, { x: 1, y: 0 }, p2, { x: -1, y: 0 });
+      var f = flow && flow.links[l.id];
+      var fluid = f ? f.fluid : false;
+      svg('path', { d: path.d, 'class': 'wire cwire' + (fluid ? ' pipe' : ''), 'data-link': l.id });
+      if (fluid) svg('path', { d: path.d, 'class': 'wire pipe-core' });
+      if (f) {
+        var label = document.createElement('div');
+        label.className = 'flow-label';
+        label.style.left = path.mid.x + 'px';
+        label.style.top = path.mid.y + 'px';
+        var bold = document.createElement('b');
+        bold.textContent = fmtNum(f.total);
+        label.appendChild(bold);
+        label.appendChild(document.createTextNode((fluid ? ' m³' : '') + '/min'));
+        labelsEl.appendChild(label);
       }
-      linkLabel(l, linkRoute(A, B), A.fluid);
-      // A wider, invisible stroke to click on.
-      var hit = svg('path', { d: d, 'class': 'belt-hit', 'data-hit': l.id });
+      var hit = svg('path', { d: path.d, 'class': 'belt-hit', 'data-hit': l.id });
       hit.addEventListener('pointerdown', function (e) {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -6083,69 +6539,75 @@
         closeAll();
         if (!selected[l.id]) selectOnly(l.id);
         openCtx(e.clientX, e.clientY, [
-          { head: A.fluid ? 'Pipe' : 'Belt' },
+          { head: 'Line' },
           { label: 'Remove', run: function () { removeParts([], selectedLinks()); } }
         ]);
       });
     });
-    // Ports show whether they're taken.
-    world.querySelectorAll('.cport').forEach(function (el) {
-      el.classList.toggle('linked', !!linkOn(el.dataset.part, Number(el.dataset.k)));
-    });
     applySelection();
   }
 
+  /** Whether two slots can be joined: one in and one out, both free, the same item. */
+  function fits(f, t) {
+    if (!f || !t || f.node === t.node || f.side === t.side) return false;
+    if (linkOn(t.node, t.side, t.k)) return false;
+    var a = slotItem(f.node, f.side, f.k), b = slotItem(t.node, t.side, t.k);
+    return !a || !b || a === b;
+  }
+
+  function join(f, t) {
+    var out = f.side === 'out' ? f : t, inn = f.side === 'out' ? t : f;
+    state.custom.links.push({ id: 'l' + uid(), from: out.node.id, fk: out.k, to: inn.node.id, tk: inn.k });
+  }
+
   /**
-   * Drag from a port to connect it. Letting go on another port joins them;
-   * on a part, its nearest free port that fits. Pressing a port that's
-   * already joined picks that belt's end up to move it.
+   * Drag from an input or output to connect it: onto a matching slot, onto a
+   * card (its first free matching slot), or onto empty canvas for a menu of
+   * steps that use (or make) the item, placed there and joined up. Pressing
+   * a slot that's already joined picks that line's end up.
    */
-  function dragFromPort(p, k, e) {
+  function dragFromSlot(n, side, k, e) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     closeAll();
-    var byId = {};
-    state.custom.parts.forEach(function (q) { byId[q.id] = q; });
-    var from = { part: p, k: k };
-    var existing = linkOn(p.id, k);
+    var from = { node: n, side: side, k: k };
+    var existing = linkOn(n, side, k);
     if (existing) {
-      // Keep the other end; this end comes loose.
-      var otherId = existing.a === p.id && existing.ap === k ? existing.b : existing.a;
-      var otherK = existing.a === p.id && existing.ap === k ? existing.bp : existing.ap;
       state.custom.links = state.custom.links.filter(function (l) { return l !== existing; });
-      from = { part: byId[otherId], k: otherK };
+      from = side === 'out'
+        ? { node: nodeById(existing.to), side: 'in', k: existing.tk }
+        : { node: nodeById(existing.from), side: 'out', k: existing.fk };
       renderLinks();
     }
-    var A = portAt(from.part, from.k);
-    var preview = svg('path', { d: '', 'class': 'belt-preview' + (A.fluid ? ' pipe' : '') });
+    var A = slotAt(from.node, from.side, from.k);
+    var preview = svg('path', { d: '', 'class': 'belt-preview' });
     function target(ev) {
       var el = document.elementFromPoint(ev.clientX, ev.clientY);
-      var portEl = el && el.closest && el.closest('.cport');
-      var partEl = el && el.closest && el.closest('.cpart');
-      if (portEl) return { part: byId[portEl.dataset.part], k: Number(portEl.dataset.k) };
-      if (partEl) return nearestPort(byId[partEl.dataset.id], ev);
+      var slotEl = el && el.closest && el.closest('.cn-slot');
+      if (slotEl) return { node: nodeById(slotEl.dataset.node), side: slotEl.dataset.side, k: Number(slotEl.dataset.k) };
+      var card = el && el.closest && el.closest('.cnode');
+      if (card) {
+        var m = nodeById(card.dataset.id);
+        var s = slotsOf(m);
+        var list = from.side === 'out' ? s.ins : s.outs;
+        for (var j = 0; j < list.length; j++) {
+          var t = { node: m, side: from.side === 'out' ? 'in' : 'out', k: j };
+          if (fits(from, t)) return t;
+        }
+      }
       return null;
-    }
-    function nearestPort(q, ev) {
-      if (!q) return null;
-      var w = toWorld(ev.clientX, ev.clientY);
-      var best = null;
-      portsOf(q.kind).forEach(function (_, j) {
-        if (!fits(from, { part: q, k: j })) return;
-        var P2 = portAt(q, j);
-        var d = Math.hypot(px(P2.x) - w.x, px(P2.y) - w.y);
-        if (!best || d < best.d) best = { part: q, k: j, d: d };
-      });
-      return best;
     }
     function move(ev) {
       var w = toWorld(ev.clientX, ev.clientY);
       var t = target(ev);
-      var end = t && fits(from, t) ? portAt(t.part, t.k) : null;
-      var ex = end ? px(end.x) : w.x, ey = end ? px(end.y) : w.y;
-      preview.setAttribute('d', 'M ' + px(A.x) + ' ' + px(A.y) + ' L ' + ex + ' ' + ey);
-      preview.classList.toggle('ok', !!end);
+      var ok = t && fits(from, t);
+      var B = ok ? slotAt(t.node, t.side, t.k) : w;
+      var path = from.side === 'out'
+        ? wirePath(A, { x: 1, y: 0 }, B, { x: -1, y: 0 })
+        : wirePath(B, { x: 1, y: 0 }, A, { x: -1, y: 0 });
+      preview.setAttribute('d', path.d);
+      preview.classList.toggle('ok', !!ok);
     }
     function up(ev) {
       window.removeEventListener('pointermove', move);
@@ -6153,788 +6615,96 @@
       window.removeEventListener('pointercancel', up);
       preview.remove();
       var t = target(ev);
-      if (t && fits(from, t)) join(from, t);
-      else if (existing) changed();  // the loose end was dropped: the belt's gone
-    }
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
-  }
-
-  /** Whether two ports can be joined: belt to belt or pipe to pipe, one in and one out, both free. */
-  function fits(f, t) {
-    if (!f.part || !t.part || f.part === t.part) return false;
-    var A = portAt(f.part, f.k), B = portAt(t.part, t.k);
-    if (A.fluid !== B.fluid) return false;
-    if (linkOn(t.part.id, t.k)) return false;
-    if (A.side === 'any' || B.side === 'any') return A.side !== B.side || A.side === 'any';
-    return A.side !== B.side;
-  }
-
-  function join(f, t) {
-    var A = portAt(f.part, f.k);
-    var B = portAt(t.part, t.k);
-    // Stored output end first.
-    var fromIsOut = A.side === 'out' || (A.side === 'any' && B.side !== 'out');
-    var out = fromIsOut ? f : t, inn = fromIsOut ? t : f;
-    var l = { id: 'l' + uid(), a: out.part.id, ap: out.k, b: inn.part.id, bp: inn.k };
-    state.custom.links.push(l);
-    changed();
-  }
-
-  function customEl(p) {
-    var spec = partSpec(p.kind);
-    var box = partBox(p);
-    var el = document.createElement('div');
-    el.className = 'cpart ' + spec.cls;
-    el.dataset.id = p.id;
-    el.style.left = px(p.x) + 'px';
-    el.style.top = px(p.y) + 'px';
-    el.style.width = px(box.w) + 'px';
-    el.style.height = px(box.h) + 'px';
-    if (spec.text) {
-      el.textContent = spec.text;
-    } else {
-      var img = document.createElement('img');
-      img.className = 'cp-icon';
-      img.src = 'icons/' + p.kind + '.png';
-      img.alt = '';
-      img.draggable = false;
-      var name = document.createElement('span');
-      name.className = 'm-name';
-      el.appendChild(img);
-      var text = document.createElement('span');
-      text.className = 'cp-text';
-      text.appendChild(nameSpans(name, spec.name));
-      var st = flow && flow.parts[p.id];
-      if (st && st.building) {
-        var what = document.createElement('span');
-        what.className = 'm-product';
-        what.textContent = st.label;
-        var how = document.createElement('span');
-        how.className = 'm-sub m-clock';
-        how.textContent = st.status;
-        text.appendChild(what);
-        text.appendChild(how);
-        if (st.util < 1 - 1e-6) el.classList.add('under');
-        if ((p.clock || 1) > 1 + 1e-6) el.classList.add('over');
-      }
-      el.appendChild(text);
-    }
-    if (flow && flow.bad[p.id]) el.classList.add('has-problem');
-    el.setAttribute('aria-label', spec.name);
-    // Its ports, on its edges, turned with it.
-    portsOf(p.kind).forEach(function (_, k) {
-      var at = portAt(p, k);
-      var dot = document.createElement('span');
-      dot.className = 'cport ' + at.side + (at.fluid ? ' fluid' : '');
-      dot.dataset.part = p.id;
-      dot.dataset.k = k;
-      dot.style.left = px(at.x - p.x) + 'px';
-      dot.style.top = px(at.y - p.y) + 'px';
-      dot.setAttribute('aria-label', (at.fluid ? 'Pipe ' : 'Belt ') + (at.side === 'any' ? 'port' : at.side === 'in' ? 'input' : 'output'));
-      dot.addEventListener('pointerdown', function (e) { dragFromPort(p, k, e); });
-      el.appendChild(dot);
-    });
-    el.addEventListener('pointerdown', function (e) { dragPart(el, p, e); });
-    el.addEventListener('contextmenu', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      closeAll();
-      if (!selected[p.id]) selectOnly(p.id);
-      var list = selectedParts();
-      openCtx(e.clientX, e.clientY, [
-        { head: list.length > 1 ? list.length + ' selected' : spec.name },
-        { label: 'Rotate', note: 'R', run: function () { rotateParts(list); } },
-        { label: list.length > 1 ? 'Remove these' : 'Remove', run: function () { removeParts(list, selectedLinks()); } }
-      ]);
-    });
-    return el;
-  }
-
-  /** Moves a part (and the rest of the selection, if it's in it), on whole metres. */
-  function dragPart(el, p, e) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeAll();
-    var mods = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey };
-    var group = selected[p.id] ? selectedParts() : [p];
-    var origins = group.map(function (g) { return { x: g.x, y: g.y }; });
-    var startX = e.clientX, startY = e.clientY;
-    var moved = false;
-    function move(ev) {
-      var dx = (ev.clientX - startX) / state.view.s;
-      var dy = (ev.clientY - startY) / state.view.s;
-      if (!moved && Math.abs(dx) + Math.abs(dy) < 3 / state.view.s) return;
-      if (!moved) {
-        moved = true;
-        el.classList.add('dragging');
-      }
-      group.forEach(function (g, i) {
-        g.x = Math.round(origins[i].x + dx / PX_PER_M);
-        g.y = Math.round(origins[i].y + dy / PX_PER_M);
-        var ge = world.querySelector('.cpart[data-id="' + g.id + '"]');
-        if (ge) {
-          ge.style.left = px(g.x) + 'px';
-          ge.style.top = px(g.y) + 'px';
-        }
-      });
-      renderLinks();
-    }
-    function up() {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      el.classList.remove('dragging');
-      if (moved) {
-        save();
+      if (t && fits(from, t)) {
+        join(from, t);
+        changed();
         return;
       }
-      if (mods.ctrl || mods.shift) {
-        if (selected[p.id]) delete selected[p.id];
-        else selected[p.id] = true;
-        applySelection();
-      } else {
-        selectOnly(p.id);
+      var over = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (over && stage.contains(over) && !over.closest('.cnode, .view-opts')) {
+        quickAdd(from, toWorld(ev.clientX, ev.clientY), ev.clientX, ev.clientY, !!existing);
+        return;
       }
+      if (existing) changed();
     }
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   }
 
-  /* ---- flow ---- */
-
-  var flow = null;   // the last Custom flow: see customFlow()
-
-  /** What an extractor can take: ores for miners, the listed resources otherwise. */
-  function extractorItems(kind) {
-    var x = DATA.extractors[kind];
-    if (!x) return [];
-    if (x.resources) return x.resources.slice();
-    return RAW_ITEMS.filter(function (id) { return DATA.items[id].form === 'solid'; })
-      .sort(function (a, b) { return itemName(a).localeCompare(itemName(b)); });
-  }
-
-  /* ---- Custom <-> Auto ---- */
-
-  /**
-   * The custom build as an Auto plan: what reaches storage becomes the
-   * outputs, the miners and extractors become resource nodes, the machines'
-   * recipes become the recipe picks, and storage bringing items in becomes
-   * imports. Auto then lays out the machines in between its own way.
-   */
-  function customToAuto() {
-    var f = customFlow();
-    var outs = Object.keys(f.outputs).filter(function (id) { return f.outputs[id] > 1e-6; });
-    var targets = outs.map(function (id) { return { item: id, rate: Number(f.outputs[id].toFixed(4)) }; });
-    // Nothing reaching storage: what the machines make with nowhere to go.
-    if (!targets.length) {
-      state.custom.parts.forEach(function (p) {
-        var r = p.recipe && DATA.recipes[p.recipe];
-        if (!r) return;
-        portsOf(p.kind).forEach(function (port, k) {
-          var o = machineOut(p, k);
-          if (!o || state.custom.links.some(function (l) { return l.a === p.id && l.ap === k; })) return;
-          var rate = SOLVER.perMinute(r)[o] * (p.clock || 1);
-          if (!targets.some(function (t) { return t.item === o; }) && rate > 0) {
-            targets.push({ item: o, rate: Number(rate.toFixed(4)) });
-          }
+  /** The menu for a line dropped on empty canvas: what could take (or give) its item. */
+  function quickAdd(from, w, cx, cy, dropped) {
+    var item = slotItem(from.node, from.side, from.k);
+    var items = [{ head: item ? itemName(item) : 'Connect' }];
+    function make(kind, recipe, extra) {
+      return function () {
+        var n = newNode(kind, w.x, w.y);
+        if (recipe) { n.type = 'recipe'; n.recipe = recipe; n.item = kind; }
+        Object.assign(n, extra || {});
+        var size = nodeSize(n);
+        // Line the new card's slot up with the drop point.
+        if (from.side === 'out') n.x = Math.round(w.x); else n.x = Math.round(w.x - size.w);
+        var s = slotsOf(n);
+        var list = from.side === 'out' ? s.ins : s.outs;
+        var k = Math.max(0, item ? list.indexOf(item) : 0);
+        if (k < 0 || k >= list.length) k = 0;
+        var at = slotAt(n, from.side === 'out' ? 'in' : 'out', k);
+        n.y = Math.round(n.y + (w.y - at.y));
+        var t = { node: n, side: from.side === 'out' ? 'in' : 'out', k: k };
+        if (fits(from, t)) join(from, t);
+        selectOnly(n.id);
+        changed();
+      };
+    }
+    if (item) {
+      var rids = Object.keys(DATA.recipes).filter(function (rid) {
+        var r = DATA.recipes[rid];
+        if (!canBuild(rid) || !recipeAllowed(rid)) return false;
+        var list = from.side === 'out' ? r.in : r.out;
+        return list.some(function (q) { return q[0] === item; });
+      }).sort(function (a, b) {
+        var ra = DATA.recipes[a], rb = DATA.recipes[b];
+        return (ra.alt ? 1 : 0) - (rb.alt ? 1 : 0) || ra.name.localeCompare(rb.name);
+      });
+      if (from.side === 'in') {
+        if (DATA.items[item].raw) items.push({ label: 'Resource node', note: 'Mine or extract it', run: make(item) });
+        items.push({ label: 'Bring it in', note: 'From outside this build', run: make(item, null, { type: 'import', rate: 60 }) });
+      }
+      rids.forEach(function (rid) {
+        var r = DATA.recipes[rid];
+        var product = itemName(r.out[0][0]);
+        items.push({
+          label: from.side === 'out' ? product : r.name,
+          note: (from.side === 'out' && r.name !== product ? r.name + ' · ' : '') + machineName(rid) + (r.alt ? ' · alternate' : ''),
+          run: make(from.side === 'out' ? r.out[0][0] : item, rid)
         });
       });
+      if (from.side === 'out') items.push({ label: 'Storage', note: 'Collect it here', run: make('sink') });
     }
-    var supply = {};
-    var imports = {};
-    var mixes = {};
-    state.custom.parts.forEach(function (p) {
-      if (DATA.extractors[p.kind] && p.item && p.kind !== 'Build_WaterPump_C') {
-        var s = supply[p.item] || (supply[p.item] = { nodes: [] });
-        var node = { purity: p.purity || 'normal' };
-        if (MINERS.indexOf(p.kind) >= 0) node.miner = p.kind;
-        s.nodes.push(node);
-      }
-      if (bringsIn(p)) imports[p.item] = true;
-      var r = p.recipe && DATA.recipes[p.recipe];
-      if (r) {
-        var main = r.out[0][0];
-        var m = mixes[main] || (mixes[main] = {});
-        m[p.recipe] = (m[p.recipe] || 0) + (p.clock || 1);
-      }
-    });
-    var recipes = {};
-    Object.keys(mixes).forEach(function (id) {
-      var rids = Object.keys(mixes[id]);
-      recipes[id] = rids.length === 1 ? rids[0] : mixes[id];
-    });
-    state.targets = targets;
-    state.supply = supply;
-    state.imports = imports;
-    state.recipes = recipes;
+    items.push('-');
+    items.push({ label: from.side === 'out' ? 'Splitter' : 'Merger', run: make(from.side === 'out' ? 'splitter' : 'merger') });
+    openCtx(cx, cy, items);
+    if (dropped) changed();
   }
 
-  /**
-   * The Auto plan as parts to edit: miners and extractors on the left, each
-   * step's machines at their clock speeds in columns by how far they are
-   * from the raw resources, outputs into storage and spares into a sink on
-   * the right. Belts are paired producer to consumer, fanned out through
-   * splitters and in through mergers (pipe junctions for fluids).
-   */
-  function autoToCustom() {
-    if (!solved || solved.custom) return;
-    var parts = [];
-    var links = [];
-    function part(kind, extra) {
-      var p = Object.assign({ id: 'p' + uid(), kind: kind, x: 0, y: 0, r: 0 }, extra || {});
-      parts.push(p);
-      return p;
-    }
-    var prod = {};   // item -> [{ p, k, rate }]
-    var cons = {};
-    function give(item, p, k, rate) { (prod[item] = prod[item] || []).push({ p: p, k: k, rate: rate }); }
-    function take(item, p, k, rate) { (cons[item] = cons[item] || []).push({ p: p, k: k, rate: rate }); }
-    function portIndex(p, side, fluid, nth) {
-      var ports = portsOf(p.kind);
-      var seen = 0;
-      for (var k = 0; k < ports.length; k++) {
-        if (ports[k].side === side && ports[k].fluid === fluid) {
-          if (seen === nth) return k;
-          seen++;
-        }
-      }
-      return -1;
-    }
-
-    // How far each item is from the raw resources: a step sits one column
-    // after the latest of its inputs.
-    var madeBy = {};
-    Object.keys(solved.recipes).forEach(function (rid) {
-      DATA.recipes[rid].out.forEach(function (o) { (madeBy[o[0]] = madeBy[o[0]] || []).push(rid); });
-    });
-    var depth = {};
-    function stepDepth(rid, guard) {
-      if (depth[rid] != null) return depth[rid];
-      if (guard[rid]) return 1;
-      guard[rid] = true;
-      var d = 1;
-      DATA.recipes[rid].in.forEach(function (q) {
-        (madeBy[q[0]] || []).forEach(function (other) {
-          if (other !== rid) d = Math.max(d, stepDepth(other, guard) + 1);
-        });
-      });
-      depth[rid] = d;
-      return d;
-    }
-    var cols = {};
-    function place(col, p) { (cols[col] = cols[col] || []).push(p); }
-
-    // Sources: miners and extractors, or storage bringing in what isn't made here.
-    Object.keys(solved.items).forEach(function (id) {
-      var e = solved.items[id];
-      if (!(e.supplied > EPS)) return;
-      var ex = DATA.items[id].raw ? extractorsFor(id, e.supplied) : null;
-      // "Any node": enough normal nodes for what the plan draws, sharing it evenly.
-      var info = DATA.items[id].raw && !ex ? supplyInfo(id) : null;
-      if (info) {
-        var perNode = info.perNode('normal');
-        ex = { list: SOLVER.clocks(e.supplied / perNode, 'even').map(function (c) {
-          return { purity: 'normal', clock: c, extractor: info.extractor, rate: perNode };
-        }) };
-      }
-      if (ex) {
-        ex.list.forEach(function (m) {
-          var x = part(m.extractor, { item: id, purity: m.purity || 'normal', clock: Number(clockSetting(m.clock).toFixed(4)) || 1 });
-          give(id, x, 0, m.rate * m.clock);
-          place(0, x);
-        });
-      } else {
-        var fluid = isFluid(id);
-        var s = part(fluid ? 'buffer' : 'storage', { item: id });
-        give(id, s, 1, e.supplied);
-        place(0, s);
-      }
-    });
-    // Steps.
-    var last = 1;
-    Object.keys(solved.recipes).forEach(function (rid) {
-      var r = DATA.recipes[rid];
-      var per = SOLVER.perMinute(r);
-      var col = stepDepth(rid, {});
-      last = Math.max(last, col);
-      recipeClocks(rid, solved.recipes[rid].count).forEach(function (c) {
-        // The clock Auto actually sets: at 100% with nothing clocked, the last
-        // machine stays at 100% and idles part of the time.
-        var m = part(r.machine, { recipe: rid, clock: Number(clockSetting(c).toFixed(4)) });
-        place(col, m);
-        var nthIn = { s: 0, f: 0 };
-        r.in.forEach(function (q) {
-          var fl = isFluid(q[0]);
-          var k = portIndex(m, 'in', fl, fl ? nthIn.f++ : nthIn.s++);
-          if (k >= 0) take(q[0], m, k, -per[q[0]] * c);
-        });
-        portsOf(m.kind).forEach(function (port, k) {
-          var o = machineOut(m, k);
-          if (o && per[o] > 0) give(o, m, k, per[o] * c);
-        });
-      });
-    });
-    // Outputs into storage, spares into a sink (a buffer for fluids).
-    var end = last + 1;
-    Object.keys(solved.targets).forEach(function (id) {
-      if (!(solved.targets[id] > EPS)) return;
-      var s = part(isFluid(id) ? 'buffer' : 'storage');
-      take(id, s, 0, solved.targets[id]);
-      place(end, s);
-    });
-    Object.keys(solved.items).forEach(function (id) {
-      var e = solved.items[id];
-      if (!(e.surplus > EPS)) return;
-      var s = part(isFluid(id) ? 'buffer' : 'sink');
-      take(id, s, 0, e.surplus);
-      place(end, s);
-    });
-
-    // Columns left to right, parts stacked in each, on whole metres.
-    var GAP = 6, COL_GAP = 30;
-    var x = 0;
-    Object.keys(cols).map(Number).sort(function (a, b) { return a - b; }).forEach(function (c) {
-      var y = 0;
-      var wMax = 0;
-      cols[c].forEach(function (p) {
-        var box = partBox(p);
-        p.x = x;
-        p.y = y;
-        y += box.h + GAP;
-        wMax = Math.max(wMax, box.w);
-      });
-      x += wMax + COL_GAP;
-    });
-
-    // Belts: each item's producers paired with its consumers in order, then
-    // fanned out and in through splitters and mergers where a part pairs
-    // with more than one.
-    Object.keys(prod).forEach(function (item) {
-      var P = prod[item], C = cons[item] || [];
-      if (!C.length) return;
-      var fluid = isFluid(item);
-      var pairs = [];
-      var pi = 0, ci = 0;
-      var pl = P[0].rate, cl = C[0].rate;
-      while (pi < P.length && ci < C.length) {
-        var q = Math.min(pl, cl);
-        pairs.push({ p: P[pi], c: C[ci] });
-        pl -= q;
-        cl -= q;
-        if (pl <= 1e-6) { pi++; pl = P[pi] ? P[pi].rate : 0; }
-        if (cl <= 1e-6) { ci++; cl = C[ci] ? C[ci].rate : 0; }
-      }
-      // Anything left over joins the last pair's ends.
-      for (; ci < C.length; ci++) pairs.push({ p: P[P.length - 1], c: C[ci] });
-      for (; pi < P.length; pi++) pairs.push({ p: P[pi], c: C[C.length - 1] });
-
-      var outsOf = new Map(), insOf = new Map();
-      pairs.forEach(function (pr, i) {
-        if (!outsOf.has(pr.p)) outsOf.set(pr.p, []);
-        outsOf.get(pr.p).push(i);
-        if (!insOf.has(pr.c)) insOf.set(pr.c, []);
-        insOf.get(pr.c).push(i);
-      });
-      var from = [], to = [];
-      // Fan out: a chain of splitters, two branches each and the chain onward.
-      outsOf.forEach(function (list, end) {
-        if (list.length === 1) { from[list[0]] = { p: end.p, k: end.k }; return; }
-        var at = portAt(end.p, end.k);
-        var feed = { p: end.p, k: end.k };
-        var left = list.slice();
-        var n = 0;
-        while (left.length) {
-          var sp = part(fluid ? 'junction' : 'splitter', {
-            x: Math.round(at.x + 3), y: Math.round(at.y - 2 + n * 7)
-          });
-          n++;
-          links.push({ id: 'l' + uid(), a: feed.p.id, ap: feed.k, b: sp.id, bp: 0 });
-          var outs = [2, 1, 3];   // right, top, bottom
-          var take2 = left.length <= 3 ? left.length : 2;
-          for (var t = 0; t < take2; t++) from[left.shift()] = { p: sp, k: outs[t] };
-          feed = { p: sp, k: 3 };
-        }
-      });
-      // Fan in: a chain of mergers, the last into the consumer.
-      insOf.forEach(function (list, end) {
-        if (list.length === 1) { to[list[0]] = { p: end.p, k: end.k }; return; }
-        var at = portAt(end.p, end.k);
-        var inPorts = fluid ? [0, 1, 3] : [0, 1, 2];
-        var outPort = fluid ? 2 : 3;
-        var left = list.slice();
-        var into = { p: end.p, k: end.k };
-        var n = 0;
-        while (left.length) {
-          var mg = part(fluid ? 'junction' : 'merger', {
-            x: Math.round(at.x - 7), y: Math.round(at.y - 2 + n * 7)
-          });
-          n++;
-          links.push({ id: 'l' + uid(), a: mg.id, ap: outPort, b: into.p.id, bp: into.k });
-          var room = left.length <= 3 ? 3 : 2;
-          for (var t = 0; t < room && left.length; t++) to[left.shift()] = { p: mg, k: inPorts[t] };
-          into = { p: mg, k: inPorts[2] };
-        }
-      });
-      pairs.forEach(function (pr, i) {
-        if (from[i] && to[i]) links.push({ id: 'l' + uid(), a: from[i].p.id, ap: from[i].k, b: to[i].p.id, bp: to[i].k });
-      });
-    });
-
-    state.custom = { parts: parts, links: links };
-  }
-
-  /** Storage or a buffer with nothing going in, set to bring an item in. */
-  function bringsIn(p) {
-    return (p.kind === 'storage' || p.kind === 'buffer') && !!p.item &&
-      !state.custom.links.some(function (l) { return l.b === p.id; });
-  }
-
-  /** Most an extractor gives at its clock, per minute. */
-  function extractorMax(p) {
-    var x = DATA.extractors[p.kind];
-    if (!x || !p.item) return 0;
-    var purity = p.kind === 'Build_WaterPump_C' ? 1 : SOLVER.PURITY[p.purity || 'normal'];
-    return x.rate * purity * (p.clock || 1);
-  }
-
-  /** Which item a production machine sends out of port k, by its recipe. */
-  function machineOut(p, k) {
-    var r = p.recipe && DATA.recipes[p.recipe];
-    if (!r) return null;
-    var ports = portsOf(p.kind);
-    var port = ports[k];
-    if (!port || port.side !== 'out') return null;
-    var nth = ports.slice(0, k).filter(function (q) { return q.side === 'out' && q.fluid === port.fluid; }).length;
-    var outs = r.out.filter(function (o) { return isFluid(o[0]) === port.fluid; });
-    return outs[nth] ? outs[nth][0] : null;
-  }
-
-  function linkCap(l, fluid) {
-    return fluid ? DATA.logistics.pipes[state.pipe - 1] : DATA.logistics.belts[state.belt - 1];
-  }
-
-  /**
-   * The build's steady state. Which items can reach each belt is traced from
-   * the sources, then a linear program finds rates that keep every machine
-   * to its recipe and clock, every splitter, merger and junction balanced,
-   * and every belt and pipe within the fastest tier allowed, running the
-   * machines as hard as that lets them. An output with nowhere to go doesn't
-   * hold its machine back (it's flagged instead).
-   */
-  function customFlow() {
-    var parts = state.custom.parts;
-    var links = state.custom.links;
-    var byId = {};
-    parts.forEach(function (p) { byId[p.id] = p; });
-    var into = {}, outOf = {};
-    links.forEach(function (l) {
-      (outOf[l.a] = outOf[l.a] || []).push(l);
-      (into[l.b] = into[l.b] || []).push(l);
-    });
-    function fluidOf(l) { return portsOf(byId[l.a].kind)[l.ap].fluid; }
-
-    // 1. What each belt can carry, traced forward from the sources.
-    var carries = {};
-    links.forEach(function (l) { carries[l.id] = {}; });
-    function emits(p, k) {
-      if (DATA.machines[p.kind]) { var o = machineOut(p, k); return o ? [o] : []; }
-      if (DATA.extractors[p.kind]) return p.item ? [p.item] : [];
-      if (p.kind === 'sink') return [];
-      if (bringsIn(p)) return [p.item];
-      var set = {};
-      (into[p.id] || []).forEach(function (l) { Object.keys(carries[l.id]).forEach(function (i) { set[i] = true; }); });
-      return Object.keys(set);
-    }
-    for (var pass = 0, more = true; more && pass < 60; pass++) {
-      more = false;
-      links.forEach(function (l) {
-        emits(byId[l.a], l.ap).forEach(function (i) {
-          if (!carries[l.id][i]) { carries[l.id][i] = true; more = true; }
-        });
-      });
-    }
-
-    // 2. The linear program.
-    var n = 0;
-    var fv = {};                 // link id -> { item: variable }
-    links.forEach(function (l) {
-      fv[l.id] = {};
-      Object.keys(carries[l.id]).forEach(function (i) { fv[l.id][i] = n++; });
-    });
-    var av = {}, ev = {};
-    parts.forEach(function (p) {
-      if (DATA.machines[p.kind] && p.recipe) av[p.id] = n++;
-      if (DATA.extractors[p.kind] && p.item) ev[p.id] = n++;
-    });
-    var rows = [];
-    var c = new Array(n).fill(0);
-    function add(a, op, b) { if (Object.keys(a).length) rows.push({ a: a, op: op, b: b }); }
-    function sumItem(list, i, sign, a) {
-      (list || []).forEach(function (l) { if (fv[l.id][i] != null) a[fv[l.id][i]] = (a[fv[l.id][i]] || 0) + sign; });
-    }
-
-    links.forEach(function (l) {
-      var a = {};
-      Object.keys(fv[l.id]).forEach(function (i) { a[fv[l.id][i]] = 1; c[fv[l.id][i]] += 0.001; });
-      add(a, '<=', linkCap(l, fluidOf(l)));
-    });
-    var jams = {};   // part id -> items it refuses
-    parts.forEach(function (p) {
-      var ins = into[p.id] || [];
-      var outs = outOf[p.id] || [];
-      if (DATA.machines[p.kind]) {
-        var r = p.recipe && DATA.recipes[p.recipe];
-        var net = r ? SOLVER.perMinute(r) : {};
-        if (r) {
-          var bound = {};
-          bound[av[p.id]] = 1;
-          add(bound, '<=', p.clock || 1);
-          c[av[p.id]] += 1;
-          r.in.forEach(function (q) {
-            var a = {};
-            sumItem(ins, q[0], 1, a);
-            a[av[p.id]] = (a[av[p.id]] || 0) + net[q[0]];   // net is negative for an input
-            rows.push({ a: a, op: '=', b: 0 });
-          });
-          outs.forEach(function (l) {
-            var o = machineOut(p, l.ap);
-            if (!o || fv[l.id][o] == null) return;
-            var a = {};
-            a[fv[l.id][o]] = 1;
-            a[av[p.id]] = -net[o];
-            rows.push({ a: a, op: '=', b: 0 });
-          });
-        }
-        // Anything arriving that the recipe doesn't take jams the belt.
-        ins.forEach(function (l) {
-          Object.keys(fv[l.id]).forEach(function (i) {
-            if (r && net[i] < 0) return;
-            (jams[p.id] = jams[p.id] || {})[i] = true;
-            var a = {};
-            a[fv[l.id][i]] = 1;
-            rows.push({ a: a, op: '=', b: 0 });
-          });
-        });
-      } else if (DATA.extractors[p.kind]) {
-        if (ev[p.id] == null) return;
-        var b1 = {};
-        b1[ev[p.id]] = 1;
-        add(b1, '<=', extractorMax(p));
-        c[ev[p.id]] += 0.001;
-        if (outs.length) {
-          var a2 = {};
-          sumItem(outs, p.item, 1, a2);
-          a2[ev[p.id]] = -1;
-          rows.push({ a: a2, op: '=', b: 0 });
-        }
-      } else if (p.kind === 'sink') {
-        // Takes everything.
-      } else {
-        // Splitters, mergers and junctions pass everything on; storage keeps
-        // whatever it can't pass on.
-        // Storage nothing feeds, set to bring an item in, supplies all its belt takes.
-        if (bringsIn(p)) return;
-        var itemsHere = {};
-        ins.concat(outs).forEach(function (l) { Object.keys(fv[l.id]).forEach(function (i) { itemsHere[i] = true; }); });
-        Object.keys(itemsHere).forEach(function (i) {
-          var a = {};
-          sumItem(ins, i, 1, a);
-          sumItem(outs, i, -1, a);
-          rows.push({ a: a, op: p.kind === 'storage' || p.kind === 'buffer' ? '>=' : '=', b: 0 });
-        });
-      }
-    });
-
-    var res = n ? window.SF_LP.maximize(n, c, rows) : { status: 'optimal', x: [] };
-    var x = res.status === 'optimal' ? res.x : new Array(n).fill(0);
-    function val(i) { return i == null ? 0 : Math.max(0, x[i] || 0); }
-
-    // 3. What it all comes to.
-    var out = { links: {}, parts: {}, items: {}, outputs: {}, recipes: {}, problems: [], bad: {}, steps: 0 };
-    links.forEach(function (l) {
-      var per = {};
-      var total = 0;
-      Object.keys(fv[l.id]).forEach(function (i) { var v = val(fv[l.id][i]); if (v > 1e-6) { per[i] = v; total += v; } });
-      out.links[l.id] = { per: per, total: total, fluid: fluidOf(l), cap: linkCap(l, fluidOf(l)) };
-    });
-    function problem(p, text) {
-      out.problems.push({ part: p.id, text: text });
-      out.bad[p.id] = true;
-    }
-    parts.forEach(function (p) {
-      var spec = partSpec(p.kind);
-      var ins = into[p.id] || [];
-      var outs = outOf[p.id] || [];
-      var st = { building: !!spec.building, util: 0, power: 0, label: '', status: '', rates: [] };
-      if (DATA.machines[p.kind]) {
-        var r = p.recipe && DATA.recipes[p.recipe];
-        var m = DATA.machines[p.kind];
-        var clock = p.clock || 1;
-        if (!r) {
-          st.label = 'No recipe';
-          st.status = fmtClock(clock);
-          problem(p, spec.name + ' has no recipe');
-        } else {
-          var a = val(av[p.id]);
-          st.util = clock > 0 ? Math.min(1, a / clock) : 0;
-          var base = r.power != null ? r.power : m.power;
-          st.power = base * Math.pow(clock, m.powerExp) * st.util;
-          st.label = itemName(r.out[0][0]);
-          st.status = fmtClock(clock) + ' · running ' + Math.round(st.util * 100) + '%';
-          var net = SOLVER.perMinute(r);
-          r.in.concat(r.out).forEach(function (q) {
-            st.rates.push({ item: q[0], dir: net[q[0]] < 0 ? 'in' : 'out', now: Math.abs(net[q[0]]) * a, max: Math.abs(net[q[0]]) * clock });
-          });
-          out.recipes[p.recipe] = out.recipes[p.recipe] || { item: r.out[0][0], count: 0 };
-          out.recipes[p.recipe].count += a;
-          out.steps++;
-          // Inputs and outputs that aren't hooked up.
-          var needS = r.in.filter(function (q) { return !isFluid(q[0]); }).length;
-          var needF = r.in.length - needS;
-          var hasS = ins.filter(function (l) { return !fluidOf(l); }).length;
-          var hasF = ins.length - hasS;
-          if (hasS < needS || hasF < needF) problem(p, spec.name + ' (' + st.label + '): an input isn\u2019t connected');
-          portsOf(p.kind).forEach(function (port, k) {
-            if (port.side !== 'out') return;
-            var o = machineOut(p, k);
-            if (o && !outs.some(function (l) { return l.ap === k; })) {
-              problem(p, spec.name + ': ' + itemName(o) + ' has nowhere to go (the machine stops once full)');
-            }
-          });
-        }
-        if (jams[p.id]) {
-          problem(p, spec.name + ' is being sent ' + Object.keys(jams[p.id]).map(itemName).join(', ') + ', which it doesn\u2019t take: the belt jams');
-        }
-      } else if (DATA.extractors[p.kind]) {
-        var xk = DATA.extractors[p.kind];
-        var eclock = p.clock || 1;
-        if (!p.item) {
-          st.label = 'No resource';
-          st.status = fmtClock(eclock);
-          problem(p, spec.name + ' has no resource set');
-        } else {
-          var e = val(ev[p.id]);
-          var max = extractorMax(p);
-          st.util = max > 0 ? Math.min(1, e / max) : 0;
-          st.power = xk.power * Math.pow(eclock, 1.321929) * st.util;
-          st.label = itemName(p.item) + (p.kind === 'Build_WaterPump_C' ? '' : ' · ' + titleCase(p.purity || 'normal'));
-          st.status = fmtClock(eclock) + ' · ' + fmtNum(e) + ' of ' + fmtNum(max) + '/min';
-          st.rates.push({ item: p.item, dir: 'out', now: e, max: max });
-          if (e > 1e-6) {
-            var it = out.items[p.item] || (out.items[p.item] = { supplied: 0, cap: 0, short: 0, surplus: 0, producers: [] });
-            it.supplied += e;
-            it.cap += max;
-          }
-          if (!outs.length) problem(p, spec.name + ' (' + itemName(p.item) + ') isn\u2019t connected to anything');
-        }
-      } else {
-        // Logistics: what passes through, and what's kept.
-        var got = {};
-        ins.forEach(function (l) { Object.keys(out.links[l.id].per).forEach(function (i) { got[i] = (got[i] || 0) + out.links[l.id].per[i]; }); });
-        var sent = {};
-        outs.forEach(function (l) { Object.keys(out.links[l.id].per).forEach(function (i) { sent[i] = (sent[i] || 0) + out.links[l.id].per[i]; }); });
-        Object.keys(got).forEach(function (i) {
-          st.rates.push({ item: i, dir: 'in', now: got[i], max: got[i] });
-          var kept = got[i] - (sent[i] || 0);
-          if ((p.kind === 'storage' || p.kind === 'buffer' || p.kind === 'sink') && kept > 1e-6) {
-            out.outputs[i] = (out.outputs[i] || 0) + kept;
-          }
-        });
-        if (bringsIn(p)) {
-          var brought = 0;
-          outs.forEach(function (l) { brought += out.links[l.id].per[p.item] || 0; });
-          st.rates.push({ item: p.item, dir: 'out', now: brought, max: brought });
-          if (brought > 1e-6) {
-            var bi = out.items[p.item] || (out.items[p.item] = { supplied: 0, short: 0, surplus: 0, producers: [], imported: true });
-            bi.supplied += brought;
-            bi.imported = true;
-          }
-        }
-        if (!ins.length && p.kind !== 'storage' && p.kind !== 'buffer') problem(p, spec.name + ' has nothing going in');
-      }
-      out.parts[p.id] = st;
-    });
-    links.forEach(function (l) {
-      var f = out.links[l.id];
-      if (f.total > 0 && f.total >= f.cap - 1e-3) {
-        var tier = f.fluid ? 'Mk.' + state.pipe + ' pipe' : 'Mk.' + state.belt + ' belt';
-        problem(byId[l.a], 'A ' + tier + ' out of ' + partSpec(byId[l.a].kind).name + ' is full (' + fmtNum(f.cap) + '/min)');
-      }
-    });
-    return out;
-  }
-
-  /** A belt's rate, item and the slowest tier that carries it, on its longest straight run. */
-  function linkLabel(l, pts, fluid) {
-    var f = flow && flow.links[l.id];
-    if (!f) return;
-    var best = null;
-    for (var i = 0; i + 1 < pts.length; i++) {
-      var len = Math.abs(pts[i + 1][0] - pts[i][0]) + Math.abs(pts[i + 1][1] - pts[i][1]);
-      if (!best || len > best.len) best = { len: len, x: (pts[i][0] + pts[i + 1][0]) / 2, y: (pts[i][1] + pts[i + 1][1]) / 2 };
-    }
-    if (!best) return;
-    var label = document.createElement('div');
-    label.className = 'flow-label' + (f.total >= f.cap - 1e-3 && f.total > 0 ? ' full' : '');
-    label.style.left = best.x + 'px';
-    label.style.top = best.y + 'px';
-    var b = document.createElement('b');
-    b.textContent = fmtNum(f.total);
-    label.appendChild(b);
-    label.appendChild(document.createTextNode((fluid ? ' m³' : '') + '/min'));
-    var names = Object.keys(f.per);
-    if (names.length) {
-      var nm = document.createElement('span');
-      nm.className = 'fl-item';
-      nm.textContent = names.length === 1 ? itemName(names[0]) : names.length + ' items';
-      label.appendChild(nm);
-      var tier = document.createElement('span');
-      tier.className = 'fl-tier';
-      var t = tierFor(names[0], f.total);
-      tier.textContent = t ? 'Mk.' + t : 'too fast';
-      label.appendChild(tier);
-    }
-    labelsEl.appendChild(label);
-  }
-
-  /** Centres the view on a part and selects it. */
-  function focusPart(id) {
-    var p = state.custom.parts.filter(function (q) { return q.id === id; })[0];
-    if (!p) return;
-    var box = partBox(p);
-    var v = state.view;
-    v.x = usableWidth() / 2 - px(p.x + box.w / 2) * v.s;
-    v.y = stage.clientHeight / 2 - px(p.y + box.h / 2) * v.s;
-    applyView();
-    selectOnly(id);
-    writeNow();
-  }
-
-  /* ---- inspector and problems ---- */
+  /* ---- panel: inspector, problems, outputs ---- */
 
   var inspectorEl = document.getElementById('inspector');
   var problemsEl = document.getElementById('problems');
 
-  /** Custom's side of the panel: outputs, problems, and the inspector. */
   function renderCustomPanel() {
-    // Outputs: what ends up in storage or a sink.
     var outEl = document.getElementById('custom-outputs');
     outEl.innerHTML = '';
     Object.keys(flow.outputs).sort().forEach(function (id) {
       outEl.appendChild(row(itemName(id), '', rateText(id, flow.outputs[id])));
     });
-    // Problems, each pointing at its part.
     problemsEl.innerHTML = '';
     var rows = flow.problems.map(function (pr) {
       var r = row(pr.text, '', '', function () { focusPart(pr.part); });
       r.classList.add('problem-row');
       return r;
     });
-    if (!rows.length && state.custom.parts.length) {
+    if (!rows.length && state.custom.nodes.length) {
       var ok = row('No problems', '', '');
       ok.classList.add('quiet');
       rows.push(ok);
@@ -6943,27 +6713,25 @@
     renderInspector();
   }
 
-  /** The selected part's settings: recipe or resource, purity, clock; and its rates. */
+  /** The selected card's settings and rates. */
   function renderInspector() {
     inspectorEl.innerHTML = '';
-    if (state.build !== 'custom') return;
+    if (state.build !== 'custom' || !flow) return;
     var sel = selectedParts();
     if (sel.length !== 1) return;
-    var p = sel[0];
-    var spec = partSpec(p.kind);
-    var st = flow.parts[p.id] || { rates: [] };
+    var n = sel[0];
+    var st = flow.nodes[n.id] || { ins: [], outs: [] };
     var box = document.createElement('div');
     box.className = 'sum-group inspector';
-
     var head = document.createElement('div');
     head.className = 'sum-group-head insp-head';
     var img = document.createElement('img');
-    img.src = 'icons/' + p.kind + '.png';
-    img.alt = '';
     img.className = 'insp-icon';
+    img.alt = '';
+    img.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type));
     var title = document.createElement('span');
     title.className = 'sum-group-name';
-    title.textContent = spec.name;
+    title.textContent = n.item ? itemName(n.item) : n.type === 'sink' ? 'Storage' : titleCase(n.type);
     head.appendChild(img);
     head.appendChild(title);
     box.appendChild(head);
@@ -6985,119 +6753,362 @@
         var opt = document.createElement('option');
         opt.value = o.value;
         opt.textContent = o.label;
-        if (o.disabled) opt.disabled = true;
         if (o.value === value) opt.selected = true;
         s.appendChild(opt);
       });
       s.addEventListener('change', function () { onPick(s.value); });
       return s;
     }
+    function number(value, min, step, onSet) {
+      var i = document.createElement('input');
+      i.type = 'number';
+      i.className = 'insp-number';
+      i.min = min;
+      i.step = step;
+      i.value = value;
+      i.addEventListener('change', function () { onSet(Number(i.value)); });
+      return i;
+    }
+    function note(text) {
+      var p = document.createElement('p');
+      p.className = 'insp-note';
+      p.textContent = text;
+      box.appendChild(p);
+    }
 
-    if (DATA.machines[p.kind]) {
-      var rids = Object.keys(DATA.recipes).filter(function (rid) {
-        return DATA.recipes[rid].machine === p.kind && (recipeAllowed(rid) || rid === p.recipe);
-      }).sort(function (a, b) {
-        return itemName(DATA.recipes[a].out[0][0]).localeCompare(itemName(DATA.recipes[b].out[0][0])) ||
-          (DATA.recipes[a].alt ? 1 : 0) - (DATA.recipes[b].alt ? 1 : 0);
+    if (n.type === 'recipe') {
+      var r = nodeRecipe(n);
+      var rids = (producersOf[n.item] || []).filter(function (rid) {
+        return (canBuild(rid) && recipeAllowed(rid)) || rid === n.recipe;
       });
-      var opts = [{ value: '', label: 'Choose a recipe…' }].concat(rids.map(function (rid) {
-        var r = DATA.recipes[rid];
-        return { value: rid, label: r.name + (r.alt ? ' (alternate)' : '') };
-      }));
-      field('Recipe', select(opts, p.recipe || '', function (v) {
-        if (v) p.recipe = v; else delete p.recipe;
+      field('Recipe', select(rids.map(function (rid) {
+        var q = DATA.recipes[rid];
+        return { value: rid, label: q.name + (q.alt ? ' (alternate)' : '') + ' · ' + machineName(rid) };
+      }), n.recipe, function (v) {
+        // Lines on slots the new recipe doesn't have come off.
+        n.recipe = v;
+        var s = slotsOf(n);
+        state.custom.links = state.custom.links.filter(function (l) {
+          if (l.to === n.id) return l.tk < s.ins.length && s.ins[l.tk] === slotItem(nodeById(l.from), 'out', l.fk);
+          if (l.from === n.id) return l.fk < s.outs.length;
+          return true;
+        });
         changed();
       }));
-    } else if (DATA.extractors[p.kind]) {
-      var items = extractorItems(p.kind);
-      field('Resource', select([{ value: '', label: 'Choose a resource…' }].concat(items.map(function (id) {
-        return { value: id, label: itemName(id) };
-      })), p.item || '', function (v) {
-        if (v) p.item = v; else delete p.item;
-        changed();
-      }));
-      if (p.kind !== 'Build_WaterPump_C') {
-        field('Node', select(SOLVER.PURITIES.map(function (q) { return { value: q, label: titleCase(q) }; }),
-          p.purity || 'normal', function (v) { p.purity = v; changed(); }));
+      // Auto, or Set: a count, or a rate of the item it's for.
+      var seg = document.createElement('div');
+      seg.className = 'seg insp-seg';
+      ['auto', 'set'].forEach(function (mode) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'seg-btn' + ((mode === 'set') === !!n.set ? ' on' : '');
+        b.textContent = mode === 'auto' ? 'Auto' : 'Set';
+        b.addEventListener('click', function () {
+          if (mode === 'set' && !n.set) { n.set = true; n.count = Number((st.count || 1).toFixed(4)) || 1; }
+          else if (mode === 'auto') { n.set = false; delete n.count; }
+          changed();
+        });
+        seg.appendChild(b);
+      });
+      field('Machines', seg);
+      if (n.set && r) {
+        field('Count', number(Number((n.count || 0).toFixed(4)), 0, 0.01, function (v) {
+          n.count = Math.max(0, v || 0);
+          changed();
+        }));
+        var per = SOLVER.perMinute(r)[n.item] || SOLVER.perMinute(r)[r.out[0][0]];
+        field('Or ' + itemName(n.item) + '/min', number(Number(((n.count || 0) * per).toFixed(4)), 0, 0.1, function (v) {
+          n.count = Math.max(0, (v || 0) / per);
+          changed();
+        }));
       }
-    }
-
-    if (p.kind === 'storage' || p.kind === 'buffer') {
-      var fluidStore = p.kind === 'buffer';
-      var choices = Object.keys(DATA.items).filter(function (id) { return isFluid(id) === fluidStore; })
-        .sort(function (a, b) { return itemName(a).localeCompare(itemName(b)); });
-      field('Brings in', select([{ value: '', label: 'Nothing (collects)' }].concat(choices.map(function (id) {
-        return { value: id, label: itemName(id) };
-      })), p.item || '', function (v) {
-        if (v) p.item = v; else delete p.item;
+      if (r) {
+        var list = SOLVER.clocks(st.count || 0, state.clock, clockTop(n.recipe));
+        var builds = list.length + ' × ' + machineName(n.recipe);
+        note('×' + fmtCount(st.count || 0) + ' → ' + builds +
+          (list.length ? ' (' + list.map(fmtClock).join(', ') + ')' : '') +
+          (st.run < (st.count || 0) - 1e-6 ? ' · running ×' + fmtCount(st.run) : ''));
+        r.in.forEach(function (q, k) {
+          var wantIn = Math.abs(SOLVER.perMinute(r)[q[0]]) * (st.count || 0);
+          box.appendChild(row(itemName(q[0]), 'in', fmtNum(st.ins[k] || 0) + ' of ' + rateText(q[0], wantIn), null, (st.ins[k] || 0) < wantIn - 1e-6));
+        });
+        r.out.forEach(function (q, k) {
+          box.appendChild(row(itemName(q[0]), 'out', rateText(q[0], st.outs[k] || 0)));
+        });
+      }
+    } else if (n.type === 'resource') {
+      if (!isFluid(n.item)) {
+        field('Miner', select(MINERS.filter(function (m) { return DATA.extractors[m] && (hasBuilding(m) || m === n.miner); }).map(function (m) {
+          return { value: m, label: DATA.extractors[m].name };
+        }), extractorOf(n), function (v) { n.miner = v; state.defaultMiner = v; changed(); }));
+      }
+      if (n.item !== 'Desc_Water_C') {
+        field('Purity', select(SOLVER.PURITIES.map(function (q) { return { value: q, label: titleCase(q) }; }),
+          n.purity || 'normal', function (v) { n.purity = v; changed(); }));
+      }
+      field(n.item === 'Desc_Water_C' ? 'Extractors' : 'Nodes', number(n.count || 1, 1, 1, function (v) {
+        n.count = Math.max(1, Math.round(v || 1));
         changed();
       }));
-      var hint = document.createElement('p');
-      hint.className = 'insp-note';
-      hint.textContent = 'With nothing feeding it, it supplies this item, like a train or truck delivery.';
-      box.appendChild(hint);
-    }
-
-    if (spec.building) {
-      // Clock speed: typed, or dragged, 1–250%.
-      var clockWrap = document.createElement('span');
-      clockWrap.className = 'insp-clock';
-      var range = document.createElement('input');
-      range.type = 'range';
-      range.min = 1;
-      range.max = 250;
-      range.step = 1;
-      range.value = Math.round((p.clock || 1) * 100);
-      var num = document.createElement('input');
-      num.type = 'number';
-      num.min = 1;
-      num.max = 250;
-      num.step = 0.0001;
-      num.value = Number(((p.clock || 1) * 100).toFixed(4));
-      var pct = document.createElement('span');
-      pct.textContent = '%';
-      range.addEventListener('input', function () { num.value = range.value; });
-      function setClock(v) {
-        v = clamp(Number(v) || 100, 1, 250);
-        p.clock = v / 100;
+      field('Clock %', number(Number(((n.clock || 1) * 100).toFixed(4)), 1, 1, function (v) {
+        n.clock = clamp((v || 100) / 100, 0.01, SOLVER.MAX_CLOCK);
         changed();
-      }
-      range.addEventListener('change', function () { setClock(range.value); });
-      num.addEventListener('change', function () { setClock(num.value); });
-      clockWrap.appendChild(range);
-      clockWrap.appendChild(num);
-      clockWrap.appendChild(pct);
-      field('Clock speed', clockWrap);
-      var shards = shardsFor(p.clock || 1);
-      var info = document.createElement('p');
-      info.className = 'insp-note';
-      info.textContent = (st.status || '') + (st.power > EPS ? ' · ' + fmtPower(st.power) : '') +
-        (shards ? ' · ' + shards + ' Power Shard' + (shards > 1 ? 's' : '') : '');
-      box.appendChild(info);
+      }));
+      note('Gives ' + fmtNum(st.run || 0) + ' of ' + rateText(n.item, resourceCap(n)) +
+        (shardsFor(n.clock || 1) ? ' · ' + shardsFor(n.clock || 1) * (n.count || 1) + ' Power Shards' : ''));
+    } else if (n.type === 'import') {
+      field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = Math.max(0, v || 0); changed(); }));
+      note('Brought in from outside this build, like a train or truck delivery.');
+    } else {
+      note(n.type === 'splitter' ? 'Shares what comes in evenly across its outputs; anything a branch can’t take goes to the others.'
+        : n.type === 'merger' ? 'Joins up to three lines into one.'
+        : 'Collects whatever reaches it. From a splitter, it only takes what the other branches leave.');
     }
-
-    // What goes in and out, now and at most.
-    st.rates.forEach(function (q) {
-      var note = q.dir === 'in' ? 'in' : 'out';
-      var value = rateText(q.item, q.now) + (spec.building && q.max > q.now + 1e-6 ? ' of ' + fmtNum(q.max) : '');
-      box.appendChild(row(itemName(q.item), note, value));
-    });
     inspectorEl.appendChild(box);
   }
 
-  /** Custom's canvas: the placed parts, and the panel worked out from them. */
+  /* ---- Custom <-> Auto ---- */
+
+  /**
+   * The custom build as an Auto plan: what's collected (in Storage, or left
+   * at a step's main output) becomes the outputs, resource nodes become
+   * resource nodes, recipes become recipe picks, and what's brought in
+   * becomes imports. Auto then lays out the steps in between its own way.
+   */
+  function customToAuto() {
+    var f = customFlow();
+    var byItem = {};
+    state.custom.nodes.forEach(function (n) {
+      var r = nodeRecipe(n);
+      if (r) {
+        var st = f.nodes[n.id];
+        slotsOf(n).outs.forEach(function (item, k) {
+          if (k === 0 && !linkOn(n, 'out', k) && st.outs[k] > 1e-6) byItem[item] = (byItem[item] || 0) + st.outs[k];
+        });
+      }
+      if (n.type === 'sink') {
+        var l = linkOn(n, 'in', 0);
+        var it = l && f.links[l.id] && f.links[l.id].item;
+        // A byproduct in Storage is Auto's spare, not an output.
+        var mainSomewhere = state.custom.nodes.some(function (m) { var q = nodeRecipe(m); return q && q.out[0][0] === it; }) ||
+          state.custom.nodes.some(function (m) { return (m.type === 'resource' || m.type === 'import') && m.item === it; });
+        if (it && mainSomewhere && f.links[l.id].total > 1e-6) byItem[it] = (byItem[it] || 0) + f.links[l.id].total;
+      }
+    });
+    var supply = {}, imports = {}, mixes = {};
+    state.custom.nodes.forEach(function (n) {
+      if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
+        var s = supply[n.item] || (supply[n.item] = { nodes: [] });
+        for (var i = 0; i < (n.count || 1); i++) {
+          var node = { purity: n.purity || 'normal' };
+          if (!isFluid(n.item)) node.miner = extractorOf(n);
+          s.nodes.push(node);
+        }
+      }
+      if (n.type === 'import') imports[n.item] = true;
+      var r = nodeRecipe(n);
+      if (r) {
+        var main = r.out[0][0];
+        var m = mixes[main] || (mixes[main] = {});
+        m[n.recipe] = (m[n.recipe] || 0) + Math.max(0.0001, f.nodes[n.id].count || 1);
+      }
+    });
+    var recipes = {};
+    Object.keys(mixes).forEach(function (id) {
+      var rids = Object.keys(mixes[id]);
+      recipes[id] = rids.length === 1 ? rids[0] : mixes[id];
+    });
+    state.targets = Object.keys(byItem).map(function (id) { return { item: id, rate: Number(byItem[id].toFixed(4)) }; });
+    state.supply = supply;
+    state.imports = imports;
+    state.recipes = recipes;
+  }
+
+  /**
+   * The Auto plan as cards: resources and imports on the left, one card per
+   * step (Set to the plan's count) in columns by how far it is from the raw
+   * resources, Storage for the outputs and spares. Lines pair producers with
+   * consumers, through splitters and mergers where one feeds several.
+   */
+  function autoToCustom() {
+    if (!solved || solved.custom) return;
+    var nodes = [], links = [];
+    function node(obj) { obj.id = 'n' + uid(); obj.x = 0; obj.y = 0; nodes.push(obj); return obj; }
+    var prod = {}, cons = {};
+    function give(item, n, k, rate) { (prod[item] = prod[item] || []).push({ n: n, k: k, rate: rate }); }
+    function take(item, n, k, rate) { (cons[item] = cons[item] || []).push({ n: n, k: k, rate: rate }); }
+    var cols = {};
+    function place(col, n) { (cols[col] = cols[col] || []).push(n); }
+
+    // Resources, grouped by purity and miner; and what's brought in.
+    Object.keys(solved.items).forEach(function (id) {
+      var e = solved.items[id];
+      if (!(e.supplied > EPS)) return;
+      if (DATA.items[id].raw && supplyInfo(id)) {
+        var info = supplyInfo(id);
+        var groups = {};
+        if (info.nodeList.length) {
+          info.nodeList.forEach(function (nd) {
+            var key = nd.purity + '|' + nd.extractor;
+            (groups[key] = groups[key] || { purity: nd.purity, extractor: nd.extractor, count: 0, cap: 0 });
+            groups[key].count++;
+            groups[key].cap += nd.rate;
+          });
+        } else {
+          var per = info.perNode('normal');
+          var cnt = Math.max(1, Math.ceil(e.supplied / per - 1e-6));
+          groups.any = { purity: 'normal', extractor: info.extractor, count: cnt, cap: per * cnt };
+        }
+        var capAll = Object.keys(groups).reduce(function (s, k) { return s + groups[k].cap; }, 0);
+        Object.keys(groups).forEach(function (k) {
+          var g = groups[k];
+          var n = node({ type: 'resource', item: id, purity: g.purity, count: g.count, clock: 1 });
+          if (!isFluid(id)) n.miner = g.extractor;
+          give(id, n, 0, e.supplied * g.cap / capAll);
+          place(0, n);
+        });
+      } else {
+        var im = node({ type: 'import', item: id, rate: e.supplied });
+        give(id, im, 0, e.supplied);
+        place(0, im);
+      }
+    });
+    // Steps, by how far they are from the raw resources.
+    var madeBy = {};
+    Object.keys(solved.recipes).forEach(function (rid) {
+      DATA.recipes[rid].out.forEach(function (o) { (madeBy[o[0]] = madeBy[o[0]] || []).push(rid); });
+    });
+    var depth = {};
+    function stepDepth(rid, guard) {
+      if (depth[rid] != null) return depth[rid];
+      if (guard[rid]) return 1;
+      guard[rid] = true;
+      var d = 1;
+      DATA.recipes[rid].in.forEach(function (q) {
+        (madeBy[q[0]] || []).forEach(function (other) { if (other !== rid) d = Math.max(d, stepDepth(other, guard) + 1); });
+      });
+      depth[rid] = d;
+      return d;
+    }
+    var last = 1;
+    Object.keys(solved.recipes).forEach(function (rid) {
+      var r = DATA.recipes[rid];
+      var count = solved.recipes[rid].count;
+      var n = node({ type: 'recipe', recipe: rid, item: solved.recipes[rid].item, set: true, count: count });
+      var col = stepDepth(rid, {});
+      last = Math.max(last, col);
+      place(col, n);
+      var per = SOLVER.perMinute(r);
+      r.in.forEach(function (q, k) { take(q[0], n, k, -per[q[0]] * count); });
+      r.out.forEach(function (q, k) { if (per[q[0]] > 0) give(q[0], n, k, per[q[0]] * count); });
+    });
+    // Outputs and spares into Storage.
+    var end = last + 1;
+    function collect(id, rate) {
+      var s = node({ type: 'sink' });
+      take(id, s, 0, rate);
+      place(end, s);
+    }
+    Object.keys(solved.targets).forEach(function (id) { if (solved.targets[id] > EPS) collect(id, solved.targets[id]); });
+    // A spare byproduct nothing else uses stays at its output; one that
+    // shares a line with a user needs Storage to take the rest.
+    Object.keys(solved.items).forEach(function (id) {
+      if (solved.items[id].surplus > EPS && cons[id] && cons[id].length) collect(id, solved.items[id].surplus);
+    });
+
+    // Columns left to right, cards stacked in each.
+    var x = 0;
+    Object.keys(cols).map(Number).sort(function (a, b) { return a - b; }).forEach(function (c) {
+      var y = 0;
+      var wMax = 0;
+      cols[c].forEach(function (n) {
+        var size = nodeSize(n);
+        n.x = x;
+        n.y = y;
+        y += size.h + 40;
+        wMax = Math.max(wMax, size.w);
+      });
+      x += wMax + 170;
+    });
+
+    // Lines: producers paired with consumers in order; where one pairs with
+    // several, a chain of splitters (or mergers) between.
+    Object.keys(prod).forEach(function (item) {
+      var P = prod[item], C = cons[item] || [];
+      if (!C.length) return;
+      var pairs = [];
+      var pi = 0, ci = 0, pl = P[0].rate, cl = C[0].rate;
+      while (pi < P.length && ci < C.length) {
+        var q = Math.min(pl, cl);
+        pairs.push({ p: P[pi], c: C[ci] });
+        pl -= q; cl -= q;
+        if (pl <= 1e-6) { pi++; pl = P[pi] ? P[pi].rate : 0; }
+        if (cl <= 1e-6) { ci++; cl = C[ci] ? C[ci].rate : 0; }
+      }
+      for (; ci < C.length; ci++) pairs.push({ p: P[P.length - 1], c: C[ci] });
+      var from = [], to = [];
+      var byP = new Map(), byC = new Map();
+      pairs.forEach(function (pr, i) {
+        if (!byP.has(pr.p)) byP.set(pr.p, []);
+        byP.get(pr.p).push(i);
+        if (!byC.has(pr.c)) byC.set(pr.c, []);
+        byC.get(pr.c).push(i);
+      });
+      byP.forEach(function (list, end) {
+        if (list.length === 1) { from[list[0]] = { n: end.n, k: end.k }; return; }
+        var at = slotAt(end.n, 'out', end.k);
+        var feed = { n: end.n, k: end.k };
+        var left = list.slice();
+        var step = 0;
+        while (left.length) {
+          var sp = node({ type: 'splitter' });
+          sp.x = Math.round(at.x + 50 + step * 70);
+          sp.y = Math.round(at.y - 20 + step * 30);
+          step++;
+          links.push({ id: 'l' + uid(), from: feed.n.id, fk: feed.k, to: sp.id, tk: 0 });
+          var room = left.length <= 3 ? left.length : 2;
+          for (var t = 0; t < room; t++) from[left.shift()] = { n: sp, k: t };
+          feed = { n: sp, k: 2 };
+        }
+      });
+      byC.forEach(function (list, end) {
+        if (list.length === 1) { to[list[0]] = { n: end.n, k: end.k }; return; }
+        var at = slotAt(end.n, 'in', end.k);
+        var into = { n: end.n, k: end.k };
+        var left = list.slice();
+        var step = 0;
+        while (left.length) {
+          var mg = node({ type: 'merger' });
+          mg.x = Math.round(at.x - 110 - step * 70);
+          mg.y = Math.round(at.y - 20 + step * 30);
+          step++;
+          links.push({ id: 'l' + uid(), from: mg.id, fk: 0, to: into.n.id, tk: into.k });
+          var room = left.length <= 3 ? 3 : 2;
+          for (var t = 0; t < room && left.length; t++) to[left.shift()] = { n: mg, k: t };
+          into = { n: mg, k: 2 };
+        }
+      });
+      pairs.forEach(function (pr, i) {
+        if (from[i] && to[i]) links.push({ id: 'l' + uid(), from: from[i].n.id, fk: from[i].k, to: to[i].n.id, tk: to[i].k });
+      });
+    });
+
+    state.custom = { nodes: nodes, links: links };
+  }
+
+  /* ---- the view ---- */
+
+  /** Custom's canvas: the cards and lines, and the panel worked out from them. */
   function renderCustomView() {
     flow = customFlow();
     solved = { recipes: {}, items: flow.items, targets: flow.outputs, flows: [], custom: true };
     graph = { nodes: [], edges: [], byKey: {} };
     errorEl.hidden = true;
     world.classList.remove('machines');
-    world.querySelectorAll('.node, .machine, .part').forEach(function (el) { el.remove(); });
-    while (wires.firstChild) wires.removeChild(wires.firstChild);
-    labelsEl.innerHTML = '';
-    state.custom.parts.forEach(function (p) { world.appendChild(customEl(p)); });
+    world.querySelectorAll('.node, .machine, .part, .cnode').forEach(function (el) { el.remove(); });
+    state.custom.nodes.forEach(function (n) { world.appendChild(cardEl(n)); });
     Object.keys(selected).forEach(function (k) {
-      var alive = state.custom.parts.some(function (p) { return p.id === k; }) ||
+      var alive = state.custom.nodes.some(function (n) { return n.id === k; }) ||
         state.custom.links.some(function (l) { return l.id === k; });
       if (!alive) delete selected[k];
     });

@@ -2110,8 +2110,7 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 .custom-build #picker-seg,
 .custom-build .aim-head,
 .custom-build #goal-seg,
-.custom-build #opt-note,
-.custom-build #clock-seg { display: none; }
+.custom-build #opt-note { display: none; }
 
 /* ---------- custom build: ports and belts ---------- */
 
@@ -2208,3 +2207,123 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 /* A confirmation that asks its own question wraps onto a few lines. */
 .confirm.wordy { white-space: normal; max-width: 300px; flex-wrap: wrap; padding: 6px 8px; row-gap: 2px; }
 .confirm.wordy .confirm-q { flex: 1 1 100%; line-height: 1.35; }
+
+/* ---------- custom build: cards ---------- */
+
+/* Palette: a search over items. */
+.pal-search {
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .05);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+.pal-search:focus { border-color: var(--edge-hi); }
+.pal-grid { grid-template-columns: 1fr 1fr 1fr; }
+.pal-tile { padding: 5px 2px 6px; }
+.pal-tile img { width: 36px; height: 36px; }
+.pal-name { font-size: 10px; }
+
+/* A card: the building's picture, the count over it, items at the sides. */
+.cnode {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #38261a;
+  border: 1px solid #6b482b;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.cnode:hover { border-color: #95653b; }
+.cnode.dragging { cursor: grabbing; z-index: 6; }
+.cnode.cnode-resource, .cnode.cnode-import { background: var(--panel-2); border-color: #5a5a5a; border-style: dashed; }
+.cnode.cnode-sink { background: rgba(var(--output), .1); border-color: rgba(var(--output), .6); }
+.cnode.cnode-splitter, .cnode.cnode-merger { border-radius: 6px; background: #2b2b2b; border-color: #a0a0a0; }
+.cn-letter { font-size: 17px; font-weight: 700; color: var(--bright); }
+.cn-icon { width: 54px; height: 54px; object-fit: contain; pointer-events: none; margin-top: 10px; }
+.cn-count {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .35);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cn-count.set { background: #e08b3d; color: #1b1208; }
+.cn-count.short { box-shadow: 0 0 0 1.5px var(--warn); }
+.cn-caption { font-size: 10px; color: var(--ink-faint); margin-top: 1px; }
+.cn-caption.alt { color: #e8c7a4; font-weight: 700; letter-spacing: .06em; }
+
+/* An input or output: its item's icon on the card's edge, and its rate. */
+.cn-slot {
+  position: absolute;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: #1c1c1c;
+  border: 1.5px solid #8a8a8a;
+  cursor: crosshair;
+}
+.cn-slot.in { left: -13px; }
+.cn-slot.out { right: -13px; }
+.cn-slot.fluid { border-radius: 50%; border-color: #7fa8e0; }
+.cn-slot.linked { border-color: #e8e8e8; }
+.cn-slot img { width: 20px; height: 20px; object-fit: contain; pointer-events: none; }
+.cn-slot:hover { transform: scale(1.15); box-shadow: 0 0 0 3px rgba(255, 255, 255, .12); }
+.cnode-splitter .cn-slot, .cnode-merger .cn-slot { width: 18px; height: 18px; margin-top: -9px; border-radius: 5px; }
+.cnode-splitter .cn-slot.in, .cnode-merger .cn-slot.in { left: -9px; }
+.cnode-splitter .cn-slot.out, .cnode-merger .cn-slot.out { right: -9px; }
+.cnode-splitter .cn-slot img, .cnode-merger .cn-slot img { width: 13px; height: 13px; }
+.cn-rate {
+  position: absolute;
+  margin-top: -7px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.cn-rate.in { left: 17px; }
+.cn-rate.out { right: 17px; }
+.cnode.has-problem { box-shadow: 0 0 0 2px rgba(var(--machine), .75), 0 6px 20px rgba(0, 0, 0, .5); }
+.cnode.selected { outline: 2px solid #fff; outline-offset: 3px; }
+
+/* Lines between cards. */
+#wires .cwire { stroke-width: 2.5; }
+#wires .cwire.selected { stroke: #fff; stroke-width: 3.5; }
+.belt-preview { stroke: var(--ink-dim); }
+
+/* Inspector extras. */
+.insp-seg { margin: 0; }
+.insp-number {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .05);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}

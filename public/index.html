@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Satisfunction</title>
-<link rel="icon" href="favicon.svg?v=33" type="image/svg+xml">
-<link rel="icon" href="favicon-32.png?v=33" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon.svg?v=35" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=35" type="image/png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=33">
+<link rel="stylesheet" href="styles.css?v=35">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   <header class="bar">
     <div class="bar-left">
       <div class="brand">
-        <img class="mark-img" src="favicon.svg?v=33" alt="" width="20" height="20">
+        <img class="mark-img" src="favicon.svg?v=35" alt="" width="20" height="20">
         <strong>SATISFUNCTION</strong>
         <span class="sub">Production Planner</span>
       </div>
@@ -134,8 +134,8 @@
   </div>
   <!-- Custom build, before anything is placed. -->
   <div id="custom-hint" class="custom-hint" hidden>
-    <p>Drag buildings and parts from the left to start building.</p>
-    <p class="eh-tip">Drag from a port to another to connect &middot; R rotates &middot; Ctrl/Shift+drag selects &middot; Delete removes</p>
+    <p>Drag an item from the left to start: a resource, or a part to make.</p>
+    <p class="eh-tip">Drag from an output to an input to connect, or onto empty space for what could use it &middot; Delete removes</p>
   </div>
 
   <div id="empty" class="empty-hint">
@@ -292,7 +292,6 @@
         <span class="sum-group-name" data-icon="gauge">Clock speeds</span>
         <span class="sum-group-count">how work is split</span>
       </div>
-      <p class="custom-note">In Custom, clock speed is set on each machine.</p>
       <div class="seg panel-seg" id="clock-seg">
         <button type="button" class="seg-btn" data-clock="none" title="Nothing under- or overclocked: 2.5 machines' worth = 3 at 100%, the last one idling half the time. Every machine left as it's built.">100% <span class="dim">(Default)</span></button>
         <button type="button" class="seg-btn" data-clock="even" title="2.5 machines' worth = 3 machines at 83.33%. Least power.">Spread evenly</button>
@@ -374,11 +373,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=33"></script>
-<script src="solver.js?v=33"></script>
-<script src="lp.js?v=33"></script>
-<script src="optimise.js?v=33"></script>
-<script src="examples.js?v=33"></script>
-<script src="app.js?v=33"></script>
+<script src="data.js?v=35"></script>
+<script src="solver.js?v=35"></script>
+<script src="lp.js?v=35"></script>
+<script src="optimise.js?v=35"></script>
+<script src="examples.js?v=35"></script>
+<script src="app.js?v=35"></script>
 </body>
 </html>
