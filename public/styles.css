@@ -2387,3 +2387,6 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   font: inherit;
   font-size: 12.5px;
 }
+
+/* A folding section's first sub-heading sits just under the fold's own. */
+.panel-box .sub-head.first-sub { margin-top: 2px; }

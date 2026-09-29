@@ -1358,7 +1358,7 @@
           el.appendChild(more);
         }
         if (readOnly && n.kind === 'raw') {
-          note('Pick a node purity in the Items view to place its ' +
+          note('Pick a node purity in the Item view to place its ' +
             (isFluid(n.item) ? 'extractors' : 'miners'));
         }
       } else if (state.imports[n.item]) {
@@ -5452,7 +5452,7 @@
     }
     if (next === 'custom' && !keptStillFits() && state.custom.nodes.length) {
       askConfirm(btn, function () { switchBuild('custom'); }, false, {
-        q: 'Switch to Custom? This plan will be laid out as parts, replacing your current custom build.',
+        q: 'Switch to Model? This plan will be laid out as cards, replacing your current model.',
         yes: 'Switch',
         no: 'Cancel'
       });

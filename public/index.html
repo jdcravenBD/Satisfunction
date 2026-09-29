@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Satisfunction</title>
-<link rel="icon" href="favicon.svg?v=38" type="image/svg+xml">
-<link rel="icon" href="favicon-32.png?v=38" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon.svg?v=39" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=39" type="image/png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=38">
+<link rel="stylesheet" href="styles.css?v=39">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   <header class="bar">
     <div class="bar-left">
       <div class="brand">
-        <img class="mark-img" src="favicon.svg?v=38" alt="" width="20" height="20">
+        <img class="mark-img" src="favicon.svg?v=39" alt="" width="20" height="20">
         <strong>SATISFUNCTION</strong>
         <span class="sub">Production Planner</span>
       </div>
@@ -101,15 +101,15 @@
     <!-- Auto: the plan generates the build. Custom: you place every part. -->
     <span class="tb-label">Mode</span>
     <div class="seg bar-seg build-seg" id="build-seg" role="group" aria-label="Build">
-      <button type="button" class="seg-btn" data-build="custom">Custom</button>
+      <button type="button" class="seg-btn" data-build="custom">Model</button>
       <button type="button" class="seg-btn" data-build="auto">Auto</button>
     </div>
     <span class="tb-sep"></span>
     <span class="tb-label">View</span>
     <!-- Every step as one card, or every step expanded into its buildings. -->
     <div class="seg bar-seg" id="mode" role="group" aria-label="View">
-      <button type="button" class="seg-btn" data-mode="items" title="One card per step">Items</button>
-      <button type="button" class="seg-btn" data-mode="machines" title="Every building, at its real footprint">Machines</button>
+      <button type="button" class="seg-btn" data-mode="items" title="One card per step">Item</button>
+      <button type="button" class="seg-btn" data-mode="machines" title="Every building, at its real footprint">Machine</button>
     </div>
     <!-- How each line's inputs reach its machines: Machines view only. -->
     <div class="seg bar-seg" id="balance" role="group" aria-label="Logistics">
@@ -182,7 +182,7 @@
       </div>
       <button type="button" class="vo-row" data-show="products" role="menuitemcheckbox">
         <span class="vo-main">Resource names</span>
-        <span class="vo-note">What each building makes, in the Machines view</span>
+        <span class="vo-note">What each building makes, in the Machine view</span>
       </button>
       <button type="button" class="vo-row" data-show="rates" role="menuitemcheckbox">
         <span class="vo-main">Production rates</span>
@@ -248,12 +248,16 @@
     <div id="machines-box" class="panel-box"></div>
 
     <!-- How recipes are chosen. -->
-    <div class="panel-box">
-      <div class="sum-group-head">
-        <span class="sum-group-name" data-icon="recipe">Recipes</span>
+    <div class="panel-box sum-group" data-fold="recipes">
+      <button type="button" class="sum-group-head fold-head">
+        <span class="sum-group-name">Recipes</span>
+      </button>
+      <div class="fold-body">
+      <div class="sum-group-head sub-head first-sub">
+        <span class="sum-group-name" data-icon="recipe">Chosen by</span>
         <span class="sum-group-count" id="picker-sub"></span>
       </div>
-      <p class="custom-note">In Custom, each machine's recipe is picked on the machine.</p>
+      <p class="custom-note">In Model, each machine's recipe is picked on the machine.</p>
       <div class="seg panel-seg" id="picker-seg">
         <button type="button" class="seg-btn" data-picker="manual" title="Each item uses its standard recipe unless you pick another on its node">I pick</button>
         <button type="button" class="seg-btn" data-picker="optimise" title="The best mix of recipes for your outputs, redone as the plan changes">Optimise</button>
@@ -285,11 +289,16 @@
         </div>
         <p class="opt-note" id="opt-note"></p>
       </div>
+      </div>
     </div>
 
-    <!-- How the build is laid out. -->
-    <div class="panel-box">
-      <div class="sum-group-head">
+    <!-- How fast things run: machine clocks, and the belts and pipes between. -->
+    <div class="panel-box sum-group" data-fold="speed">
+      <button type="button" class="sum-group-head fold-head">
+        <span class="sum-group-name">Speed</span>
+      </button>
+      <div class="fold-body">
+      <div class="sum-group-head sub-head first-sub">
         <span class="sum-group-name" data-icon="gauge">Clock speeds</span>
         <span class="sum-group-count">how work is split</span>
       </div>
@@ -308,6 +317,7 @@
         <span class="sum-group-name" data-icon="pipe">Fastest pipe</span>
       </div>
       <div class="seg panel-seg" id="pipe-seg"></div>
+      </div>
     </div>
 
     <div id="breakdown" class="panel-box"></div>
@@ -374,11 +384,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=38"></script>
-<script src="solver.js?v=38"></script>
-<script src="lp.js?v=38"></script>
-<script src="optimise.js?v=38"></script>
-<script src="examples.js?v=38"></script>
-<script src="app.js?v=38"></script>
+<script src="data.js?v=39"></script>
+<script src="solver.js?v=39"></script>
+<script src="lp.js?v=39"></script>
+<script src="optimise.js?v=39"></script>
+<script src="examples.js?v=39"></script>
+<script src="app.js?v=39"></script>
 </body>
 </html>
