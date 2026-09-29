@@ -1998,3 +1998,20 @@ html, body {
 .node:not(.raw):not(.output):not(.spare) { background: #2c2015; border-color: #4f3721; }
 .node:not(.raw):not(.output):not(.spare):hover { border-color: #775333; }
 .node.selected:not(.raw):not(.output):not(.spare) { border-color: #4f3721; }
+
+/* ---------- round 19 ---------- */
+
+/* The site icon beside the title. */
+.brand .mark-img { width: 20px; height: 20px; align-self: center; display: block; }
+
+/* Step cards: a clearer orange, and their secondary text warm to match
+   rather than grey, which sank into the brown. */
+.node:not(.raw):not(.output):not(.spare) { background: #38261a; border-color: #6b482b; }
+.node:not(.raw):not(.output):not(.spare):hover { border-color: #95653b; }
+.node.selected:not(.raw):not(.output):not(.spare) { border-color: #6b482b; }
+.node:not(.raw):not(.output):not(.spare) .n-recipe { color: #c49a72; }
+.node:not(.raw):not(.output):not(.spare) .n-recipe:hover { color: #e3bb93; background: rgba(255, 190, 130, .06); }
+.node:not(.raw):not(.output):not(.spare) .n-machine b { color: #e8c7a4; }
+.node:not(.raw):not(.output):not(.spare) .n-rate small,
+.node:not(.raw):not(.output):not(.spare) .n-alt,
+.node:not(.raw):not(.output):not(.spare) .n-notes { color: #a88262; }
