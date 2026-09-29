@@ -6193,10 +6193,12 @@
     search.spellcheck = false;
     search.addEventListener('input', function () { palQuery = search.value.trim().toLowerCase(); filterPalette(); });
     palette.appendChild(search);
+    var used = commonness();
+    function common(a, b) { return (used[b] || 0) - (used[a] || 0) || itemName(a).localeCompare(itemName(b)); }
     var sections = [
-      { head: 'Resources', kinds: RAW_ITEMS.slice().sort(function (a, b) { return itemName(a).localeCompare(itemName(b)); }) },
-      { head: 'Parts', kinds: PICKABLE.slice() },
-      { head: 'Logistics', kinds: ['splitter', 'merger', 'sink'] }
+      { head: 'Logistics', kinds: ['splitter', 'merger', 'sink'] },
+      { head: 'Resources', kinds: RAW_ITEMS.slice().sort(common) },
+      { head: 'Parts', kinds: PICKABLE.slice().sort(common) }
     ];
     var NAMES = { splitter: 'Splitter', merger: 'Merger', sink: 'Storage' };
     var ICONS = { splitter: 'splitter', merger: 'merger', sink: 'storage' };
@@ -6233,6 +6235,35 @@
       palette.appendChild(wrap);
     });
     filterPalette();
+  }
+
+  /**
+   * How common each item is: how many things' usual production chains use it
+   * somewhere along the way. Iron Ore and Coal come top; end products, which
+   * nothing's made from, come last.
+   */
+  function commonness() {
+    var chains = {};
+    function chain(id, seen) {
+      if (chains[id]) return chains[id];
+      var found = {};
+      var r = DATA.recipes[DATA.defaults[id]];
+      if (r && !seen[id]) {
+        seen[id] = true;
+        r.in.forEach(function (q) {
+          found[q[0]] = true;
+          Object.keys(chain(q[0], seen)).forEach(function (x) { found[x] = true; });
+        });
+        delete seen[id];
+      }
+      chains[id] = found;
+      return found;
+    }
+    var used = {};
+    Object.keys(DATA.defaults).forEach(function (id) {
+      Object.keys(chain(id, {})).forEach(function (x) { used[x] = (used[x] || 0) + 1; });
+    });
+    return used;
   }
 
   function filterPalette() {
@@ -6428,7 +6459,7 @@
     }
 
     // Inputs in a strip down the left, outputs down the right: a cell each,
-    // showing its item, with a pin on the card's edge where the line joins.
+    // showing its item. The line joins the card's edge level with it.
     [['in', s.ins], ['out', s.outs]].forEach(function (side) {
       if (!side[1].length) return;
       var col = document.createElement('div');
@@ -6448,9 +6479,6 @@
           img.draggable = false;
           slot.appendChild(img);
         }
-        var pin = document.createElement('span');
-        pin.className = 'cn-pin';
-        slot.appendChild(pin);
         slot.setAttribute('aria-label', (shown ? itemName(shown) : 'Any item') + (side[0] === 'in' ? ' in' : ' out'));
         slot.addEventListener('pointerdown', function (e) { dragFromSlot(n, side[0], k, e); });
         col.appendChild(slot);
@@ -6558,7 +6586,7 @@
       if (fluid) svg('path', { d: path.d, 'class': 'wire pipe-core' });
       if (f) {
         var label = document.createElement('div');
-        label.className = 'flow-label';
+        label.className = 'flow-label cflow';
         label.style.left = path.mid.x + 'px';
         label.style.top = path.mid.y + 'px';
         if (f.item) {

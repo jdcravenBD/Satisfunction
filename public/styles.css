@@ -790,6 +790,14 @@ html, body {
 }
 .flow-label b { color: var(--ink); font-weight: 600; }
 .flow-label .fl-item { color: var(--ink-faint); margin-left: 4px; }
+/* Custom's line labels: no pill, just the canvas blurred behind them. */
+.flow-label.cflow {
+  background: none;
+  border-color: transparent;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+}
 .flow-label .fl-icon { width: 15px; height: 15px; object-fit: contain; margin: -2px 4px -3px -3px; vertical-align: middle; }
 
 /* ---------- nodes ---------- */
@@ -2024,7 +2032,7 @@ html, body {
 
 /* ---------- custom build ---------- */
 
-:root { --pal-w: 200px; }
+:root { --pal-w: 248px; }
 
 /* Auto (green) or Custom (orange). */
 .build-seg .seg-btn.on[data-build="custom"] { background: rgba(var(--machine), .26); color: #ffc08a; }
@@ -2039,6 +2047,7 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   bottom: var(--frame);
   width: var(--pal-w);
   z-index: 10;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 10px 10px 12px;
   background: var(--panel-2);
@@ -2230,24 +2239,24 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   outline: none;
 }
 .pal-search:focus { border-color: var(--edge-hi); }
-.pal-grid { grid-template-columns: 1fr 1fr 1fr; }
+.pal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .pal-tile { padding: 5px 2px 6px; }
 .pal-tile img { width: 36px; height: 36px; }
-.pal-name { font-size: 10px; }
+.pal-name { font-size: 10px; max-width: 100%; overflow-wrap: break-word; hyphens: auto; }
 
 /* A card: the building's picture, the count over it, items at the sides. */
 .cnode {
   position: absolute;
   z-index: 2;
   border-radius: 10px;
-  background: #38261a;
-  border: 1px solid #6b482b;
+  background: #2e2e2e;
+  border: 1px solid #4a4a4a;
   box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
   cursor: grab;
   touch-action: none;
   user-select: none;
 }
-.cnode:hover { border-color: #95653b; }
+.cnode:hover { border-color: #6c6c6c; }
 .cnode.dragging { cursor: grabbing; z-index: 6; }
 .cnode.cnode-resource, .cnode.cnode-import { background: var(--panel-2); border-color: #5a5a5a; border-style: dashed; }
 .cnode.cnode-sink { background: rgba(var(--output), .1); border-color: rgba(var(--output), .6); }
@@ -2273,15 +2282,16 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   transform: translateX(-50%);
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, .35);
   color: var(--ink);
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
 }
-.cn-count.set { background: #e08b3d; color: #1b1208; }
-.cn-count.short { box-shadow: 0 0 0 1.5px var(--warn); }
+.cn-count.set { background: #e08b3d; color: #1b1208; text-shadow: none; }
+.cn-count.short:not(.set) { color: var(--warn); }
+.cn-count.set.short { box-shadow: 0 0 0 1.5px var(--warn); }
 .cn-caption { font-size: 10px; color: var(--ink-faint); margin-top: 1px; white-space: nowrap; }
 .cn-caption.alt { color: #e8c7a4; font-weight: 700; letter-spacing: .06em; }
 
@@ -2295,8 +2305,8 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   flex-direction: column;
   background: rgba(0, 0, 0, .26);
 }
-.cn-side.in { left: 0; border-right: 1px solid rgba(255, 255, 255, .07); border-radius: 9px 0 0 9px; }
-.cn-side.out { right: 0; border-left: 1px solid rgba(255, 255, 255, .07); border-radius: 0 9px 9px 0; }
+.cn-side.in { left: 0; border-radius: 9px 0 0 9px; }
+.cn-side.out { right: 0; border-radius: 0 9px 9px 0; }
 .cnode-splitter .cn-side.in, .cnode-merger .cn-side.in { border-radius: 5px 0 0 5px; }
 .cnode-splitter .cn-side.out, .cnode-merger .cn-side.out { border-radius: 0 5px 5px 0; }
 .cn-slot {
@@ -2309,30 +2319,15 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   cursor: crosshair;
   transition: background-color .12s ease;
 }
-.cn-slot + .cn-slot { border-top: 1px solid rgba(255, 255, 255, .06); }
-.cn-slot:hover { background: rgba(255, 255, 255, .08); }
+.cn-slot:hover { background-image: linear-gradient(rgba(255, 255, 255, .09), rgba(255, 255, 255, .09)); }
 .cn-slot:first-child { border-top-left-radius: inherit; border-top-right-radius: inherit; }
 .cn-slot:last-child { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
 .cn-slot img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
 .cnode-splitter .cn-slot img, .cnode-merger .cn-slot img { width: 14px; height: 14px; }
-/* Where the line joins: a pin on the card's edge. */
-.cn-pin {
-  position: absolute;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
-  border-radius: 2px;
-  background: #1c1c1c;
-  border: 1.5px solid #8a8a8a;
-  pointer-events: none;
-}
-.cn-slot.in .cn-pin { left: -5px; }
-.cn-slot.out .cn-pin { right: -5px; }
-.cn-slot.fluid .cn-pin { border-radius: 50%; border-color: #7fa8e0; }
-.cn-slot.linked .cn-pin { background: #e8e8e8; border-color: #e8e8e8; }
-.cn-slot.fluid.linked .cn-pin { background: #7fa8e0; }
-.cn-slot:hover .cn-pin { transform: scale(1.3); }
+/* Not joined yet: an input waiting for something (red), or an output where
+   the chain ends (green). Splitters and mergers can leave sides spare. */
+.cnode:not(.cnode-splitter):not(.cnode-merger) .cn-slot.in:not(.linked) { background-color: rgba(214, 72, 64, .34); }
+.cnode:not(.cnode-splitter):not(.cnode-merger) .cn-slot.out:not(.linked) { background-color: rgba(var(--output), .3); }
 
 /* Something's wrong: a flag off the card's top right corner. */
 .cn-flag {
@@ -2346,7 +2341,7 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 }
 .cn-flag svg { width: 24px; height: 24px; }
 .cnode.has-problem { box-shadow: 0 0 0 2px rgba(var(--machine), .75), 0 6px 20px rgba(0, 0, 0, .5); }
-.cnode.selected { outline: 2px solid #fff; outline-offset: 3px; }
+.cnode.selected { outline: 1.5px solid #fff; outline-offset: 0; }
 
 /* Lines between cards. */
 #wires .cwire { stroke-width: 2.5; }
