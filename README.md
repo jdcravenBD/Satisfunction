@@ -96,6 +96,7 @@ public/
   lp.js            linear program solver
   optimise.js      recipe optimiser
   data.js          generated game data (don't edit by hand)
+  icons/           item and building icons (128 px), named by game ID
   examples.js      starter plans
 tools/
   extract-data.mjs builds data.js from the game's Docs JSON
@@ -108,3 +109,9 @@ Cloudflare Pages serves `public/` as it is:
 ```bash
 npx wrangler pages deploy
 ```
+
+## Credits
+
+Satisfactory and its game icons © Coffee Stain Studios. Icons via the
+[Satisfactory Wiki](https://satisfactory.wiki.gg). Satisfunction is a fan
+project and isn't affiliated with Coffee Stain.
