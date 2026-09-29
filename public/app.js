@@ -55,7 +55,7 @@
     page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     build: 'auto',  // 'auto': the plan generates the build; 'custom': placed by hand
-    custom: { parts: [] } // Custom's parts: [{ id, kind, x, y }] in metres
+    custom: { parts: [], links: [] } // Custom: parts [{ id, kind, x, y, r }] (metres, quarter turns), links [{ id, a, ap, b, bp }]
   };
 
   // What a new factory starts from.
@@ -524,10 +524,21 @@
     });
     state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'none';
     state.build = data.build === 'custom' ? 'custom' : 'auto';
-    state.custom = { parts: [] };
+    state.custom = { parts: [], links: [] };
+    var partById = {};
     ((data.custom && data.custom.parts) || []).forEach(function (p) {
       if (!p || !partSpec(p.kind) || !isFinite(p.x) || !isFinite(p.y)) return;
-      state.custom.parts.push({ id: String(p.id || uid()), kind: p.kind, x: Math.round(p.x), y: Math.round(p.y) });
+      var q = { id: String(p.id || uid()), kind: p.kind, x: Math.round(p.x), y: Math.round(p.y), r: ((p.r | 0) % 4 + 4) % 4 };
+      state.custom.parts.push(q);
+      partById[q.id] = q;
+    });
+    // A link joins an output port (a, ap) to an input port (b, bp).
+    ((data.custom && data.custom.links) || []).forEach(function (l) {
+      var a = l && partById[l.a];
+      var b = l && partById[l.b];
+      if (!a || !b || a === b) return;
+      if (!(l.ap >= 0 && l.ap < portsOf(a.kind).length && l.bp >= 0 && l.bp < portsOf(b.kind).length)) return;
+      state.custom.links.push({ id: String(l.id || uid()), a: a.id, ap: l.ap | 0, b: b.id, bp: l.bp | 0 });
     });
     state.unavailable = (Array.isArray(data.unavailable) ? data.unavailable : []).filter(function (id) {
       return BUILDINGS.indexOf(id) >= 0;
@@ -3208,6 +3219,9 @@
     world.querySelectorAll('.cpart').forEach(function (el) {
       el.classList.toggle('selected', !!selected[el.dataset.id]);
     });
+    wires.querySelectorAll('[data-link]').forEach(function (el) {
+      el.classList.toggle('selected', !!selected[el.dataset.link]);
+    });
   }
   function selectOnly(key) {
     selected = {};
@@ -3445,9 +3459,12 @@
     var el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
     if (state.build === 'custom') {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedParts().length) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedParts().length || selectedLinks().length)) {
         e.preventDefault();
-        removeParts(selectedParts());
+        removeParts(selectedParts(), selectedLinks());
+      } else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey && selectedParts().length) {
+        e.preventDefault();
+        rotateParts(selectedParts());
       } else if (e.key === 'Escape') {
         clearSelection();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
@@ -4794,6 +4811,7 @@
   function clearPlan() {
     if (state.build === 'custom') {
       state.custom.parts = [];
+      state.custom.links = [];
       clearSelection();
       changed();
       fitView();
@@ -5762,7 +5780,8 @@
       id: 'p' + uid(),
       kind: kind,
       x: Math.round(wx / PX_PER_M - spec.w / 2),
-      y: Math.round(wy / PX_PER_M - spec.h / 2)
+      y: Math.round(wy / PX_PER_M - spec.h / 2),
+      r: 0
     };
     state.custom.parts.push(p);
     selectOnly(p.id);
@@ -5773,31 +5792,318 @@
     return state.custom.parts.filter(function (p) { return selected[p.id]; });
   }
 
-  function removeParts(list) {
+  /** Removes parts, with every belt on them, and any belts listed. */
+  function removeParts(list, links) {
     var gone = {};
     list.forEach(function (p) { gone[p.id] = true; });
+    var cut = {};
+    (links || []).forEach(function (l) { cut[l.id] = true; });
     state.custom.parts = state.custom.parts.filter(function (p) { return !gone[p.id]; });
+    state.custom.links = state.custom.links.filter(function (l) {
+      return !cut[l.id] && !gone[l.a] && !gone[l.b];
+    });
     clearSelection();
     changed();
+  }
+
+  /** A quarter turn clockwise, about each part's middle. */
+  function rotateParts(list) {
+    list.forEach(function (p) {
+      var box = partBox(p);
+      var cx = p.x + box.w / 2;
+      var cy = p.y + box.h / 2;
+      p.r = ((p.r || 0) + 1) % 4;
+      var nb = partBox(p);
+      p.x = Math.round(cx - nb.w / 2);
+      p.y = Math.round(cy - nb.h / 2);
+    });
+    changed();
+  }
+
+  /** A part's footprint as placed: width and height swap on a quarter turn. */
+  function partBox(p) {
+    var spec = partSpec(p.kind);
+    return (p.r || 0) % 2 ? { w: spec.h, h: spec.w } : { w: spec.w, h: spec.h };
   }
 
   /** Every placed part's box on the canvas, in world pixels. */
   function customBoxes() {
     return state.custom.parts.map(function (p) {
-      var spec = partSpec(p.kind);
-      return { id: p.id, x: px(p.x), y: px(p.y), w: px(spec.w), h: px(spec.h) };
+      var box = partBox(p);
+      return { id: p.id, x: px(p.x), y: px(p.y), w: px(box.w), h: px(box.h) };
     });
+  }
+
+  function selectedLinks() {
+    return state.custom.links.filter(function (l) { return selected[l.id]; });
+  }
+
+  /* ---- ports ---- */
+
+  // How many belts and pipes each production building takes in and gives
+  // out: the most any of its recipes needs.
+  var MACHINE_PORTS = {};
+  Object.keys(DATA.recipes).forEach(function (rid) {
+    var r = DATA.recipes[rid];
+    var m = MACHINE_PORTS[r.machine] || (MACHINE_PORTS[r.machine] = { si: 0, fi: 0, so: 0, fo: 0 });
+    var si = 0, fi = 0, so = 0, fo = 0;
+    r.in.forEach(function (p) { if (isFluid(p[0])) fi++; else si++; });
+    r.out.forEach(function (p) { if (isFluid(p[0])) fo++; else so++; });
+    m.si = Math.max(m.si, si);
+    m.fi = Math.max(m.fi, fi);
+    m.so = Math.max(m.so, so);
+    m.fo = Math.max(m.fo, fo);
+  });
+
+  /**
+   * A part's ports, unrotated, in metres from its top-left: side 'in', 'out'
+   * or (junctions) 'any'; fluid or not; where; and the way it faces.
+   * Inputs are down the left, outputs down the right, belts above pipes.
+   */
+  var portCache = {};
+  function portsOf(kind) {
+    if (portCache[kind]) return portCache[kind];
+    var spec = partSpec(kind);
+    var w = spec.w, h = spec.h;
+    var list = [];
+    function edge(side, fluids, solids) {
+      var all = [];
+      for (var i = 0; i < solids; i++) all.push(false);
+      for (var j = 0; j < fluids; j++) all.push(true);
+      all.forEach(function (fluid, k) {
+        var y = h * (k + 1) / (all.length + 1);
+        list.push(side === 'in'
+          ? { side: 'in', fluid: fluid, x: 0, y: y, nx: -1, ny: 0 }
+          : { side: 'out', fluid: fluid, x: w, y: y, nx: 1, ny: 0 });
+      });
+    }
+    var left = { x: 0, y: h / 2, nx: -1, ny: 0 };
+    var right = { x: w, y: h / 2, nx: 1, ny: 0 };
+    var top = { x: w / 2, y: 0, nx: 0, ny: -1 };
+    var bottom = { x: w / 2, y: h, nx: 0, ny: 1 };
+    function at(where, side, fluid) { list.push(Object.assign({ side: side, fluid: fluid }, where)); }
+    if (DATA.machines[kind]) {
+      var mp = MACHINE_PORTS[kind] || { si: 1, fi: 0, so: 1, fo: 0 };
+      edge('in', mp.fi, mp.si);
+      edge('out', mp.fo, mp.so);
+    } else if (DATA.extractors[kind]) {
+      var ex = DATA.extractors[kind];
+      var liquid = ex.resources ? ex.resources.some(isFluid) : false;
+      edge('out', liquid ? 1 : 0, liquid ? 0 : 1);
+    } else if (kind === 'splitter') {
+      at(left, 'in', false); at(top, 'out', false); at(right, 'out', false); at(bottom, 'out', false);
+    } else if (kind === 'merger') {
+      at(left, 'in', false); at(top, 'in', false); at(bottom, 'in', false); at(right, 'out', false);
+    } else if (kind === 'junction') {
+      at(left, 'any', true); at(top, 'any', true); at(right, 'any', true); at(bottom, 'any', true);
+    } else if (kind === 'storage') {
+      at(left, 'in', false); at(right, 'out', false);
+    } else if (kind === 'buffer') {
+      at(left, 'in', true); at(right, 'out', true);
+    } else if (kind === 'sink') {
+      at(left, 'in', false);
+    }
+    portCache[kind] = list;
+    return list;
+  }
+
+  /** Port k of a placed part, turned with it: where it is (metres) and which way it faces. */
+  function portAt(p, k) {
+    var port = portsOf(p.kind)[k];
+    var spec = partSpec(p.kind);
+    var x = port.x, y = port.y, nx = port.nx, ny = port.ny;
+    var w = spec.w, h = spec.h;
+    for (var t = 0; t < (p.r || 0); t++) {
+      // A quarter turn clockwise (y runs down): (x, y) in a w × h box goes to
+      // (h − y, x) in an h × w one.
+      var x2 = h - y, y2 = x;
+      var nx2 = -ny, ny2 = nx;
+      x = x2; y = y2; nx = nx2; ny = ny2;
+      var tmp = w; w = h; h = tmp;
+    }
+    return { side: port.side, fluid: port.fluid, x: p.x + x, y: p.y + y, nx: nx, ny: ny };
+  }
+
+  function linkOn(partId, k) {
+    return state.custom.links.filter(function (l) {
+      return (l.a === partId && l.ap === k) || (l.b === partId && l.bp === k);
+    })[0] || null;
+  }
+
+  /**
+   * A belt's corner points, in world pixels: straight out of one port, round
+   * square corners, and straight into the other.
+   */
+  function linkRoute(A, B) {
+    var OUT = 1.5;
+    var s = { x: px(A.x), y: px(A.y) };
+    var e = { x: px(B.x), y: px(B.y) };
+    var p1 = { x: s.x + px(A.nx * OUT), y: s.y + px(A.ny * OUT) };
+    var p3 = { x: e.x + px(B.nx * OUT), y: e.y + px(B.ny * OUT) };
+    var pts = [[s.x, s.y], [p1.x, p1.y]];
+    var aH = A.nx !== 0, bH = B.nx !== 0;
+    if (aH && bH) {
+      var mx = (p1.x + p3.x) / 2;
+      pts.push([mx, p1.y], [mx, p3.y]);
+    } else if (!aH && !bH) {
+      var my = (p1.y + p3.y) / 2;
+      pts.push([p1.x, my], [p3.x, my]);
+    } else if (aH) {
+      pts.push([p3.x, p1.y]);
+    } else {
+      pts.push([p1.x, p3.y]);
+    }
+    pts.push([p3.x, p3.y], [e.x, e.y]);
+    return simplify(pts.map(function (q) { return [Math.round(q[0] * 2) / 2, Math.round(q[1] * 2) / 2]; }));
+  }
+
+  /** Every belt and pipe, redrawn (they follow parts as they move). */
+  function renderLinks() {
+    while (wires.firstChild) wires.removeChild(wires.firstChild);
+    var byId = {};
+    state.custom.parts.forEach(function (p) { byId[p.id] = p; });
+    state.custom.links.forEach(function (l) {
+      var a = byId[l.a], b = byId[l.b];
+      if (!a || !b) return;
+      var A = portAt(a, l.ap), B = portAt(b, l.bp);
+      var d = roundedPath(linkRoute(A, B));
+      svg('path', { d: d, 'class': 'belt-casing' });
+      if (A.fluid) {
+        svg('path', { d: d, 'class': 'belt pipe', 'data-link': l.id });
+        svg('path', { d: d, 'class': 'belt pipe-core' });
+      } else {
+        svg('path', { d: d, 'class': 'belt', 'data-link': l.id });
+      }
+      // A wider, invisible stroke to click on.
+      var hit = svg('path', { d: d, 'class': 'belt-hit', 'data-hit': l.id });
+      hit.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeAll();
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          if (selected[l.id]) delete selected[l.id];
+          else selected[l.id] = true;
+          applySelection();
+        } else {
+          selectOnly(l.id);
+        }
+      });
+      hit.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeAll();
+        if (!selected[l.id]) selectOnly(l.id);
+        openCtx(e.clientX, e.clientY, [
+          { head: A.fluid ? 'Pipe' : 'Belt' },
+          { label: 'Remove', run: function () { removeParts([], selectedLinks()); } }
+        ]);
+      });
+    });
+    // Ports show whether they're taken.
+    world.querySelectorAll('.cport').forEach(function (el) {
+      el.classList.toggle('linked', !!linkOn(el.dataset.part, Number(el.dataset.k)));
+    });
+    applySelection();
+  }
+
+  /**
+   * Drag from a port to connect it. Letting go on another port joins them;
+   * on a part, its nearest free port that fits. Pressing a port that's
+   * already joined picks that belt's end up to move it.
+   */
+  function dragFromPort(p, k, e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeAll();
+    var byId = {};
+    state.custom.parts.forEach(function (q) { byId[q.id] = q; });
+    var from = { part: p, k: k };
+    var existing = linkOn(p.id, k);
+    if (existing) {
+      // Keep the other end; this end comes loose.
+      var otherId = existing.a === p.id && existing.ap === k ? existing.b : existing.a;
+      var otherK = existing.a === p.id && existing.ap === k ? existing.bp : existing.ap;
+      state.custom.links = state.custom.links.filter(function (l) { return l !== existing; });
+      from = { part: byId[otherId], k: otherK };
+      renderLinks();
+    }
+    var A = portAt(from.part, from.k);
+    var preview = svg('path', { d: '', 'class': 'belt-preview' + (A.fluid ? ' pipe' : '') });
+    function target(ev) {
+      var el = document.elementFromPoint(ev.clientX, ev.clientY);
+      var portEl = el && el.closest && el.closest('.cport');
+      var partEl = el && el.closest && el.closest('.cpart');
+      if (portEl) return { part: byId[portEl.dataset.part], k: Number(portEl.dataset.k) };
+      if (partEl) return nearestPort(byId[partEl.dataset.id], ev);
+      return null;
+    }
+    function nearestPort(q, ev) {
+      if (!q) return null;
+      var w = toWorld(ev.clientX, ev.clientY);
+      var best = null;
+      portsOf(q.kind).forEach(function (_, j) {
+        if (!fits(from, { part: q, k: j })) return;
+        var P2 = portAt(q, j);
+        var d = Math.hypot(px(P2.x) - w.x, px(P2.y) - w.y);
+        if (!best || d < best.d) best = { part: q, k: j, d: d };
+      });
+      return best;
+    }
+    function move(ev) {
+      var w = toWorld(ev.clientX, ev.clientY);
+      var t = target(ev);
+      var end = t && fits(from, t) ? portAt(t.part, t.k) : null;
+      var ex = end ? px(end.x) : w.x, ey = end ? px(end.y) : w.y;
+      preview.setAttribute('d', 'M ' + px(A.x) + ' ' + px(A.y) + ' L ' + ex + ' ' + ey);
+      preview.classList.toggle('ok', !!end);
+    }
+    function up(ev) {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      preview.remove();
+      var t = target(ev);
+      if (t && fits(from, t)) join(from, t);
+      else if (existing) changed();  // the loose end was dropped: the belt's gone
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  /** Whether two ports can be joined: belt to belt or pipe to pipe, one in and one out, both free. */
+  function fits(f, t) {
+    if (!f.part || !t.part || f.part === t.part) return false;
+    var A = portAt(f.part, f.k), B = portAt(t.part, t.k);
+    if (A.fluid !== B.fluid) return false;
+    if (linkOn(t.part.id, t.k)) return false;
+    if (A.side === 'any' || B.side === 'any') return A.side !== B.side || A.side === 'any';
+    return A.side !== B.side;
+  }
+
+  function join(f, t) {
+    var A = portAt(f.part, f.k);
+    var B = portAt(t.part, t.k);
+    // Stored output end first.
+    var fromIsOut = A.side === 'out' || (A.side === 'any' && B.side !== 'out');
+    var out = fromIsOut ? f : t, inn = fromIsOut ? t : f;
+    var l = { id: 'l' + uid(), a: out.part.id, ap: out.k, b: inn.part.id, bp: inn.k };
+    state.custom.links.push(l);
+    changed();
   }
 
   function customEl(p) {
     var spec = partSpec(p.kind);
+    var box = partBox(p);
     var el = document.createElement('div');
     el.className = 'cpart ' + spec.cls;
     el.dataset.id = p.id;
     el.style.left = px(p.x) + 'px';
     el.style.top = px(p.y) + 'px';
-    el.style.width = px(spec.w) + 'px';
-    el.style.height = px(spec.h) + 'px';
+    el.style.width = px(box.w) + 'px';
+    el.style.height = px(box.h) + 'px';
     if (spec.text) {
       el.textContent = spec.text;
     } else {
@@ -5812,6 +6118,19 @@
       el.appendChild(nameSpans(name, spec.name));
     }
     el.setAttribute('aria-label', spec.name);
+    // Its ports, on its edges, turned with it.
+    portsOf(p.kind).forEach(function (_, k) {
+      var at = portAt(p, k);
+      var dot = document.createElement('span');
+      dot.className = 'cport ' + at.side + (at.fluid ? ' fluid' : '');
+      dot.dataset.part = p.id;
+      dot.dataset.k = k;
+      dot.style.left = px(at.x - p.x) + 'px';
+      dot.style.top = px(at.y - p.y) + 'px';
+      dot.setAttribute('aria-label', (at.fluid ? 'Pipe ' : 'Belt ') + (at.side === 'any' ? 'port' : at.side === 'in' ? 'input' : 'output'));
+      dot.addEventListener('pointerdown', function (e) { dragFromPort(p, k, e); });
+      el.appendChild(dot);
+    });
     el.addEventListener('pointerdown', function (e) { dragPart(el, p, e); });
     el.addEventListener('contextmenu', function (e) {
       e.preventDefault();
@@ -5821,7 +6140,8 @@
       var list = selectedParts();
       openCtx(e.clientX, e.clientY, [
         { head: list.length > 1 ? list.length + ' selected' : spec.name },
-        { label: list.length > 1 ? 'Remove these' : 'Remove', run: function () { removeParts(list); } }
+        { label: 'Rotate', note: 'R', run: function () { rotateParts(list); } },
+        { label: list.length > 1 ? 'Remove these' : 'Remove', run: function () { removeParts(list, selectedLinks()); } }
       ]);
     });
     return el;
@@ -5855,6 +6175,7 @@
           ge.style.top = px(g.y) + 'px';
         }
       });
+      renderLinks();
     }
     function up() {
       window.removeEventListener('pointermove', move);
@@ -5889,9 +6210,11 @@
     labelsEl.innerHTML = '';
     state.custom.parts.forEach(function (p) { world.appendChild(customEl(p)); });
     Object.keys(selected).forEach(function (k) {
-      if (!state.custom.parts.some(function (p) { return p.id === k; })) delete selected[k];
+      var alive = state.custom.parts.some(function (p) { return p.id === k; }) ||
+        state.custom.links.some(function (l) { return l.id === k; });
+      if (!alive) delete selected[k];
     });
-    applySelection();
+    renderLinks();
     renderPalette();
     renderBreakdown();
     refreshOptNote();

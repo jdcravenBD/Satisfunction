@@ -2112,3 +2112,51 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 .custom-build #goal-seg,
 .custom-build #opt-note,
 .custom-build #clock-seg { display: none; }
+
+/* ---------- custom build: ports and belts ---------- */
+
+/* Ports on a part's edges: square for belts, round for pipes. Hollow while
+   free, filled once joined. Dragging from one draws a belt. */
+.cport {
+  position: absolute;
+  z-index: 2;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border: 1.5px solid #f2c79d;
+  border-radius: 2px;
+  background: var(--bg);
+  cursor: crosshair;
+  touch-action: none;
+}
+.cport.fluid { border-radius: 50%; border-color: #9fc6ff; }
+.cport.in { border-color: #d9d9d9; }
+.cport.linked { background: currentColor; }
+.cport.linked:not(.fluid) { background: #f2c79d; }
+.cport.linked.in:not(.fluid) { background: #d9d9d9; }
+.cport.linked.fluid { background: #9fc6ff; }
+.cport:hover { transform: scale(1.35); box-shadow: 0 0 0 3px rgba(255, 255, 255, .12); }
+.cpart.part .cport { width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; }
+
+/* Custom belts can be clicked: a wide invisible stroke takes the press. */
+#wires .belt-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+#wires .belt.selected { stroke: #fff; }
+#wires .belt.pipe.selected { stroke: #d8e8ff; }
+.belt-preview {
+  fill: none;
+  stroke: var(--ink-dim);
+  stroke-width: 3;
+  stroke-dasharray: 6 5;
+  stroke-linecap: round;
+}
+.belt-preview.ok { stroke: #fff; stroke-dasharray: none; }
+.belt-preview.pipe { stroke: #8fb6ea; }
+
+/* Ports sit half outside a part's edge. */
+.cpart { overflow: visible; }
