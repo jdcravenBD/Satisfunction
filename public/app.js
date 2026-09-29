@@ -55,6 +55,7 @@
     page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     build: 'auto',  // 'auto': the plan generates the build; 'custom': placed by hand
+    customKept: null, // the hand-built layout, kept while Auto shows its plan: { custom, key }
     custom: { parts: [], links: [] } // Custom: parts [{ id, kind, x, y, r, recipe?, clock?, item?, purity? }] (metres, quarter turns), links [{ id, a, ap, b, bp }]
   };
 
@@ -410,7 +411,7 @@
   var STORE_KEY = 'satisfunction.saves.v1';
   var PROGRESS = ['unlocked', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
   var FACTORY = ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal',
-    'pins', 'view', 'mode', 'balance', 'build', 'custom'];
+    'pins', 'view', 'mode', 'balance', 'build', 'custom', 'customKept'];
   var store = null;  // { active, saves: [{ id, name, active, progress, factories: [{ id, name, plan }] }], prefs }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -524,6 +525,8 @@
     });
     state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'none';
     state.build = data.build === 'custom' ? 'custom' : 'auto';
+    state.customKept = data.customKept && data.customKept.custom && typeof data.customKept.key === 'string'
+      ? { custom: clone(data.customKept.custom), key: data.customKept.key } : null;
     state.custom = { parts: [], links: [] };
     var partById = {};
     ((data.custom && data.custom.parts) || []).forEach(function (p) {
@@ -531,6 +534,7 @@
       var q = { id: String(p.id || uid()), kind: p.kind, x: Math.round(p.x), y: Math.round(p.y), r: ((p.r | 0) % 4 + 4) % 4 };
       if (DATA.machines[p.kind] && DATA.recipes[p.recipe] && DATA.recipes[p.recipe].machine === p.kind) q.recipe = p.recipe;
       if (DATA.machines[p.kind] || DATA.extractors[p.kind]) q.clock = clamp(Number(p.clock) || 1, 0.01, SOLVER.MAX_CLOCK);
+      if ((p.kind === 'storage' || p.kind === 'buffer') && DATA.items[p.item] && isFluid(p.item) === (p.kind === 'buffer')) q.item = p.item;
       if (DATA.extractors[p.kind]) {
         if (extractorItems(p.kind).indexOf(p.item) >= 0) q.item = p.item;
         q.purity = SOLVER.PURITIES.indexOf(p.purity) >= 0 ? p.purity : 'normal';
@@ -3759,14 +3763,24 @@
     undimCtx();
   }
 
+  /** The confirmation's wording: its question and buttons, or the usual. */
+  function confirmWords(w) {
+    w = w || {};
+    confirmEl.querySelector('.confirm-q').textContent = w.q || 'Are you sure?';
+    confirmEl.querySelector('.confirm-yes').textContent = w.yes || 'Yes';
+    confirmEl.querySelector('.confirm-no').textContent = w.no || 'No';
+    confirmEl.classList.toggle('wordy', !!w.q);
+  }
+
   /**
    * Drop the shared "Are you sure?" just under the pointer, with the pointer
    * centred between Yes and No, running `onYes` if taken. From the keyboard
    * (no pointer), it drops against `anchor`.
    */
-  function askConfirm(anchor, onYes, overlap) {
+  function askConfirm(anchor, onYes, overlap, words) {
     popOpener = clickFrom;
     confirmAction = onYes;
+    confirmWords(words);
     if (lastPress && Date.now() - lastPress.t < 1500) {
       var yes = confirmEl.querySelector('.confirm-yes');
       var no = confirmEl.querySelector('.confirm-no');
@@ -4603,8 +4617,8 @@
       inputsBox.appendChild(group('Inputs', 'from outside', raws.map(function (id) {
         var it = DATA.items[id];
         var e = solved.items[id];
-        var short = (!it.raw && !state.imports[id] && !!producersOf[id]) || e.short > EPS;
-        var note = it.raw
+        var short = !e.imported && ((!it.raw && !state.imports[id] && !!producersOf[id]) || e.short > EPS);
+        var note = e.imported ? 'brought in' : it.raw
           ? (e.cap != null ? 'of ' + fmtNum(e.cap) : '')
           : state.imports[id] ? 'imported'
           : blocked[id] ? 'no ' + buildingName(blocked[id])
@@ -5401,18 +5415,61 @@
   buildSeg.addEventListener('click', function (e) {
     var btn = e.target.closest('.seg-btn');
     if (!btn) return;
-    state.build = btn.dataset.build === state.build
+    var next = btn.dataset.build === state.build
       ? (state.build === 'auto' ? 'custom' : 'auto')
       : btn.dataset.build;
+    if (next === 'auto' && state.custom.parts.length) {
+      askConfirm(btn, function () { switchBuild('auto'); }, false, {
+        q: 'Switch to Auto? It keeps your build\u2019s inputs and outputs, but may rearrange the machines in between.',
+        yes: 'Switch',
+        no: 'Cancel'
+      });
+      return;
+    }
+    if (next === 'custom' && !keptStillFits() && state.custom.parts.length) {
+      askConfirm(btn, function () { switchBuild('custom'); }, false, {
+        q: 'Switch to Custom? This plan will be laid out as parts, replacing your current custom build.',
+        yes: 'Switch',
+        no: 'Cancel'
+      });
+      return;
+    }
+    switchBuild(next);
+  });
+
+  /** Everything that shapes the Auto plan, to tell whether it's changed. */
+  function autoKey() {
+    return JSON.stringify(pick(state, ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal']));
+  }
+
+  /** Whether the kept custom build still goes with the Auto plan as it is now. */
+  function keptStillFits() {
+    return !!state.customKept && state.customKept.key === autoKey();
+  }
+
+  function switchBuild(next) {
     closeAll();
     clearSelection();
     hideHoverInfo();
+    if (next === 'auto' && state.build === 'custom') {
+      if (state.custom.parts.length) {
+        customToAuto();
+        // Coming straight back, with the plan untouched, restores this layout.
+        state.customKept = { custom: clone(state.custom), key: autoKey() };
+      }
+    } else if (next === 'custom' && state.build === 'auto') {
+      if (keptStillFits()) state.custom = clone(state.customKept.custom);
+      else if (state.targets.length) autoToCustom();
+      state.customKept = null;
+    }
+    state.build = next;
     refreshModeSeg();
     refreshRecipeControls();
+    renderTargets();
     recompute();
     fitView();
     save();
-  });
+  }
 
   // Manifold: one belt past every machine, a splitter at each. Balancer: a
   // tree of splitters giving every machine exactly the same share.
@@ -6260,6 +6317,282 @@
       .sort(function (a, b) { return itemName(a).localeCompare(itemName(b)); });
   }
 
+  /* ---- Custom <-> Auto ---- */
+
+  /**
+   * The custom build as an Auto plan: what reaches storage becomes the
+   * outputs, the miners and extractors become resource nodes, the machines'
+   * recipes become the recipe picks, and storage bringing items in becomes
+   * imports. Auto then lays out the machines in between its own way.
+   */
+  function customToAuto() {
+    var f = customFlow();
+    var outs = Object.keys(f.outputs).filter(function (id) { return f.outputs[id] > 1e-6; });
+    var targets = outs.map(function (id) { return { item: id, rate: Number(f.outputs[id].toFixed(4)) }; });
+    // Nothing reaching storage: what the machines make with nowhere to go.
+    if (!targets.length) {
+      state.custom.parts.forEach(function (p) {
+        var r = p.recipe && DATA.recipes[p.recipe];
+        if (!r) return;
+        portsOf(p.kind).forEach(function (port, k) {
+          var o = machineOut(p, k);
+          if (!o || state.custom.links.some(function (l) { return l.a === p.id && l.ap === k; })) return;
+          var rate = SOLVER.perMinute(r)[o] * (p.clock || 1);
+          if (!targets.some(function (t) { return t.item === o; }) && rate > 0) {
+            targets.push({ item: o, rate: Number(rate.toFixed(4)) });
+          }
+        });
+      });
+    }
+    var supply = {};
+    var imports = {};
+    var mixes = {};
+    state.custom.parts.forEach(function (p) {
+      if (DATA.extractors[p.kind] && p.item && p.kind !== 'Build_WaterPump_C') {
+        var s = supply[p.item] || (supply[p.item] = { nodes: [] });
+        var node = { purity: p.purity || 'normal' };
+        if (MINERS.indexOf(p.kind) >= 0) node.miner = p.kind;
+        s.nodes.push(node);
+      }
+      if (bringsIn(p)) imports[p.item] = true;
+      var r = p.recipe && DATA.recipes[p.recipe];
+      if (r) {
+        var main = r.out[0][0];
+        var m = mixes[main] || (mixes[main] = {});
+        m[p.recipe] = (m[p.recipe] || 0) + (p.clock || 1);
+      }
+    });
+    var recipes = {};
+    Object.keys(mixes).forEach(function (id) {
+      var rids = Object.keys(mixes[id]);
+      recipes[id] = rids.length === 1 ? rids[0] : mixes[id];
+    });
+    state.targets = targets;
+    state.supply = supply;
+    state.imports = imports;
+    state.recipes = recipes;
+  }
+
+  /**
+   * The Auto plan as parts to edit: miners and extractors on the left, each
+   * step's machines at their clock speeds in columns by how far they are
+   * from the raw resources, outputs into storage and spares into a sink on
+   * the right. Belts are paired producer to consumer, fanned out through
+   * splitters and in through mergers (pipe junctions for fluids).
+   */
+  function autoToCustom() {
+    if (!solved || solved.custom) return;
+    var parts = [];
+    var links = [];
+    function part(kind, extra) {
+      var p = Object.assign({ id: 'p' + uid(), kind: kind, x: 0, y: 0, r: 0 }, extra || {});
+      parts.push(p);
+      return p;
+    }
+    var prod = {};   // item -> [{ p, k, rate }]
+    var cons = {};
+    function give(item, p, k, rate) { (prod[item] = prod[item] || []).push({ p: p, k: k, rate: rate }); }
+    function take(item, p, k, rate) { (cons[item] = cons[item] || []).push({ p: p, k: k, rate: rate }); }
+    function portIndex(p, side, fluid, nth) {
+      var ports = portsOf(p.kind);
+      var seen = 0;
+      for (var k = 0; k < ports.length; k++) {
+        if (ports[k].side === side && ports[k].fluid === fluid) {
+          if (seen === nth) return k;
+          seen++;
+        }
+      }
+      return -1;
+    }
+
+    // How far each item is from the raw resources: a step sits one column
+    // after the latest of its inputs.
+    var madeBy = {};
+    Object.keys(solved.recipes).forEach(function (rid) {
+      DATA.recipes[rid].out.forEach(function (o) { (madeBy[o[0]] = madeBy[o[0]] || []).push(rid); });
+    });
+    var depth = {};
+    function stepDepth(rid, guard) {
+      if (depth[rid] != null) return depth[rid];
+      if (guard[rid]) return 1;
+      guard[rid] = true;
+      var d = 1;
+      DATA.recipes[rid].in.forEach(function (q) {
+        (madeBy[q[0]] || []).forEach(function (other) {
+          if (other !== rid) d = Math.max(d, stepDepth(other, guard) + 1);
+        });
+      });
+      depth[rid] = d;
+      return d;
+    }
+    var cols = {};
+    function place(col, p) { (cols[col] = cols[col] || []).push(p); }
+
+    // Sources: miners and extractors, or storage bringing in what isn't made here.
+    Object.keys(solved.items).forEach(function (id) {
+      var e = solved.items[id];
+      if (!(e.supplied > EPS)) return;
+      var ex = DATA.items[id].raw ? extractorsFor(id, e.supplied) : null;
+      // "Any node": enough normal nodes for what the plan draws, sharing it evenly.
+      var info = DATA.items[id].raw && !ex ? supplyInfo(id) : null;
+      if (info) {
+        var perNode = info.perNode('normal');
+        ex = { list: SOLVER.clocks(e.supplied / perNode, 'even').map(function (c) {
+          return { purity: 'normal', clock: c, extractor: info.extractor, rate: perNode };
+        }) };
+      }
+      if (ex) {
+        ex.list.forEach(function (m) {
+          var x = part(m.extractor, { item: id, purity: m.purity || 'normal', clock: Number(clockSetting(m.clock).toFixed(4)) || 1 });
+          give(id, x, 0, m.rate * m.clock);
+          place(0, x);
+        });
+      } else {
+        var fluid = isFluid(id);
+        var s = part(fluid ? 'buffer' : 'storage', { item: id });
+        give(id, s, 1, e.supplied);
+        place(0, s);
+      }
+    });
+    // Steps.
+    var last = 1;
+    Object.keys(solved.recipes).forEach(function (rid) {
+      var r = DATA.recipes[rid];
+      var per = SOLVER.perMinute(r);
+      var col = stepDepth(rid, {});
+      last = Math.max(last, col);
+      recipeClocks(rid, solved.recipes[rid].count).forEach(function (c) {
+        // The clock Auto actually sets: at 100% with nothing clocked, the last
+        // machine stays at 100% and idles part of the time.
+        var m = part(r.machine, { recipe: rid, clock: Number(clockSetting(c).toFixed(4)) });
+        place(col, m);
+        var nthIn = { s: 0, f: 0 };
+        r.in.forEach(function (q) {
+          var fl = isFluid(q[0]);
+          var k = portIndex(m, 'in', fl, fl ? nthIn.f++ : nthIn.s++);
+          if (k >= 0) take(q[0], m, k, -per[q[0]] * c);
+        });
+        portsOf(m.kind).forEach(function (port, k) {
+          var o = machineOut(m, k);
+          if (o && per[o] > 0) give(o, m, k, per[o] * c);
+        });
+      });
+    });
+    // Outputs into storage, spares into a sink (a buffer for fluids).
+    var end = last + 1;
+    Object.keys(solved.targets).forEach(function (id) {
+      if (!(solved.targets[id] > EPS)) return;
+      var s = part(isFluid(id) ? 'buffer' : 'storage');
+      take(id, s, 0, solved.targets[id]);
+      place(end, s);
+    });
+    Object.keys(solved.items).forEach(function (id) {
+      var e = solved.items[id];
+      if (!(e.surplus > EPS)) return;
+      var s = part(isFluid(id) ? 'buffer' : 'sink');
+      take(id, s, 0, e.surplus);
+      place(end, s);
+    });
+
+    // Columns left to right, parts stacked in each, on whole metres.
+    var GAP = 6, COL_GAP = 30;
+    var x = 0;
+    Object.keys(cols).map(Number).sort(function (a, b) { return a - b; }).forEach(function (c) {
+      var y = 0;
+      var wMax = 0;
+      cols[c].forEach(function (p) {
+        var box = partBox(p);
+        p.x = x;
+        p.y = y;
+        y += box.h + GAP;
+        wMax = Math.max(wMax, box.w);
+      });
+      x += wMax + COL_GAP;
+    });
+
+    // Belts: each item's producers paired with its consumers in order, then
+    // fanned out and in through splitters and mergers where a part pairs
+    // with more than one.
+    Object.keys(prod).forEach(function (item) {
+      var P = prod[item], C = cons[item] || [];
+      if (!C.length) return;
+      var fluid = isFluid(item);
+      var pairs = [];
+      var pi = 0, ci = 0;
+      var pl = P[0].rate, cl = C[0].rate;
+      while (pi < P.length && ci < C.length) {
+        var q = Math.min(pl, cl);
+        pairs.push({ p: P[pi], c: C[ci] });
+        pl -= q;
+        cl -= q;
+        if (pl <= 1e-6) { pi++; pl = P[pi] ? P[pi].rate : 0; }
+        if (cl <= 1e-6) { ci++; cl = C[ci] ? C[ci].rate : 0; }
+      }
+      // Anything left over joins the last pair's ends.
+      for (; ci < C.length; ci++) pairs.push({ p: P[P.length - 1], c: C[ci] });
+      for (; pi < P.length; pi++) pairs.push({ p: P[pi], c: C[C.length - 1] });
+
+      var outsOf = new Map(), insOf = new Map();
+      pairs.forEach(function (pr, i) {
+        if (!outsOf.has(pr.p)) outsOf.set(pr.p, []);
+        outsOf.get(pr.p).push(i);
+        if (!insOf.has(pr.c)) insOf.set(pr.c, []);
+        insOf.get(pr.c).push(i);
+      });
+      var from = [], to = [];
+      // Fan out: a chain of splitters, two branches each and the chain onward.
+      outsOf.forEach(function (list, end) {
+        if (list.length === 1) { from[list[0]] = { p: end.p, k: end.k }; return; }
+        var at = portAt(end.p, end.k);
+        var feed = { p: end.p, k: end.k };
+        var left = list.slice();
+        var n = 0;
+        while (left.length) {
+          var sp = part(fluid ? 'junction' : 'splitter', {
+            x: Math.round(at.x + 3), y: Math.round(at.y - 2 + n * 7)
+          });
+          n++;
+          links.push({ id: 'l' + uid(), a: feed.p.id, ap: feed.k, b: sp.id, bp: 0 });
+          var outs = [2, 1, 3];   // right, top, bottom
+          var take2 = left.length <= 3 ? left.length : 2;
+          for (var t = 0; t < take2; t++) from[left.shift()] = { p: sp, k: outs[t] };
+          feed = { p: sp, k: 3 };
+        }
+      });
+      // Fan in: a chain of mergers, the last into the consumer.
+      insOf.forEach(function (list, end) {
+        if (list.length === 1) { to[list[0]] = { p: end.p, k: end.k }; return; }
+        var at = portAt(end.p, end.k);
+        var inPorts = fluid ? [0, 1, 3] : [0, 1, 2];
+        var outPort = fluid ? 2 : 3;
+        var left = list.slice();
+        var into = { p: end.p, k: end.k };
+        var n = 0;
+        while (left.length) {
+          var mg = part(fluid ? 'junction' : 'merger', {
+            x: Math.round(at.x - 7), y: Math.round(at.y - 2 + n * 7)
+          });
+          n++;
+          links.push({ id: 'l' + uid(), a: mg.id, ap: outPort, b: into.p.id, bp: into.k });
+          var room = left.length <= 3 ? 3 : 2;
+          for (var t = 0; t < room && left.length; t++) to[left.shift()] = { p: mg, k: inPorts[t] };
+          into = { p: mg, k: inPorts[2] };
+        }
+      });
+      pairs.forEach(function (pr, i) {
+        if (from[i] && to[i]) links.push({ id: 'l' + uid(), a: from[i].p.id, ap: from[i].k, b: to[i].p.id, bp: to[i].k });
+      });
+    });
+
+    state.custom = { parts: parts, links: links };
+  }
+
+  /** Storage or a buffer with nothing going in, set to bring an item in. */
+  function bringsIn(p) {
+    return (p.kind === 'storage' || p.kind === 'buffer') && !!p.item &&
+      !state.custom.links.some(function (l) { return l.b === p.id; });
+  }
+
   /** Most an extractor gives at its clock, per minute. */
   function extractorMax(p) {
     var x = DATA.extractors[p.kind];
@@ -6311,6 +6644,7 @@
       if (DATA.machines[p.kind]) { var o = machineOut(p, k); return o ? [o] : []; }
       if (DATA.extractors[p.kind]) return p.item ? [p.item] : [];
       if (p.kind === 'sink') return [];
+      if (bringsIn(p)) return [p.item];
       var set = {};
       (into[p.id] || []).forEach(function (l) { Object.keys(carries[l.id]).forEach(function (i) { set[i] = true; }); });
       return Object.keys(set);
@@ -6402,6 +6736,8 @@
       } else {
         // Splitters, mergers and junctions pass everything on; storage keeps
         // whatever it can't pass on.
+        // Storage nothing feeds, set to bring an item in, supplies all its belt takes.
+        if (bringsIn(p)) return;
         var itemsHere = {};
         ins.concat(outs).forEach(function (l) { Object.keys(fv[l.id]).forEach(function (i) { itemsHere[i] = true; }); });
         Object.keys(itemsHere).forEach(function (i) {
@@ -6469,9 +6805,6 @@
               problem(p, spec.name + ': ' + itemName(o) + ' has nowhere to go (the machine stops once full)');
             }
           });
-          if (st.util < 0.995 && !out.bad[p.id]) {
-            problem(p, spec.name + ' (' + st.label + ') is running at ' + Math.round(st.util * 100) + '%');
-          }
         }
         if (jams[p.id]) {
           problem(p, spec.name + ' is being sent ' + Object.keys(jams[p.id]).map(itemName).join(', ') + ', which it doesn\u2019t take: the belt jams');
@@ -6511,6 +6844,16 @@
             out.outputs[i] = (out.outputs[i] || 0) + kept;
           }
         });
+        if (bringsIn(p)) {
+          var brought = 0;
+          outs.forEach(function (l) { brought += out.links[l.id].per[p.item] || 0; });
+          st.rates.push({ item: p.item, dir: 'out', now: brought, max: brought });
+          if (brought > 1e-6) {
+            var bi = out.items[p.item] || (out.items[p.item] = { supplied: 0, short: 0, surplus: 0, producers: [], imported: true });
+            bi.supplied += brought;
+            bi.imported = true;
+          }
+        }
         if (!ins.length && p.kind !== 'storage' && p.kind !== 'buffer') problem(p, spec.name + ' has nothing going in');
       }
       out.parts[p.id] = st;
@@ -6677,6 +7020,22 @@
         field('Node', select(SOLVER.PURITIES.map(function (q) { return { value: q, label: titleCase(q) }; }),
           p.purity || 'normal', function (v) { p.purity = v; changed(); }));
       }
+    }
+
+    if (p.kind === 'storage' || p.kind === 'buffer') {
+      var fluidStore = p.kind === 'buffer';
+      var choices = Object.keys(DATA.items).filter(function (id) { return isFluid(id) === fluidStore; })
+        .sort(function (a, b) { return itemName(a).localeCompare(itemName(b)); });
+      field('Brings in', select([{ value: '', label: 'Nothing (collects)' }].concat(choices.map(function (id) {
+        return { value: id, label: itemName(id) };
+      })), p.item || '', function (v) {
+        if (v) p.item = v; else delete p.item;
+        changed();
+      }));
+      var hint = document.createElement('p');
+      hint.className = 'insp-note';
+      hint.textContent = 'With nothing feeding it, it supplies this item, like a train or truck delivery.';
+      box.appendChild(hint);
     }
 
     if (spec.building) {

@@ -2204,3 +2204,7 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 
 /* Problems, each a link to its part. */
 .sum-row.problem-row .sum-row-name { color: #f0b27a; white-space: normal; }
+
+/* A confirmation that asks its own question wraps onto a few lines. */
+.confirm.wordy { white-space: normal; max-width: 300px; flex-wrap: wrap; padding: 6px 8px; row-gap: 2px; }
+.confirm.wordy .confirm-q { flex: 1 1 100%; line-height: 1.35; }

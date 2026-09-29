@@ -29,7 +29,12 @@ size.
   ports with belts and pipes by dragging from one port to another. Select a
   part to set its recipe, resource, node purity and clock speed; every belt
   shows its rate and tier, and a problems list flags anything unconnected,
-  starved, jammed with the wrong item, or over a belt's limit.
+  jammed with the wrong item, or over a belt's limit. Switching carries the
+  factory across: Auto to Custom lays the plan out as parts, and Custom to
+  Auto keeps the build's inputs and outputs and lets Auto redo the machines in
+  between. Pop over to Auto and straight back, and your layout is untouched.
+  A Storage Container or Fluid Buffer with nothing feeding it can bring an
+  item in, like a train delivery.
 - **Saves and factories:** each save is one game, holding any number of
   factories as tabs. Export and import either.
 - **Overview and Power pages:** resources, production, machine counts,
