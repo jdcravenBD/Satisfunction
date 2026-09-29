@@ -312,7 +312,7 @@ html, body {
   inset: calc(var(--bar-h) + 8px) var(--plan-w) var(--frame) var(--frame);
   border-radius: var(--inner-radius);
   overflow: hidden;
-  cursor: grab;
+  cursor: default;
   background-color: var(--bg);
   /* Hairline where the frame meets the canvas. An inset shadow rather than a
      border, so it adds no layout box and the world origin stays put. */
@@ -321,7 +321,8 @@ html, body {
   background-size: var(--cell) var(--cell);
   background-repeat: repeat;
 }
-#stage.panning { cursor: grabbing; }
+/* The hand only while the canvas is being dragged, whatever it passes over. */
+#stage.panning, #stage.panning * { cursor: grabbing; }
 
 #world {
   position: absolute;
@@ -798,6 +799,7 @@ html, body {
   backdrop-filter: blur(6px);
   text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
 }
+.flow-label.cn-end { left: calc(100% + 8px); transform: translateY(-50%); z-index: 3; pointer-events: none; }
 .flow-label .fl-icon { width: 15px; height: 15px; object-fit: contain; margin: -2px 4px -3px -3px; vertical-align: middle; }
 
 /* ---------- nodes ---------- */
@@ -1683,12 +1685,13 @@ html, body {
 .tab:has(+ .tab.on)::after,
 .tab:has(+ .tab:hover)::after { display: none; }
 
-/* "View" heads the controls that change how the factory is shown. */
+/* "Mode" and "View" head the controls after them. */
 .tb-label {
   font-size: 12px;
   color: var(--ink-faint);
   margin-right: 6px;
 }
+.tb-sep + .tb-label { margin-left: 8px; }
 
 /* Room for everything on one row at ordinary widths. */
 .toolbar { gap: 6px; }
@@ -2056,6 +2059,8 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 }
 .palette::-webkit-scrollbar { width: 9px; }
 .palette::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 20px; border: 3px solid var(--panel-2); }
+/* Kept clear of the rounded corners at either end. */
+.palette::-webkit-scrollbar-track { margin: var(--inner-radius) 0; }
 .pal-title { font-size: 13.5px; font-weight: 600; padding: 2px 4px 8px; }
 .pal-head {
   margin: 8px 4px 6px;
@@ -2218,6 +2223,28 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 
 /* Problems, each a link to its part. */
 .sum-row.problem-row .sum-row-name { color: #f0b27a; white-space: normal; }
+.problem-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 7px 9px 8px;
+  border: 1px solid rgba(var(--machine), .55);
+  border-radius: 8px;
+  background: rgba(var(--machine), .09);
+  color: #f0b27a;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .12s ease;
+}
+.problem-box:last-child { margin-bottom: 0; }
+.problem-box:hover { background: rgba(var(--machine), .16); }
+.problem-head { display: flex; align-items: center; gap: 7px; color: var(--ink); font-weight: 600; }
+.problem-head img { width: 20px; height: 20px; object-fit: contain; }
+.problem-line { line-height: 1.35; }
 
 /* A confirmation that asks its own question wraps onto a few lines. */
 .confirm.wordy { white-space: normal; max-width: 300px; flex-wrap: wrap; padding: 6px 8px; row-gap: 2px; }

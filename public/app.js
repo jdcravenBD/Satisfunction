@@ -847,7 +847,7 @@
       layout();
       renderMachineView();
     } else {
-      world.querySelectorAll('.machine, .part').forEach(function (el) { el.remove(); });
+      world.querySelectorAll('.machine, .part, .cnode').forEach(function (el) { el.remove(); });
       buildGraph();
       mountNodes();
       layout();
@@ -2112,7 +2112,7 @@
 
   /** Measures everything before layout: lines from their geometry, cards from the page. */
   function mountMachineNodes() {
-    world.querySelectorAll('.node, .machine, .part').forEach(function (el) { el.remove(); });
+    world.querySelectorAll('.node, .machine, .part, .cnode').forEach(function (el) { el.remove(); });
     graph.nodes.forEach(function (n) {
       if (n.kind === 'line') {
         setLineGeometry(n);
@@ -3488,6 +3488,7 @@
   }
 
   // Delete removes the selection; Escape lets it go; Ctrl+A takes every node.
+  // In Custom, Ctrl+C, X and V copy, cut and paste cards.
   document.addEventListener('keydown', function (e) {
     var el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
@@ -3501,6 +3502,13 @@
         e.preventDefault();
         state.custom.nodes.forEach(function (n) { selected[n.id] = true; });
         applySelection();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'x') && selectedParts().length) {
+        e.preventDefault();
+        copyParts(selectedParts());
+        if (e.key.toLowerCase() === 'x') removeParts(selectedParts(), []);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && clip) {
+        e.preventDefault();
+        pasteParts();
       }
       return;
     }
@@ -6193,12 +6201,12 @@
     search.spellcheck = false;
     search.addEventListener('input', function () { palQuery = search.value.trim().toLowerCase(); filterPalette(); });
     palette.appendChild(search);
-    var used = commonness();
-    function common(a, b) { return (used[b] || 0) - (used[a] || 0) || itemName(a).localeCompare(itemName(b)); }
+    // In the order the game brings them in (see order in tools/extract-data.mjs).
+    function progression(a, b) { return (DATA.items[a].order || 0) - (DATA.items[b].order || 0); }
     var sections = [
       { head: 'Logistics', kinds: ['splitter', 'merger', 'sink'] },
-      { head: 'Resources', kinds: RAW_ITEMS.slice().sort(common) },
-      { head: 'Parts', kinds: PICKABLE.slice().sort(common) }
+      { head: 'Resources', kinds: RAW_ITEMS.slice().sort(progression) },
+      { head: 'Parts', kinds: PICKABLE.slice().sort(progression) }
     ];
     var NAMES = { splitter: 'Splitter', merger: 'Merger', sink: 'Storage' };
     var ICONS = { splitter: 'splitter', merger: 'merger', sink: 'storage' };
@@ -6235,35 +6243,6 @@
       palette.appendChild(wrap);
     });
     filterPalette();
-  }
-
-  /**
-   * How common each item is: how many things' usual production chains use it
-   * somewhere along the way. Iron Ore and Coal come top; end products, which
-   * nothing's made from, come last.
-   */
-  function commonness() {
-    var chains = {};
-    function chain(id, seen) {
-      if (chains[id]) return chains[id];
-      var found = {};
-      var r = DATA.recipes[DATA.defaults[id]];
-      if (r && !seen[id]) {
-        seen[id] = true;
-        r.in.forEach(function (q) {
-          found[q[0]] = true;
-          Object.keys(chain(q[0], seen)).forEach(function (x) { found[x] = true; });
-        });
-        delete seen[id];
-      }
-      chains[id] = found;
-      return found;
-    }
-    var used = {};
-    Object.keys(DATA.defaults).forEach(function (id) {
-      Object.keys(chain(id, {})).forEach(function (x) { used[x] = (used[x] || 0) + 1; });
-    });
-    return used;
   }
 
   function filterPalette() {
@@ -6375,6 +6354,62 @@
     changed();
   }
 
+  /* ---- copy and paste ---- */
+
+  // Copied cards, with the lines between them. Kept for the session, so they
+  // paste into another factory too.
+  var clip = null;
+  var pastes = 0;
+  var pointerOnStage = null;   // where the pointer last was over the canvas
+  stage.addEventListener('pointermove', function (e) { pointerOnStage = { x: e.clientX, y: e.clientY }; });
+  stage.addEventListener('pointerleave', function () { pointerOnStage = null; });
+
+  function copyParts(list) {
+    if (!list.length) return;
+    var ids = {};
+    list.forEach(function (n) { ids[n.id] = true; });
+    clip = {
+      nodes: clone(list),
+      links: clone(state.custom.links.filter(function (l) { return ids[l.from] && ids[l.to]; }))
+    };
+    pastes = 0;
+  }
+
+  /** New copies of the copied cards: under the pointer, or a step along from the last. */
+  function pasteParts() {
+    if (!clip || !clip.nodes.length) return;
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    clip.nodes.forEach(function (n) {
+      var size = nodeSize(n);
+      x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
+      x1 = Math.max(x1, n.x + size.w); y1 = Math.max(y1, n.y + size.h);
+    });
+    var dx, dy;
+    if (pointerOnStage) {
+      var w = toWorld(pointerOnStage.x, pointerOnStage.y);
+      dx = Math.round(w.x - (x0 + x1) / 2);
+      dy = Math.round(w.y - (y0 + y1) / 2);
+    } else {
+      pastes++;
+      dx = dy = 40 * pastes;
+    }
+    var newId = {};
+    clearSelection();
+    clip.nodes.forEach(function (n) {
+      var m = clone(n);
+      m.id = 'n' + uid();
+      m.x = n.x + dx;
+      m.y = n.y + dy;
+      newId[n.id] = m.id;
+      state.custom.nodes.push(m);
+      selected[m.id] = true;
+    });
+    clip.links.forEach(function (l) {
+      state.custom.links.push({ id: 'l' + uid(), from: newId[l.from], fk: l.fk, to: newId[l.to], tk: l.tk });
+    });
+    changed();
+  }
+
   /** Every card's box on the canvas. */
   function customBoxes() {
     return state.custom.nodes.map(function (n) {
@@ -6482,6 +6517,18 @@
         slot.setAttribute('aria-label', (shown ? itemName(shown) : 'Any item') + (side[0] === 'in' ? ' in' : ' out'));
         slot.addEventListener('pointerdown', function (e) { dragFromSlot(n, side[0], k, e); });
         col.appendChild(slot);
+        // Where the chain ends, what comes out, just past the card's edge
+        // (lines carry their own figure).
+        if (side[0] === 'out' && !isLogistic(n) && !linkOn(n, 'out', k)) {
+          var end = document.createElement('div');
+          end.className = 'flow-label cflow cn-end';
+          end.style.top = (slotAt(n, 'out', k).y - n.y) + 'px';
+          var bold = document.createElement('b');
+          bold.textContent = fmtNum(st.outs[k] || 0);
+          end.appendChild(bold);
+          end.appendChild(document.createTextNode((shown && isFluid(shown) ? ' m³' : '') + '/min'));
+          el.appendChild(end);
+        }
       });
       el.appendChild(col);
     });
@@ -6520,6 +6567,7 @@
       var list = selectedParts();
       openCtx(e.clientX, e.clientY, [
         { head: list.length > 1 ? list.length + ' selected' : (n.item ? itemName(n.item) : titleCase(n.type)) },
+        { label: 'Copy', run: function () { copyParts(list); } },
         { label: list.length > 1 ? 'Remove these' : 'Remove', run: function () { removeParts(list, selectedLinks()); } }
       ]);
     });
@@ -6751,7 +6799,6 @@
       });
       if (from.side === 'in') {
         if (DATA.items[item].raw) items.push({ label: 'Resource node', note: 'Mine or extract it', icon: iconOf(item), run: make(item) });
-        items.push({ label: 'Bring it in', note: 'From outside this build', icon: iconOf(item), run: make(item, null, { type: 'import', rate: 60 }) });
       }
       rids.forEach(function (rid) {
         var r = DATA.recipes[rid];
@@ -6766,6 +6813,9 @@
       if (from.side === 'out') items.push({ label: 'Storage', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
     }
     items.push('-');
+    if (item && from.side === 'in') {
+      items.push({ label: 'Import', note: 'From outside this build', icon: iconOf(item), run: make(item, null, { type: 'import', rate: 60 }) });
+    }
     items.push({ label: from.side === 'out' ? 'Splitter' : 'Merger', icon: iconOf(from.side === 'out' ? 'splitter' : 'merger'), run: make(from.side === 'out' ? 'splitter' : 'merger') });
     openCtx(cx, cy, items);
     if (dropped) changed();
@@ -6783,10 +6833,41 @@
       outEl.appendChild(row(itemName(id), '', rateText(id, flow.outputs[id])));
     });
     problemsEl.innerHTML = '';
-    var rows = flow.problems.map(function (pr) {
-      var r = row(pr.text, '', '', function () { focusPart(pr.part); });
-      r.classList.add('problem-row');
-      return r;
+    // One orange box per card, its problems listed inside; pressing it
+    // brings the card into view.
+    var byPart = {};
+    var order = [];
+    flow.problems.forEach(function (pr) {
+      if (!byPart[pr.part]) { byPart[pr.part] = []; order.push(pr.part); }
+      byPart[pr.part].push(pr.text);
+    });
+    var rows = order.map(function (id) {
+      var n = nodeById(id);
+      var title = n ? cardTitle(n) : '';
+      var box = document.createElement('button');
+      box.type = 'button';
+      box.className = 'problem-box';
+      var head = document.createElement('span');
+      head.className = 'problem-head';
+      if (n) {
+        var icon = document.createElement('img');
+        icon.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type));
+        icon.alt = '';
+        head.appendChild(icon);
+      }
+      var name = document.createElement('span');
+      name.textContent = title || 'Step';
+      head.appendChild(name);
+      box.appendChild(head);
+      byPart[id].forEach(function (text) {
+        var line = document.createElement('span');
+        line.className = 'problem-line';
+        // The box already says which card: drop it from the front.
+        line.textContent = title && text.indexOf(title + ': ') === 0 ? titleCase(text.slice(title.length + 2)) : text;
+        box.appendChild(line);
+      });
+      box.addEventListener('click', function () { focusPart(id); });
+      return box;
     });
     if (!rows.length && state.custom.nodes.length) {
       var ok = row('No problems', '', '');
@@ -6795,6 +6876,14 @@
     }
     if (rows.length) problemsEl.appendChild(group('Problems', flow.problems.length ? String(flow.problems.length) : '', rows, 'problems'));
     renderInspector();
+  }
+
+  /** What a card is called: its item, or what kind of part it is. */
+  function cardTitle(n) {
+    if (n.item) return itemName(n.item);
+    var r = nodeRecipe(n);
+    if (r) return itemName(r.out[0][0]);
+    return n.type === 'sink' ? 'Storage' : titleCase(n.type);
   }
 
   /** The selected card's settings and rates. */

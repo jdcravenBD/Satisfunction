@@ -238,6 +238,49 @@ for (const c of resourceClasses) {
   }
 }
 
+/* ---------------------------------------------------------- progression */
+
+// How far into the game each item turns up, as `order` (0 first). A made item
+// counts from the earliest standard recipe for it: the starting recipes, then
+// the tutorial, then each milestone tier in the HUB's own order. MAM research
+// sits just after tier 3, where it's usually done, deeper steps later.
+// Resources are ordered by hand: the game unlocks them through buildings and scanners, not recipes.
+const RESOURCE_ORDER = [
+  'Desc_OreIron_C', 'Desc_OreCopper_C', 'Desc_Stone_C', 'Desc_Coal_C', 'Desc_Water_C',
+  'Desc_OreGold_C', 'Desc_RawQuartz_C', 'Desc_Sulfur_C', 'Desc_LiquidOil_C',
+  'Desc_OreBauxite_C', 'Desc_NitrogenGas_C', 'Desc_OreUranium_C', 'Desc_SAM_C'
+];
+const stageOf = {};
+for (const c of classesOf(/FGSchematic'/)) {
+  let key;
+  if (c.ClassName === 'Schematic_StartingRecipes_C') key = 0;
+  else if (c.mType === 'EST_Tutorial') key = num(c.mMenuPriority) / 10;
+  else if (c.mType === 'EST_Milestone') key = num(c.mTechTier) + num(c.mMenuPriority) / 1000;
+  else if (c.mType === 'EST_MAM') {
+    // Research_Caterium_4_2_C: four steps into the Caterium tree. Alien
+    // research (SAM, Somersloops) has tech tier 0 and comes near the end.
+    const depth = Number((/^Research_[A-Za-z]+_(\d+)/.exec(c.ClassName) || [])[1] ?? 5);
+    key = num(c.mTechTier) ? 3.5 + depth / 20 : 8.5 + depth / 20;
+  }
+  else continue;
+  const unlocked = [...JSON.stringify(c.mUnlocks || []).matchAll(/\.(Recipe_[A-Za-z0-9_]+)/g)].map((m) => m[1]);
+  unlocked.forEach((rid, i) => {
+    const k = key + i * 1e-6;
+    if (!(rid in stageOf) || k < stageOf[rid]) stageOf[rid] = k;
+  });
+}
+const itemStage = {};
+for (const [rid, r] of Object.entries(recipes)) {
+  if (r.alt || !(rid in stageOf)) continue;
+  for (const [id] of r.out) {
+    if (!(id in itemStage) || stageOf[rid] < itemStage[id]) itemStage[id] = stageOf[rid];
+  }
+}
+RESOURCE_ORDER.forEach((id, i) => { itemStage[id] = -100 + i; });
+Object.keys(items)
+  .sort((a, b) => (itemStage[a] ?? 1e9) - (itemStage[b] ?? 1e9) || items[a].name.localeCompare(items[b].name))
+  .forEach((id, i) => { items[id].order = i; });
+
 // The build's .version file: its branch and changelist, and the version
 // players know it by ("1.2.4.0").
 const versionFile = (() => {
