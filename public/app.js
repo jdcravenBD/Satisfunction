@@ -55,7 +55,7 @@
     page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     build: 'auto',  // 'auto': the plan generates the build; 'custom': placed by hand
-    custom: { parts: [], links: [] } // Custom: parts [{ id, kind, x, y, r }] (metres, quarter turns), links [{ id, a, ap, b, bp }]
+    custom: { parts: [], links: [] } // Custom: parts [{ id, kind, x, y, r, recipe?, clock?, item?, purity? }] (metres, quarter turns), links [{ id, a, ap, b, bp }]
   };
 
   // What a new factory starts from.
@@ -529,6 +529,12 @@
     ((data.custom && data.custom.parts) || []).forEach(function (p) {
       if (!p || !partSpec(p.kind) || !isFinite(p.x) || !isFinite(p.y)) return;
       var q = { id: String(p.id || uid()), kind: p.kind, x: Math.round(p.x), y: Math.round(p.y), r: ((p.r | 0) % 4 + 4) % 4 };
+      if (DATA.machines[p.kind] && DATA.recipes[p.recipe] && DATA.recipes[p.recipe].machine === p.kind) q.recipe = p.recipe;
+      if (DATA.machines[p.kind] || DATA.extractors[p.kind]) q.clock = clamp(Number(p.clock) || 1, 0.01, SOLVER.MAX_CLOCK);
+      if (DATA.extractors[p.kind]) {
+        if (extractorItems(p.kind).indexOf(p.item) >= 0) q.item = p.item;
+        q.purity = SOLVER.PURITIES.indexOf(p.purity) >= 0 ? p.purity : 'normal';
+      }
       state.custom.parts.push(q);
       partById[q.id] = q;
     });
@@ -3222,6 +3228,7 @@
     wires.querySelectorAll('[data-link]').forEach(function (el) {
       el.classList.toggle('selected', !!selected[el.dataset.link]);
     });
+    if (state.build === 'custom' && flow) renderInspector();
   }
   function selectOnly(key) {
     selected = {};
@@ -4538,6 +4545,7 @@
     // Extractors count too, wherever the plan knows what they are.
     Object.keys(solved.items).forEach(function (id) {
       var e = solved.items[id];
+      if (solved.custom) return;
       if (!(e.supplied > EPS) || !DATA.items[id].raw) return;
       var ex = extractorsFor(id, e.supplied);
       if (!ex) return;
@@ -4560,15 +4568,27 @@
       });
     });
 
-    // In Custom, every placed building counts. Recipes and clocks come later,
-    // so for now they're built but not yet running.
+    // In Custom, every placed building counts, running as the flow found.
     if (solved.custom) {
       state.custom.parts.forEach(function (p) {
-        if (DATA.machines[p.kind]) tally(p.kind, DATA.machines[p.kind].name, 0, 1, 0);
-        else if (DATA.extractors[p.kind]) tally(p.kind, DATA.extractors[p.kind].name, 0, 1, 0);
+        var st = flow.parts[p.id];
+        if (!st || !st.building) return;
+        var name = DATA.machines[p.kind] ? DATA.machines[p.kind].name : DATA.extractors[p.kind].name;
+        shards += shardsFor(p.clock || 1);
+        tally(p.kind, name, (p.clock || 1) * st.util, 1, st.power);
+        if (st.power > EPS) {
+          draws.push({
+            label: st.label,
+            note: name + ' · ' + fmtClock(p.clock || 1),
+            power: st.power,
+            extraction: !!DATA.extractors[p.kind],
+            part: p.id
+          });
+        }
       });
+      renderCustomPanel();
     }
-    var steps = Object.keys(solved.recipes).length;
+    var steps = solved.custom ? flow.steps : Object.keys(solved.recipes).length;
     renderOverview({ power: power, buildings: buildings, shards: shards, byMachine: byMachine, draws: draws });
     renderPower(draws, power);
     document.getElementById('stat-machines').textContent = buildings;
@@ -4695,11 +4715,12 @@
     el.appendChild(boxed('Power', 'itemised under Power', rows));
 
     // Alternates in use.
-    var alts = Object.keys(solved.recipes).filter(unlockable).sort(function (a, b) {
+    var used = solved.custom ? flow.recipes : solved.recipes;
+    var alts = Object.keys(used).filter(unlockable).sort(function (a, b) {
       return DATA.recipes[a].name.localeCompare(DATA.recipes[b].name);
     });
     rows = alts.map(function (rid) {
-      return row(DATA.recipes[rid].name, itemName(solved.recipes[rid].item) + ' · ' + machineName(rid),
+      return row(DATA.recipes[rid].name, itemName(used[rid].item) + ' · ' + machineName(rid),
         '', function () { focusOn('r:' + rid); });
     });
     el.appendChild(boxed('Alternate recipes used', alts.length ? String(alts.length) : '',
@@ -4715,7 +4736,7 @@
     el.appendChild(boxed('Power', draws.length + (draws.length === 1 ? ' step' : ' steps'), [head]));
     if (!draws.length) return;
     var rows = draws.slice().sort(function (a, b) { return b.power - a.power; }).map(function (d) {
-      var r = row(d.label, d.note, fmtPower(d.power), function () { focusOn(d.node); });
+      var r = row(d.label, d.note, fmtPower(d.power), function () { if (d.part) focusPart(d.part); else focusOn(d.node); });
       var share = total > EPS ? d.power / total : 0;
       r.classList.add('draw-row');
       var bar = document.createElement('span');
@@ -5783,6 +5804,14 @@
       y: Math.round(wy / PX_PER_M - spec.h / 2),
       r: 0
     };
+    // Buildings start at 100%; an extractor with only one thing to take
+    // (oil, water) starts on it, on a normal node.
+    if (DATA.machines[kind] || DATA.extractors[kind]) p.clock = 1;
+    if (DATA.extractors[kind]) {
+      p.purity = 'normal';
+      var only = extractorItems(kind);
+      if (only.length === 1) p.item = only[0];
+    }
     state.custom.parts.push(p);
     selectOnly(p.id);
     changed();
@@ -5960,6 +5989,7 @@
   /** Every belt and pipe, redrawn (they follow parts as they move). */
   function renderLinks() {
     while (wires.firstChild) wires.removeChild(wires.firstChild);
+    labelsEl.innerHTML = '';
     var byId = {};
     state.custom.parts.forEach(function (p) { byId[p.id] = p; });
     state.custom.links.forEach(function (l) {
@@ -5974,6 +6004,7 @@
       } else {
         svg('path', { d: d, 'class': 'belt', 'data-link': l.id });
       }
+      linkLabel(l, linkRoute(A, B), A.fluid);
       // A wider, invisible stroke to click on.
       var hit = svg('path', { d: d, 'class': 'belt-hit', 'data-hit': l.id });
       hit.addEventListener('pointerdown', function (e) {
@@ -6115,8 +6146,25 @@
       var name = document.createElement('span');
       name.className = 'm-name';
       el.appendChild(img);
-      el.appendChild(nameSpans(name, spec.name));
+      var text = document.createElement('span');
+      text.className = 'cp-text';
+      text.appendChild(nameSpans(name, spec.name));
+      var st = flow && flow.parts[p.id];
+      if (st && st.building) {
+        var what = document.createElement('span');
+        what.className = 'm-product';
+        what.textContent = st.label;
+        var how = document.createElement('span');
+        how.className = 'm-sub m-clock';
+        how.textContent = st.status;
+        text.appendChild(what);
+        text.appendChild(how);
+        if (st.util < 1 - 1e-6) el.classList.add('under');
+        if ((p.clock || 1) > 1 + 1e-6) el.classList.add('over');
+      }
+      el.appendChild(text);
     }
+    if (flow && flow.bad[p.id]) el.classList.add('has-problem');
     el.setAttribute('aria-label', spec.name);
     // Its ports, on its edges, turned with it.
     portsOf(p.kind).forEach(function (_, k) {
@@ -6199,9 +6247,489 @@
     window.addEventListener('pointercancel', up);
   }
 
+  /* ---- flow ---- */
+
+  var flow = null;   // the last Custom flow: see customFlow()
+
+  /** What an extractor can take: ores for miners, the listed resources otherwise. */
+  function extractorItems(kind) {
+    var x = DATA.extractors[kind];
+    if (!x) return [];
+    if (x.resources) return x.resources.slice();
+    return RAW_ITEMS.filter(function (id) { return DATA.items[id].form === 'solid'; })
+      .sort(function (a, b) { return itemName(a).localeCompare(itemName(b)); });
+  }
+
+  /** Most an extractor gives at its clock, per minute. */
+  function extractorMax(p) {
+    var x = DATA.extractors[p.kind];
+    if (!x || !p.item) return 0;
+    var purity = p.kind === 'Build_WaterPump_C' ? 1 : SOLVER.PURITY[p.purity || 'normal'];
+    return x.rate * purity * (p.clock || 1);
+  }
+
+  /** Which item a production machine sends out of port k, by its recipe. */
+  function machineOut(p, k) {
+    var r = p.recipe && DATA.recipes[p.recipe];
+    if (!r) return null;
+    var ports = portsOf(p.kind);
+    var port = ports[k];
+    if (!port || port.side !== 'out') return null;
+    var nth = ports.slice(0, k).filter(function (q) { return q.side === 'out' && q.fluid === port.fluid; }).length;
+    var outs = r.out.filter(function (o) { return isFluid(o[0]) === port.fluid; });
+    return outs[nth] ? outs[nth][0] : null;
+  }
+
+  function linkCap(l, fluid) {
+    return fluid ? DATA.logistics.pipes[state.pipe - 1] : DATA.logistics.belts[state.belt - 1];
+  }
+
+  /**
+   * The build's steady state. Which items can reach each belt is traced from
+   * the sources, then a linear program finds rates that keep every machine
+   * to its recipe and clock, every splitter, merger and junction balanced,
+   * and every belt and pipe within the fastest tier allowed, running the
+   * machines as hard as that lets them. An output with nowhere to go doesn't
+   * hold its machine back (it's flagged instead).
+   */
+  function customFlow() {
+    var parts = state.custom.parts;
+    var links = state.custom.links;
+    var byId = {};
+    parts.forEach(function (p) { byId[p.id] = p; });
+    var into = {}, outOf = {};
+    links.forEach(function (l) {
+      (outOf[l.a] = outOf[l.a] || []).push(l);
+      (into[l.b] = into[l.b] || []).push(l);
+    });
+    function fluidOf(l) { return portsOf(byId[l.a].kind)[l.ap].fluid; }
+
+    // 1. What each belt can carry, traced forward from the sources.
+    var carries = {};
+    links.forEach(function (l) { carries[l.id] = {}; });
+    function emits(p, k) {
+      if (DATA.machines[p.kind]) { var o = machineOut(p, k); return o ? [o] : []; }
+      if (DATA.extractors[p.kind]) return p.item ? [p.item] : [];
+      if (p.kind === 'sink') return [];
+      var set = {};
+      (into[p.id] || []).forEach(function (l) { Object.keys(carries[l.id]).forEach(function (i) { set[i] = true; }); });
+      return Object.keys(set);
+    }
+    for (var pass = 0, more = true; more && pass < 60; pass++) {
+      more = false;
+      links.forEach(function (l) {
+        emits(byId[l.a], l.ap).forEach(function (i) {
+          if (!carries[l.id][i]) { carries[l.id][i] = true; more = true; }
+        });
+      });
+    }
+
+    // 2. The linear program.
+    var n = 0;
+    var fv = {};                 // link id -> { item: variable }
+    links.forEach(function (l) {
+      fv[l.id] = {};
+      Object.keys(carries[l.id]).forEach(function (i) { fv[l.id][i] = n++; });
+    });
+    var av = {}, ev = {};
+    parts.forEach(function (p) {
+      if (DATA.machines[p.kind] && p.recipe) av[p.id] = n++;
+      if (DATA.extractors[p.kind] && p.item) ev[p.id] = n++;
+    });
+    var rows = [];
+    var c = new Array(n).fill(0);
+    function add(a, op, b) { if (Object.keys(a).length) rows.push({ a: a, op: op, b: b }); }
+    function sumItem(list, i, sign, a) {
+      (list || []).forEach(function (l) { if (fv[l.id][i] != null) a[fv[l.id][i]] = (a[fv[l.id][i]] || 0) + sign; });
+    }
+
+    links.forEach(function (l) {
+      var a = {};
+      Object.keys(fv[l.id]).forEach(function (i) { a[fv[l.id][i]] = 1; c[fv[l.id][i]] += 0.001; });
+      add(a, '<=', linkCap(l, fluidOf(l)));
+    });
+    var jams = {};   // part id -> items it refuses
+    parts.forEach(function (p) {
+      var ins = into[p.id] || [];
+      var outs = outOf[p.id] || [];
+      if (DATA.machines[p.kind]) {
+        var r = p.recipe && DATA.recipes[p.recipe];
+        var net = r ? SOLVER.perMinute(r) : {};
+        if (r) {
+          var bound = {};
+          bound[av[p.id]] = 1;
+          add(bound, '<=', p.clock || 1);
+          c[av[p.id]] += 1;
+          r.in.forEach(function (q) {
+            var a = {};
+            sumItem(ins, q[0], 1, a);
+            a[av[p.id]] = (a[av[p.id]] || 0) + net[q[0]];   // net is negative for an input
+            rows.push({ a: a, op: '=', b: 0 });
+          });
+          outs.forEach(function (l) {
+            var o = machineOut(p, l.ap);
+            if (!o || fv[l.id][o] == null) return;
+            var a = {};
+            a[fv[l.id][o]] = 1;
+            a[av[p.id]] = -net[o];
+            rows.push({ a: a, op: '=', b: 0 });
+          });
+        }
+        // Anything arriving that the recipe doesn't take jams the belt.
+        ins.forEach(function (l) {
+          Object.keys(fv[l.id]).forEach(function (i) {
+            if (r && net[i] < 0) return;
+            (jams[p.id] = jams[p.id] || {})[i] = true;
+            var a = {};
+            a[fv[l.id][i]] = 1;
+            rows.push({ a: a, op: '=', b: 0 });
+          });
+        });
+      } else if (DATA.extractors[p.kind]) {
+        if (ev[p.id] == null) return;
+        var b1 = {};
+        b1[ev[p.id]] = 1;
+        add(b1, '<=', extractorMax(p));
+        c[ev[p.id]] += 0.001;
+        if (outs.length) {
+          var a2 = {};
+          sumItem(outs, p.item, 1, a2);
+          a2[ev[p.id]] = -1;
+          rows.push({ a: a2, op: '=', b: 0 });
+        }
+      } else if (p.kind === 'sink') {
+        // Takes everything.
+      } else {
+        // Splitters, mergers and junctions pass everything on; storage keeps
+        // whatever it can't pass on.
+        var itemsHere = {};
+        ins.concat(outs).forEach(function (l) { Object.keys(fv[l.id]).forEach(function (i) { itemsHere[i] = true; }); });
+        Object.keys(itemsHere).forEach(function (i) {
+          var a = {};
+          sumItem(ins, i, 1, a);
+          sumItem(outs, i, -1, a);
+          rows.push({ a: a, op: p.kind === 'storage' || p.kind === 'buffer' ? '>=' : '=', b: 0 });
+        });
+      }
+    });
+
+    var res = n ? window.SF_LP.maximize(n, c, rows) : { status: 'optimal', x: [] };
+    var x = res.status === 'optimal' ? res.x : new Array(n).fill(0);
+    function val(i) { return i == null ? 0 : Math.max(0, x[i] || 0); }
+
+    // 3. What it all comes to.
+    var out = { links: {}, parts: {}, items: {}, outputs: {}, recipes: {}, problems: [], bad: {}, steps: 0 };
+    links.forEach(function (l) {
+      var per = {};
+      var total = 0;
+      Object.keys(fv[l.id]).forEach(function (i) { var v = val(fv[l.id][i]); if (v > 1e-6) { per[i] = v; total += v; } });
+      out.links[l.id] = { per: per, total: total, fluid: fluidOf(l), cap: linkCap(l, fluidOf(l)) };
+    });
+    function problem(p, text) {
+      out.problems.push({ part: p.id, text: text });
+      out.bad[p.id] = true;
+    }
+    parts.forEach(function (p) {
+      var spec = partSpec(p.kind);
+      var ins = into[p.id] || [];
+      var outs = outOf[p.id] || [];
+      var st = { building: !!spec.building, util: 0, power: 0, label: '', status: '', rates: [] };
+      if (DATA.machines[p.kind]) {
+        var r = p.recipe && DATA.recipes[p.recipe];
+        var m = DATA.machines[p.kind];
+        var clock = p.clock || 1;
+        if (!r) {
+          st.label = 'No recipe';
+          st.status = fmtClock(clock);
+          problem(p, spec.name + ' has no recipe');
+        } else {
+          var a = val(av[p.id]);
+          st.util = clock > 0 ? Math.min(1, a / clock) : 0;
+          var base = r.power != null ? r.power : m.power;
+          st.power = base * Math.pow(clock, m.powerExp) * st.util;
+          st.label = itemName(r.out[0][0]);
+          st.status = fmtClock(clock) + ' · running ' + Math.round(st.util * 100) + '%';
+          var net = SOLVER.perMinute(r);
+          r.in.concat(r.out).forEach(function (q) {
+            st.rates.push({ item: q[0], dir: net[q[0]] < 0 ? 'in' : 'out', now: Math.abs(net[q[0]]) * a, max: Math.abs(net[q[0]]) * clock });
+          });
+          out.recipes[p.recipe] = out.recipes[p.recipe] || { item: r.out[0][0], count: 0 };
+          out.recipes[p.recipe].count += a;
+          out.steps++;
+          // Inputs and outputs that aren't hooked up.
+          var needS = r.in.filter(function (q) { return !isFluid(q[0]); }).length;
+          var needF = r.in.length - needS;
+          var hasS = ins.filter(function (l) { return !fluidOf(l); }).length;
+          var hasF = ins.length - hasS;
+          if (hasS < needS || hasF < needF) problem(p, spec.name + ' (' + st.label + '): an input isn\u2019t connected');
+          portsOf(p.kind).forEach(function (port, k) {
+            if (port.side !== 'out') return;
+            var o = machineOut(p, k);
+            if (o && !outs.some(function (l) { return l.ap === k; })) {
+              problem(p, spec.name + ': ' + itemName(o) + ' has nowhere to go (the machine stops once full)');
+            }
+          });
+          if (st.util < 0.995 && !out.bad[p.id]) {
+            problem(p, spec.name + ' (' + st.label + ') is running at ' + Math.round(st.util * 100) + '%');
+          }
+        }
+        if (jams[p.id]) {
+          problem(p, spec.name + ' is being sent ' + Object.keys(jams[p.id]).map(itemName).join(', ') + ', which it doesn\u2019t take: the belt jams');
+        }
+      } else if (DATA.extractors[p.kind]) {
+        var xk = DATA.extractors[p.kind];
+        var eclock = p.clock || 1;
+        if (!p.item) {
+          st.label = 'No resource';
+          st.status = fmtClock(eclock);
+          problem(p, spec.name + ' has no resource set');
+        } else {
+          var e = val(ev[p.id]);
+          var max = extractorMax(p);
+          st.util = max > 0 ? Math.min(1, e / max) : 0;
+          st.power = xk.power * Math.pow(eclock, 1.321929) * st.util;
+          st.label = itemName(p.item) + (p.kind === 'Build_WaterPump_C' ? '' : ' · ' + titleCase(p.purity || 'normal'));
+          st.status = fmtClock(eclock) + ' · ' + fmtNum(e) + ' of ' + fmtNum(max) + '/min';
+          st.rates.push({ item: p.item, dir: 'out', now: e, max: max });
+          if (e > 1e-6) {
+            var it = out.items[p.item] || (out.items[p.item] = { supplied: 0, cap: 0, short: 0, surplus: 0, producers: [] });
+            it.supplied += e;
+            it.cap += max;
+          }
+          if (!outs.length) problem(p, spec.name + ' (' + itemName(p.item) + ') isn\u2019t connected to anything');
+        }
+      } else {
+        // Logistics: what passes through, and what's kept.
+        var got = {};
+        ins.forEach(function (l) { Object.keys(out.links[l.id].per).forEach(function (i) { got[i] = (got[i] || 0) + out.links[l.id].per[i]; }); });
+        var sent = {};
+        outs.forEach(function (l) { Object.keys(out.links[l.id].per).forEach(function (i) { sent[i] = (sent[i] || 0) + out.links[l.id].per[i]; }); });
+        Object.keys(got).forEach(function (i) {
+          st.rates.push({ item: i, dir: 'in', now: got[i], max: got[i] });
+          var kept = got[i] - (sent[i] || 0);
+          if ((p.kind === 'storage' || p.kind === 'buffer' || p.kind === 'sink') && kept > 1e-6) {
+            out.outputs[i] = (out.outputs[i] || 0) + kept;
+          }
+        });
+        if (!ins.length && p.kind !== 'storage' && p.kind !== 'buffer') problem(p, spec.name + ' has nothing going in');
+      }
+      out.parts[p.id] = st;
+    });
+    links.forEach(function (l) {
+      var f = out.links[l.id];
+      if (f.total > 0 && f.total >= f.cap - 1e-3) {
+        var tier = f.fluid ? 'Mk.' + state.pipe + ' pipe' : 'Mk.' + state.belt + ' belt';
+        problem(byId[l.a], 'A ' + tier + ' out of ' + partSpec(byId[l.a].kind).name + ' is full (' + fmtNum(f.cap) + '/min)');
+      }
+    });
+    return out;
+  }
+
+  /** A belt's rate, item and the slowest tier that carries it, on its longest straight run. */
+  function linkLabel(l, pts, fluid) {
+    var f = flow && flow.links[l.id];
+    if (!f) return;
+    var best = null;
+    for (var i = 0; i + 1 < pts.length; i++) {
+      var len = Math.abs(pts[i + 1][0] - pts[i][0]) + Math.abs(pts[i + 1][1] - pts[i][1]);
+      if (!best || len > best.len) best = { len: len, x: (pts[i][0] + pts[i + 1][0]) / 2, y: (pts[i][1] + pts[i + 1][1]) / 2 };
+    }
+    if (!best) return;
+    var label = document.createElement('div');
+    label.className = 'flow-label' + (f.total >= f.cap - 1e-3 && f.total > 0 ? ' full' : '');
+    label.style.left = best.x + 'px';
+    label.style.top = best.y + 'px';
+    var b = document.createElement('b');
+    b.textContent = fmtNum(f.total);
+    label.appendChild(b);
+    label.appendChild(document.createTextNode((fluid ? ' m³' : '') + '/min'));
+    var names = Object.keys(f.per);
+    if (names.length) {
+      var nm = document.createElement('span');
+      nm.className = 'fl-item';
+      nm.textContent = names.length === 1 ? itemName(names[0]) : names.length + ' items';
+      label.appendChild(nm);
+      var tier = document.createElement('span');
+      tier.className = 'fl-tier';
+      var t = tierFor(names[0], f.total);
+      tier.textContent = t ? 'Mk.' + t : 'too fast';
+      label.appendChild(tier);
+    }
+    labelsEl.appendChild(label);
+  }
+
+  /** Centres the view on a part and selects it. */
+  function focusPart(id) {
+    var p = state.custom.parts.filter(function (q) { return q.id === id; })[0];
+    if (!p) return;
+    var box = partBox(p);
+    var v = state.view;
+    v.x = usableWidth() / 2 - px(p.x + box.w / 2) * v.s;
+    v.y = stage.clientHeight / 2 - px(p.y + box.h / 2) * v.s;
+    applyView();
+    selectOnly(id);
+    writeNow();
+  }
+
+  /* ---- inspector and problems ---- */
+
+  var inspectorEl = document.getElementById('inspector');
+  var problemsEl = document.getElementById('problems');
+
+  /** Custom's side of the panel: outputs, problems, and the inspector. */
+  function renderCustomPanel() {
+    // Outputs: what ends up in storage or a sink.
+    var outEl = document.getElementById('custom-outputs');
+    outEl.innerHTML = '';
+    Object.keys(flow.outputs).sort().forEach(function (id) {
+      outEl.appendChild(row(itemName(id), '', rateText(id, flow.outputs[id])));
+    });
+    // Problems, each pointing at its part.
+    problemsEl.innerHTML = '';
+    var rows = flow.problems.map(function (pr) {
+      var r = row(pr.text, '', '', function () { focusPart(pr.part); });
+      r.classList.add('problem-row');
+      return r;
+    });
+    if (!rows.length && state.custom.parts.length) {
+      var ok = row('No problems', '', '');
+      ok.classList.add('quiet');
+      rows.push(ok);
+    }
+    if (rows.length) problemsEl.appendChild(group('Problems', flow.problems.length ? String(flow.problems.length) : '', rows, 'problems'));
+    renderInspector();
+  }
+
+  /** The selected part's settings: recipe or resource, purity, clock; and its rates. */
+  function renderInspector() {
+    inspectorEl.innerHTML = '';
+    if (state.build !== 'custom') return;
+    var sel = selectedParts();
+    if (sel.length !== 1) return;
+    var p = sel[0];
+    var spec = partSpec(p.kind);
+    var st = flow.parts[p.id] || { rates: [] };
+    var box = document.createElement('div');
+    box.className = 'sum-group inspector';
+
+    var head = document.createElement('div');
+    head.className = 'sum-group-head insp-head';
+    var img = document.createElement('img');
+    img.src = 'icons/' + p.kind + '.png';
+    img.alt = '';
+    img.className = 'insp-icon';
+    var title = document.createElement('span');
+    title.className = 'sum-group-name';
+    title.textContent = spec.name;
+    head.appendChild(img);
+    head.appendChild(title);
+    box.appendChild(head);
+
+    function field(label, control) {
+      var wrap = document.createElement('label');
+      wrap.className = 'insp-field';
+      var l = document.createElement('span');
+      l.className = 'insp-label';
+      l.textContent = label;
+      wrap.appendChild(l);
+      wrap.appendChild(control);
+      box.appendChild(wrap);
+    }
+    function select(options, value, onPick) {
+      var s = document.createElement('select');
+      s.className = 'insp-select';
+      options.forEach(function (o) {
+        var opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.label;
+        if (o.disabled) opt.disabled = true;
+        if (o.value === value) opt.selected = true;
+        s.appendChild(opt);
+      });
+      s.addEventListener('change', function () { onPick(s.value); });
+      return s;
+    }
+
+    if (DATA.machines[p.kind]) {
+      var rids = Object.keys(DATA.recipes).filter(function (rid) {
+        return DATA.recipes[rid].machine === p.kind && (recipeAllowed(rid) || rid === p.recipe);
+      }).sort(function (a, b) {
+        return itemName(DATA.recipes[a].out[0][0]).localeCompare(itemName(DATA.recipes[b].out[0][0])) ||
+          (DATA.recipes[a].alt ? 1 : 0) - (DATA.recipes[b].alt ? 1 : 0);
+      });
+      var opts = [{ value: '', label: 'Choose a recipe…' }].concat(rids.map(function (rid) {
+        var r = DATA.recipes[rid];
+        return { value: rid, label: r.name + (r.alt ? ' (alternate)' : '') };
+      }));
+      field('Recipe', select(opts, p.recipe || '', function (v) {
+        if (v) p.recipe = v; else delete p.recipe;
+        changed();
+      }));
+    } else if (DATA.extractors[p.kind]) {
+      var items = extractorItems(p.kind);
+      field('Resource', select([{ value: '', label: 'Choose a resource…' }].concat(items.map(function (id) {
+        return { value: id, label: itemName(id) };
+      })), p.item || '', function (v) {
+        if (v) p.item = v; else delete p.item;
+        changed();
+      }));
+      if (p.kind !== 'Build_WaterPump_C') {
+        field('Node', select(SOLVER.PURITIES.map(function (q) { return { value: q, label: titleCase(q) }; }),
+          p.purity || 'normal', function (v) { p.purity = v; changed(); }));
+      }
+    }
+
+    if (spec.building) {
+      // Clock speed: typed, or dragged, 1–250%.
+      var clockWrap = document.createElement('span');
+      clockWrap.className = 'insp-clock';
+      var range = document.createElement('input');
+      range.type = 'range';
+      range.min = 1;
+      range.max = 250;
+      range.step = 1;
+      range.value = Math.round((p.clock || 1) * 100);
+      var num = document.createElement('input');
+      num.type = 'number';
+      num.min = 1;
+      num.max = 250;
+      num.step = 0.0001;
+      num.value = Number(((p.clock || 1) * 100).toFixed(4));
+      var pct = document.createElement('span');
+      pct.textContent = '%';
+      range.addEventListener('input', function () { num.value = range.value; });
+      function setClock(v) {
+        v = clamp(Number(v) || 100, 1, 250);
+        p.clock = v / 100;
+        changed();
+      }
+      range.addEventListener('change', function () { setClock(range.value); });
+      num.addEventListener('change', function () { setClock(num.value); });
+      clockWrap.appendChild(range);
+      clockWrap.appendChild(num);
+      clockWrap.appendChild(pct);
+      field('Clock speed', clockWrap);
+      var shards = shardsFor(p.clock || 1);
+      var info = document.createElement('p');
+      info.className = 'insp-note';
+      info.textContent = (st.status || '') + (st.power > EPS ? ' · ' + fmtPower(st.power) : '') +
+        (shards ? ' · ' + shards + ' Power Shard' + (shards > 1 ? 's' : '') : '');
+      box.appendChild(info);
+    }
+
+    // What goes in and out, now and at most.
+    st.rates.forEach(function (q) {
+      var note = q.dir === 'in' ? 'in' : 'out';
+      var value = rateText(q.item, q.now) + (spec.building && q.max > q.now + 1e-6 ? ' of ' + fmtNum(q.max) : '');
+      box.appendChild(row(itemName(q.item), note, value));
+    });
+    inspectorEl.appendChild(box);
+  }
+
   /** Custom's canvas: the placed parts, and the panel worked out from them. */
   function renderCustomView() {
-    solved = { recipes: {}, items: {}, targets: {}, flows: [], custom: true };
+    flow = customFlow();
+    solved = { recipes: {}, items: flow.items, targets: flow.outputs, flows: [], custom: true };
     graph = { nodes: [], edges: [], byKey: {} };
     errorEl.hidden = true;
     world.classList.remove('machines');

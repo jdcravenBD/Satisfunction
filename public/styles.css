@@ -2160,3 +2160,47 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 
 /* Ports sit half outside a part's edge. */
 .cpart { overflow: visible; }
+
+/* ---------- custom build: rates, inspector, problems ---------- */
+
+/* A placed building's text: name, what it makes, clock and how busy. */
+.cp-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.cp-text span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cpart.has-problem { box-shadow: 0 0 0 2px rgba(var(--machine), .75); }
+.cpart.selected.has-problem { box-shadow: none; }
+.flow-label.full { color: var(--warn); }
+
+/* Outputs, in Custom. */
+#custom-outputs { display: none; }
+.custom-build #custom-outputs { display: block; }
+
+/* The inspector: the selected part's settings. */
+.insp-head { gap: 8px; }
+.insp-icon { width: 26px; height: 26px; object-fit: contain; }
+.insp-field {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+}
+.insp-label { font-size: 12px; color: var(--ink-faint); }
+.insp-select, .insp-clock input[type="number"] {
+  min-width: 0;
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .05);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.insp-select option { background: var(--panel-2); color: var(--ink); }
+.insp-clock { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--ink-faint); }
+.insp-clock input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: #e08b3d; }
+.insp-clock input[type="number"] { flex: 0 0 76px; width: 76px; }
+.insp-note { margin: 2px 2px 6px; font-size: 12px; color: var(--ink-dim); }
+
+/* Problems, each a link to its part. */
+.sum-row.problem-row .sum-row-name { color: #f0b27a; white-space: normal; }

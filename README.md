@@ -26,8 +26,10 @@ size.
 - **Auto and Custom:** Auto generates the whole build from your outputs.
   Custom lets you place every building and part yourself from a parts panel,
   at real size on the foundation grid, turn them with **R**, and join their
-  ports with belts and pipes by dragging from one port to another (recipes
-  and rates are being added).
+  ports with belts and pipes by dragging from one port to another. Select a
+  part to set its recipe, resource, node purity and clock speed; every belt
+  shows its rate and tier, and a problems list flags anything unconnected,
+  starved, jammed with the wrong item, or over a belt's limit.
 - **Saves and factories:** each save is one game, holding any number of
   factories as tabs. Export and import either.
 - **Overview and Power pages:** resources, production, machine counts,
@@ -84,6 +86,9 @@ This finds a Steam or Epic install on its own; pass a path to use a different
   found from the resource node caps.
 - `optimise.js` sets the recipe choice up as a linear program and solves it
   with its own simplex solver in `lp.js`.
+- In Custom, the build's rates come from one linear program over the placed
+  parts: machines held to their recipe and clock, splitters and mergers
+  balanced, belts within the fastest tier allowed.
 - `app.js` lays out the graph in columns, cutting line crossings, and builds
   the Machines view from it: machine lines, manifolds or balancer trees, and
   belt routing between columns.
