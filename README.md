@@ -16,8 +16,8 @@ size.
   showing its building and its items' icons at the inputs and outputs. Join an
   output to an input by dragging, or drop a line on empty space to pick what
   could use (or make) its item. Each step's machine count is worked out for
-  you, from what flows in or from what a step you've Set asks for. Conveyor
-  Splitters share evenly, Smart Splitters fill their top output first and
+  you, from what flows in or from what a step you've Set asks for. Splitters
+  share evenly, Smart Splitters fill their top output first and
   overflow the rest, and Priority Mergers take from their top input first.
 - **Build and Optimize:** add an output and the model's chain is built for it.
   Optimize rebuilds the machines between your outputs and inputs with the

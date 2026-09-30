@@ -5800,8 +5800,8 @@
 
   /** A card's building by its in-game name. */
   function partName(n) {
-    if (n.type === 'splitter') return n.priority ? 'Smart Splitter' : 'Conveyor Splitter';
-    if (n.type === 'merger') return n.priority ? 'Priority Merger' : 'Conveyor Merger';
+    if (n.type === 'splitter') return n.priority ? 'Smart Splitter' : 'Splitter';
+    if (n.type === 'merger') return n.priority ? 'Priority Merger' : 'Merger';
     if (n.type === 'sink') return 'Storage Container';
     return titleCase(n.type);
   }
@@ -6266,7 +6266,7 @@
       { head: 'Resources', kinds: RAW_ITEMS.slice().sort(progression) },
       { head: 'Parts', kinds: PICKABLE.slice().sort(progression) }
     ];
-    var NAMES = { splitter: 'Conveyor Splitter', smart: 'Smart Splitter', merger: 'Conveyor Merger',
+    var NAMES = { splitter: 'Splitter', smart: 'Smart Splitter', merger: 'Merger',
       priority: 'Priority Merger', sink: 'Storage Container' };
     var ICONS = { splitter: 'splitter', smart: 'splitter', merger: 'merger', priority: 'merger', sink: 'storage' };
     sections.forEach(function (sec) {
@@ -6942,10 +6942,10 @@
     }
     if (from.side === 'out') {
       if (item) items.push({ label: 'Storage Container', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
-      items.push({ label: 'Conveyor Splitter', note: 'Shares evenly', icon: iconOf('splitter'), run: make('splitter') });
+      items.push({ label: 'Splitter', note: 'Shares evenly', icon: iconOf('splitter'), run: make('splitter') });
       items.push({ label: 'Smart Splitter', note: 'Top output first, the rest overflow', icon: iconOf('splitter'), run: make('smart') });
     } else {
-      items.push({ label: 'Conveyor Merger', note: 'Joins evenly', icon: iconOf('merger'), run: make('merger') });
+      items.push({ label: 'Merger', note: 'Joins evenly', icon: iconOf('merger'), run: make('merger') });
       items.push({ label: 'Priority Merger', note: 'Top input first', icon: iconOf('merger'), run: make('priority') });
     }
     openCtx(cx, cy, items);
@@ -7015,6 +7015,78 @@
     var r = nodeRecipe(n);
     if (r) return itemName(r.out[0][0]);
     return partName(n);
+  }
+
+  /**
+   * A clock speed, like the game's: the percentage to type on the left, and
+   * a long rounded bar filled up to it, with a tall handle and marks at
+   * 100%, 150%, 200% and 250%. Dragging updates the figure; letting go (or
+   * typing) sets it.
+   */
+  function clockSlider(k, onSet) {
+    var MAX = SOLVER.MAX_CLOCK * 100;
+    var wrap = document.createElement('div');
+    wrap.className = 'clk';
+    var field = document.createElement('label');
+    field.className = 'clk-num';
+    var num = document.createElement('input');
+    num.type = 'number';
+    num.min = 1;
+    num.max = MAX;
+    num.step = 1;
+    num.value = Number((k * 100).toFixed(2));
+    var pct = document.createElement('span');
+    pct.textContent = '%';
+    field.appendChild(num);
+    field.appendChild(pct);
+    wrap.appendChild(field);
+
+    var bar = document.createElement('div');
+    bar.className = 'clk-bar';
+    var range = document.createElement('input');
+    range.type = 'range';
+    range.className = 'clk-range';
+    range.min = 1;
+    range.max = MAX;
+    range.step = 1;
+    range.value = Math.round(k * 100);
+    bar.appendChild(range);
+    // Where a value sits along the bar: the handle's centre travels between
+    // half its width in from each end.
+    function at(v) { return 'calc(5px + ' + ((v - 1) / (MAX - 1)) + ' * (100% - 10px))'; }
+    var marks = [100, 150, 200, 250].filter(function (v) { return v <= MAX; });
+    var labels = [];
+    marks.forEach(function (v) {
+      if (v >= MAX) return;  // the bar's own end marks the top
+      var tick = document.createElement('span');
+      tick.className = 'clk-tick';
+      tick.style.left = at(v);
+      bar.appendChild(tick);
+    });
+    var scale = document.createElement('div');
+    scale.className = 'clk-scale';
+    [1].concat(marks).forEach(function (v) {
+      var l = document.createElement('span');
+      l.textContent = (v === 1 ? 0 : v) + '%';
+      l.style.left = at(v);
+      scale.appendChild(l);
+      labels.push({ el: l, v: v });
+    });
+    bar.appendChild(scale);
+    wrap.appendChild(bar);
+
+    function paint(v) {
+      bar.style.setProperty('--fill', at(v));
+      labels.forEach(function (l) { l.el.classList.toggle('on', l.v <= v); });
+    }
+    paint(Number(range.value));
+    range.addEventListener('input', function () { num.value = range.value; paint(Number(range.value)); });
+    range.addEventListener('change', function () { onSet(clamp(Number(range.value) / 100, 0.01, SOLVER.MAX_CLOCK)); });
+    num.addEventListener('change', function () {
+      var v = clamp(Number(num.value) || 100, 1, MAX);
+      onSet(v / 100);
+    });
+    return wrap;
   }
 
   /** The selected card's settings and rates. */
@@ -7196,10 +7268,10 @@
         box.appendChild(pair);
       }
       if (r) {
-        // Its own clock speed, or the Speed setting's.
+        // Its own clock speed (Custom), or the Speed setting's (Auto).
         var cseg = document.createElement('div');
         cseg.className = 'seg insp-seg';
-        [['auto', 'Speed setting'], ['own', 'Own']].forEach(function (o) {
+        [['auto', 'Auto'], ['own', 'Custom']].forEach(function (o) {
           var b = document.createElement('button');
           b.type = 'button';
           b.className = 'seg-btn' + ((o[0] === 'own') === !!n.clock ? ' on' : '');
@@ -7214,41 +7286,8 @@
         });
         field('Clock speed', cseg);
         if (n.clock) {
-          var wrap = document.createElement('div');
-          wrap.className = 'insp-clock';
-          var range = document.createElement('input');
-          range.type = 'range';
-          range.min = 1;
-          range.max = SOLVER.MAX_CLOCK * 100;
-          range.step = 1;
-          range.value = Math.round(n.clock * 100);
-          var num = document.createElement('input');
-          num.type = 'number';
-          num.min = 1;
-          num.max = SOLVER.MAX_CLOCK * 100;
-          num.step = 1;
-          num.value = Number((n.clock * 100).toFixed(4));
-          var pct = document.createElement('span');
-          pct.textContent = '%';
-          range.addEventListener('input', function () { num.value = range.value; });
-          var commit = function (v) {
-            n.clock = clamp((Number(v) || 100) / 100, 0.01, SOLVER.MAX_CLOCK);
-            changed();
-          };
-          range.addEventListener('change', function () { commit(range.value); });
-          num.addEventListener('change', function () { commit(num.value); });
-          wrap.appendChild(range);
-          wrap.appendChild(num);
-          wrap.appendChild(pct);
-          field('', wrap);
+          box.appendChild(clockSlider(n.clock, function (k) { n.clock = k; changed(); }));
         }
-        var list = stepClocks(n.recipe, st.count || 0, n.clock);
-        var builds = list.length + ' × ' + machineName(n.recipe);
-        var shardsNeeded = list.reduce(function (t, x) { return t + shardsFor(x); }, 0);
-        note('×' + fmtCount(st.count || 0) + ' → ' + builds +
-          (list.length ? ' (' + list.map(fmtClock).join(', ') + ')' : '') +
-          (shardsNeeded ? ' · ' + shardsNeeded + ' Power Shard' + (shardsNeeded === 1 ? '' : 's') : '') +
-          (st.run < (st.count || 0) - 1e-6 ? ' · running ×' + fmtCount(st.run) : ''));
         r.in.forEach(function (q, k) {
           var wantIn = Math.abs(SOLVER.perMinute(r)[q[0]]) * (st.count || 0);
           box.appendChild(row(itemName(q[0]), 'in', fmtNum(st.ins[k] || 0) + ' of ' + rateText(q[0], wantIn), null, (st.ins[k] || 0) < wantIn - 1e-6));
@@ -7271,10 +7310,8 @@
         n.count = Math.max(1, Math.round(v || 1));
         changed();
       }));
-      field('Clock %', number(Number(((n.clock || 1) * 100).toFixed(4)), 1, 1, function (v) {
-        n.clock = clamp((v || 100) / 100, 0.01, SOLVER.MAX_CLOCK);
-        changed();
-      }));
+      field('Clock speed', document.createElement('span'));
+      box.appendChild(clockSlider(n.clock || 1, function (k) { n.clock = k; changed(); }));
       note('Gives ' + fmtNum(st.run || 0) + ' of ' + rateText(n.item, resourceCap(n)) +
         (shardsFor(n.clock || 1) ? ' · ' + shardsFor(n.clock || 1) * (n.count || 1) + ' Power Shards' : ''));
     } else if (n.type === 'import') {

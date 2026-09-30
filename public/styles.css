@@ -2332,9 +2332,7 @@ body:not(.model-canvas) #add-target { display: none; }
   white-space: nowrap;
   text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
 }
-.cn-count.set { background: #e08b3d; color: #1b1208; text-shadow: none; }
-.cn-count.short:not(.set) { color: var(--warn); }
-.cn-count.set.short { box-shadow: 0 0 0 1.5px var(--warn); }
+.cn-count.short { color: var(--warn); }
 .cn-caption { font-size: 10px; color: var(--ink-faint); margin-top: 1px; white-space: nowrap; }
 .cn-caption.alt { color: #e8c7a4; font-weight: 700; letter-spacing: .06em; }
 
@@ -2546,3 +2544,103 @@ body:not(.model-canvas) #add-target { display: none; }
 #wires .cwire.pipe.selected { stroke: #d8e8ff; stroke-width: 8; }
 #wires .cwire.pipe.splice { stroke: #e08b3d; }
 #wires .cwire.pipe + .pipe-core { stroke: #16202c; stroke-width: 2.6; }
+
+/* A clock speed, after the game's: the figure on the left, then a long
+   rounded bar filled to it, a tall handle, and marks at 100/150/200/250%. */
+.clk { display: flex; align-items: flex-start; gap: 10px; margin: 2px 2px 10px; }
+.clk-num {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  width: 70px;
+  padding: 4px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .05);
+  color: var(--ink-faint);
+  font-size: 12px;
+  cursor: text;
+}
+.clk-num:focus-within { border-color: rgba(var(--machine), .7); }
+.clk-num input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.clk-num input::-webkit-outer-spin-button,
+.clk-num input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.clk-bar { position: relative; flex: 1 1 auto; min-width: 0; padding-bottom: 16px; --fill: 0%; }
+.clk-range {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  background: none;
+  cursor: pointer;
+}
+.clk-range:focus { outline: none; }
+.clk-range::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
+}
+.clk-range::-moz-range-track {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
+}
+.clk-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 24px;
+  margin-top: -7px;
+  border-radius: 3px;
+  background: #f2f2f2;
+  border: 2px solid #e08b3d;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+}
+.clk-range::-moz-range-thumb {
+  width: 6px;
+  height: 20px;
+  border-radius: 3px;
+  background: #f2f2f2;
+  border: 2px solid #e08b3d;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+}
+.clk-range:hover::-webkit-slider-thumb { background: #fff; }
+/* Marks across the bar at each 50% past 100%. */
+.clk-tick {
+  position: absolute;
+  top: 8px;
+  width: 2px;
+  height: 10px;
+  margin-left: -1px;
+  background: rgba(0, 0, 0, .45);
+  pointer-events: none;
+}
+.clk-scale { position: absolute; left: 0; right: 0; top: 26px; height: 14px; pointer-events: none; }
+.clk-scale span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 9.5px;
+  letter-spacing: -.01em;
+  color: var(--ink-ghost);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.clk-scale span:first-child { transform: none; margin-left: -5px; }
+.clk-scale span:last-child { transform: translateX(-100%); margin-left: 5px; }
+.clk-scale span.on { color: #e8a060; }
