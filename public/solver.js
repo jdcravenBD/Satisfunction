@@ -389,7 +389,11 @@
    * steps. counts: { recipeId: machines at 100% }; owner: { recipeId: the
    * item it's run for }, defaulting to its main product.
    */
-  function assemble(data, counts, owner, targets, caps) {
+  /**
+   * `outMult` (optional): recipe -> how much its output is multiplied, for
+   * machines boosted with Somersloops. Inputs are unchanged.
+   */
+  function assemble(data, counts, owner, targets, caps, outMult) {
     var recipes = {};
     Object.keys(counts).forEach(function (rid) {
       if (counts[rid] > EPS) {
@@ -409,10 +413,11 @@
     Object.keys(recipes).forEach(function (rid) {
       var r = data.recipes[rid];
       var k = recipes[rid].count * 60 / r.time;
+      var boost = (outMult && outMult[rid]) || 1;
       r.out.forEach(function (p) {
         var e = entry(p[0]);
-        e.produced += p[1] * k;
-        e.producers.push({ node: 'r:' + rid, rate: p[1] * k });
+        e.produced += p[1] * k * boost;
+        e.producers.push({ node: 'r:' + rid, rate: p[1] * k * boost });
       });
       r.in.forEach(function (p) {
         var e = entry(p[0]);

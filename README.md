@@ -33,6 +33,14 @@ size.
 - **Clock speeds:** everything at 100%, spread evenly, underclock the last
   machine, or overclock with Power Shards.
 - **Copy and paste:** Ctrl+C, X and V, across factories too.
+- **Clock speeds and Somersloops per machine:** give any step its own clock
+  (1–250%, with the Power Shards it takes) or Somersloops in each machine
+  (more output, at the game's squared power cost).
+- **Factories feeding each other:** an Import can come from another factory
+  in the same save. It shares what that factory makes, and the source
+  factory lists what it sends where.
+- **Build cost:** everything the buildings take to place, on the Overview.
+- **Notes and a pencil:** sticky notes and freehand drawing on the model.
 - **Saves and factories:** each save is one game, holding any number of
   factories as tabs. Export and import either.
 - **Overview and Power pages:** resources, production, machine counts,

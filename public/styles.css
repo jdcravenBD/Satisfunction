@@ -2553,8 +2553,8 @@ body:not(.model-canvas) #add-target { display: none; }
   display: flex;
   align-items: baseline;
   gap: 2px;
-  width: 70px;
-  padding: 4px 7px;
+  width: 58px;
+  padding: 4px 6px;
   border: 1px solid var(--edge);
   border-radius: 7px;
   background: rgba(255, 255, 255, .05);
@@ -2594,49 +2594,39 @@ body:not(.model-canvas) #add-target { display: none; }
 .clk-range:focus { outline: none; }
 .clk-range::-webkit-slider-runnable-track {
   height: 10px;
-  border-radius: 5px;
-  background: linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
+  border-radius: 3px;
+  background: var(--ticks, none), linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
 }
 .clk-range::-moz-range-track {
   height: 10px;
-  border-radius: 5px;
-  background: linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
+  border-radius: 3px;
+  background: var(--ticks, none), linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
 }
 .clk-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 10px;
-  height: 24px;
-  margin-top: -7px;
-  border-radius: 3px;
+  height: 18px;
+  margin-top: -4px;
+  border-radius: 2px;
   background: #f2f2f2;
   border: 2px solid #e08b3d;
   box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
 }
 .clk-range::-moz-range-thumb {
   width: 6px;
-  height: 20px;
-  border-radius: 3px;
+  height: 14px;
+  border-radius: 2px;
   background: #f2f2f2;
   border: 2px solid #e08b3d;
   box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
 }
 .clk-range:hover::-webkit-slider-thumb { background: #fff; }
-/* Marks across the bar at each 50% past 100%. */
-.clk-tick {
-  position: absolute;
-  top: 8px;
-  width: 2px;
-  height: 10px;
-  margin-left: -1px;
-  background: rgba(0, 0, 0, .45);
-  pointer-events: none;
-}
 .clk-scale { position: absolute; left: 0; right: 0; top: 26px; height: 14px; pointer-events: none; }
 .clk-scale span {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 9.5px;
-  letter-spacing: -.01em;
+  font-size: 9px;
+  letter-spacing: -.02em;
   color: var(--ink-ghost);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -2644,3 +2634,104 @@ body:not(.model-canvas) #add-target { display: none; }
 .clk-scale span:first-child { transform: none; margin-left: -5px; }
 .clk-scale span:last-child { transform: translateX(-100%); margin-left: 5px; }
 .clk-scale span.on { color: #e8a060; }
+
+/* A quiet line under an inspector setting. */
+.insp-hint { margin: -2px 2px 8px; font-size: 11.5px; color: var(--ink-faint); }
+
+/* Where an import comes from, under its picture; and the list of what this
+   factory sends to others. */
+.cn-caption.cn-from { max-width: 100%; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; }
+.custom-build .custom-note.sent-head { margin-top: 10px; }
+
+/* ---------- Model: tools, notes and drawings ---------- */
+
+.model-tools {
+  position: absolute;
+  top: 14px; left: 14px;
+  z-index: 26;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--panel-2);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+}
+.model-tools[hidden] { display: none; }
+.mt-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+.mt-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .06); }
+.mt-btn.on { color: #ffc08a; background: rgba(var(--machine), .24); }
+.mt-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--edge-hi); }
+#stage.tool-pencil, #stage.tool-pencil * { cursor: crosshair; }
+#stage.tool-eraser, #stage.tool-eraser * { cursor: cell; }
+#stage.tool-note, #stage.tool-note * { cursor: copy; }
+
+/* Pencil strokes ride above the cards. */
+#ink {
+  position: absolute;
+  left: 0; top: 0;
+  width: 1px; height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 5;
+}
+.ink-stroke { fill: none; stroke: #f3c77e; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ink-stroke.live { opacity: .85; }
+
+/* A note: a bar to hold it by, then its text. */
+.cnote {
+  position: absolute;
+  z-index: 4;
+  width: 220px;
+  border: 1px solid #6b5a2c;
+  border-radius: 8px;
+  background: #3a3322;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+}
+.cnote-bar {
+  display: flex;
+  justify-content: flex-end;
+  height: 18px;
+  border-radius: 7px 7px 0 0;
+  background: rgba(0, 0, 0, .18);
+  cursor: grab;
+}
+.cnote-x {
+  width: 20px;
+  border: none;
+  background: none;
+  color: rgba(255, 240, 200, .55);
+  font: inherit;
+  font-size: 14px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.cnote-x:hover { color: #fff; }
+.cnote-text {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 9px 9px;
+  border: none;
+  background: none;
+  color: #f4ead0;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+}
+.cnote-text::placeholder { color: rgba(244, 234, 208, .4); }

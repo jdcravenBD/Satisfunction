@@ -114,7 +114,13 @@ for (const c of machineClasses) {
     power: num(c.mPowerConsumption),
     powerExp: num(c.mPowerConsumptionExponent) || 1.321929,
     variable: /VariablePower/.test(c.ClassName) || num(c.mPowerConsumption) === 0,
-    size: footprint(c)
+    size: footprint(c),
+    // Somersloop slots (the game calls them production shards): each one
+    // adds `sloopBoost` to the output; power grows with the boost squared.
+    // A machine that can be boosted but lists no slots (the Smelter) has one.
+    sloops: c.mCanChangeProductionBoost === 'False' ? 0 : num(c.mProductionShardSlotSize) || 1,
+    sloopBoost: num(c.mProductionShardBoostMultiplier) || 0,
+    sloopPowerExp: num(c.mProductionBoostPowerConsumptionExponent) || 2
   };
 }
 
@@ -343,6 +349,33 @@ const logistics = {
   }
 };
 
+/* ----------------------------------------------------------- build costs */
+
+// What each building costs to place: the build gun recipe whose product is
+// the building's descriptor (Build_X_C is placed from Desc_X_C).
+const buildCosts = {};
+const costed = new Set(Object.keys(machines).concat(Object.keys(extractors), [
+  'Build_ConveyorAttachmentSplitter_C', 'Build_ConveyorAttachmentSplitterSmart_C',
+  'Build_ConveyorAttachmentMerger_C', 'Build_ConveyorAttachmentMergerPriority_C',
+  'Build_StorageContainerMk1_C', 'Build_PipeStorageTank_C', 'Build_PipelineJunction_Cross_C',
+  'Build_FrackingSmasher_C'
+]));
+for (const c of classesOf(/FGRecipe'/)) {
+  if (!/BuildGun/.test(c.mProducedIn || '')) continue;
+  const out = parseAmounts(c.mProduct);
+  if (out.length !== 1) continue;
+  const build = out[0][0].replace(/^Desc_/, 'Build_');
+  if (!costed.has(build) || buildCosts[build]) continue;
+  const cost = parseAmounts(c.mIngredients);
+  cost.forEach(([id]) => {
+    if (!items[id] && allItems.get(id)) {
+      const it = allItems.get(id);
+      items[id] = { name: it.name, form: it.form };
+    }
+  });
+  buildCosts[build] = cost;
+}
+
 const data = {
   source: path.basename(src),
   build: version,
@@ -353,7 +386,8 @@ const data = {
   defaults,
   machines,
   extractors,
-  logistics
+  logistics,
+  buildCosts
 };
 
 const banner =

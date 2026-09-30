@@ -60,9 +60,12 @@
     build: 'custom', // 'custom': the Model canvas; 'auto': one of its views (Item or Machine)
     optKey: null,  // planKey() when the model was last optimized or built
     clockOf: {},   // recipe -> the clock its model steps are set to (from syncPlan)
+    boostOf: {},   // recipe -> { out, power }: its steps' Somersloop boost (from syncPlan)
     modelled: true, // saved from a version where the model is the main thing
     legacy: false,  // an older Auto plan, still to be laid out as a model
-    custom: { nodes: [], links: [] } // the model: cards [{ id, type, x, y, … }] and lines [{ id, from, fk, to, tk }]
+    // the model: cards [{ id, type, x, y, … }], lines [{ id, from, fk, to, tk }],
+    // notes [{ id, x, y, text }] and pencil strokes [{ id, pts: [x, y, x, y, …] }]
+    custom: { nodes: [], links: [], notes: [], strokes: [] }
   };
 
   // What a new factory starts from.
@@ -327,6 +330,19 @@
     return out;
   }
 
+  /**
+   * Somersloops in each of a step's machines: how much more it makes (0 to
+   * 1, so +100% at most) and how much more power it draws (the game squares
+   * it: double the output, four times the power).
+   */
+  function sloopsOf(n) {
+    var r = nodeRecipe(n);
+    var m = r && DATA.machines[r.machine];
+    var used = m ? clamp(n.sloops || 0, 0, m.sloops || 0) : 0;
+    var boost = used * ((m && m.sloopBoost) || 0);
+    return { used: used, boost: boost, power: Math.pow(1 + boost, (m && m.sloopPowerExp) || 2) };
+  }
+
   /** Average draw of a step running `count` machines' worth, over `built` machines. */
   function stepPower(rid, count, k, built) {
     if (!k) return SOLVER.recipePower(DATA, rid, count, state.clock, clockTop(rid));
@@ -515,8 +531,18 @@
    * placed items, rather than buildings, are left behind.)
    */
   function readCustom(c) {
-    var out = { nodes: [], links: [] };
+    var out = { nodes: [], links: [], notes: [], strokes: [] };
     if (!c || !Array.isArray(c.nodes)) return out;
+    (Array.isArray(c.notes) ? c.notes : []).forEach(function (n) {
+      if (!n || !isFinite(n.x) || !isFinite(n.y)) return;
+      out.notes.push({ id: String(n.id || uid()), x: Math.round(n.x), y: Math.round(n.y), text: String(n.text || '').slice(0, 5000) });
+    });
+    (Array.isArray(c.strokes) ? c.strokes : []).forEach(function (k) {
+      if (!k || !Array.isArray(k.pts) || k.pts.length < 4 || k.pts.length % 2) return;
+      if (!k.pts.every(isFinite)) return;
+      var sw = Number(k.w);
+      out.strokes.push({ id: String(k.id || uid()), pts: k.pts.slice(0, 8000).map(Math.round), w: sw > 0 && sw < 400 ? sw : 3 });
+    });
     var byId = {};
     c.nodes.forEach(function (n) {
       if (!n || !isFinite(n.x) || !isFinite(n.y)) return;
@@ -527,6 +553,8 @@
         q.item = DATA.items[n.item] ? n.item : DATA.recipes[n.recipe].out[0][0];
         if (n.set) { q.set = true; q.count = Math.max(0, Number(n.count) || 0); }
         if (Number(n.clock) > 0) q.clock = clamp(Number(n.clock), 0.01, SOLVER.MAX_CLOCK);
+        var slots = DATA.machines[DATA.recipes[n.recipe].machine].sloops || 0;
+        if (Number(n.sloops) > 0 && slots) q.sloops = clamp(Math.round(Number(n.sloops)), 1, slots);
       } else if (n.type === 'resource') {
         if (!DATA.items[n.item] || !DATA.items[n.item].raw) return;
         q.item = n.item;
@@ -538,6 +566,7 @@
         if (!DATA.items[n.item]) return;
         q.item = n.item;
         q.rate = Math.max(0, Number(n.rate) || 0);
+        if (typeof n.from === 'string' && n.from) q.from = n.from;  // another factory in the save
       } else if (n.type === 'splitter' || n.type === 'merger') {
         if (n.priority) q.priority = true;  // Smart Splitter (overflow), Priority Merger
       } else if (n.type !== 'sink') {
@@ -863,7 +892,7 @@
     // for, balanced item by item (nothing re-solved, so the figures match
     // the model's exactly, loops and all), and drawn the way the plan used
     // to be.
-    flow = customFlow();
+    flow = modelFlow();
     syncPlan(flow);
     buildablePlan(true);
     var counts = {}, owner = {}, outs = {};
@@ -874,7 +903,9 @@
       owner[n.recipe] = nodeRecipe(n).out[0][0];
     });
     state.targets.forEach(function (t) { outs[t.item] = t.rate; });
-    solved = SOLVER.assemble(DATA, counts, owner, outs, currentCaps());
+    var mult = {};
+    Object.keys(state.boostOf).forEach(function (rid) { mult[rid] = state.boostOf[rid].out; });
+    solved = SOLVER.assemble(DATA, counts, owner, outs, currentCaps(), mult);
 
     // An output only an unticked building makes can't be planned at all.
     var stuck = state.targets.filter(function (t) { return blocked[t.item]; })[0];
@@ -893,7 +924,8 @@
       layout();
       renderMachineView();
     } else {
-      world.querySelectorAll('.machine, .part, .cnode').forEach(function (el) { el.remove(); });
+      world.querySelectorAll('.machine, .part, .cnode, .cnote').forEach(function (el) { el.remove(); });
+      inkEl.innerHTML = '';
       buildGraph();
       mountNodes();
       layout();
@@ -1502,7 +1534,7 @@
       add(itemName(n.item), 'hi-title');
       add(rateText(n.item, net[n.item] || 0) + (r.name !== itemName(n.item) ? ' · ' + r.name : ''));
       add(clocks.length + ' × ' + machineName(n.rid) + ' · ' + fmtNum(n.count) + ' running');
-      add(fmtPower(stepPower(n.rid, n.count, state.clockOf[n.rid])) + ' average');
+      add(fmtPower(stepPower(n.rid, n.count, state.clockOf[n.rid]) * (state.boostOf[n.rid] ? state.boostOf[n.rid].power : 1)) + ' average');
       var ins = flows(net, -1);
       var outs = flows(net, 1);
       if (ins.length) add('In: ' + ins.join(', '));
@@ -2160,7 +2192,8 @@
 
   /** Measures everything before layout: lines from their geometry, cards from the page. */
   function mountMachineNodes() {
-    world.querySelectorAll('.node, .machine, .part, .cnode').forEach(function (el) { el.remove(); });
+    world.querySelectorAll('.node, .machine, .part, .cnode, .cnote').forEach(function (el) { el.remove(); });
+    inkEl.innerHTML = '';
     graph.nodes.forEach(function (n) {
       if (n.kind === 'line') {
         setLineGeometry(n);
@@ -3545,6 +3578,7 @@
         e.preventDefault();
         removeParts(selectedParts(), selectedLinks());
       } else if (e.key === 'Escape') {
+        setTool('select');
         clearSelection();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
@@ -3621,6 +3655,7 @@
         { label: 'Paste', kbd: 'Ctrl+V', disabled: !clip, run: function () { pasteParts(at); } },
         '-',
         { label: '+ Add output…', run: function () { askForOutput(null, e.clientX, e.clientY); } },
+        { label: 'Add a note', run: function () { var w = toWorld(at.x, at.y); addNote(w.x, w.y); } },
         { label: 'Fit to view', run: fitView }
       ];
       menuItems.push('-');
@@ -4651,7 +4686,7 @@
       var mid = DATA.recipes[rid].machine;
       var list = recipeClocks(rid, count);
       list.forEach(function (c) { shards += shardsFor(c); });
-      var p = stepPower(rid, count, state.clockOf[rid], list.length);
+      var p = stepPower(rid, count, state.clockOf[rid], list.length) * (state.boostOf[rid] ? state.boostOf[rid].power : 1);
       tally(mid, DATA.machines[mid].name, count, list.length, p);
       var r = DATA.recipes[rid];
       draws.push({
@@ -4697,7 +4732,8 @@
       renderCustomPanel();
     }
     var steps = solved.custom ? flow.steps : Object.keys(solved.recipes).length;
-    renderOverview({ power: power, buildings: buildings, shards: shards, byMachine: byMachine, draws: draws });
+    var sloops = flow ? flow.tally.reduce(function (sum, t) { return sum + (t.sloops || 0); }, 0) : 0;
+    renderOverview({ power: power, buildings: buildings, shards: shards, sloops: sloops, byMachine: byMachine, draws: draws });
     renderPower(draws, power);
     document.getElementById('stat-machines').textContent = buildings;
     document.getElementById('stat-power').textContent = fmtPower(power);
@@ -4740,6 +4776,11 @@
       sh.classList.add('extra-row');
       rows.push(sh);
     }
+    if (sloops) {
+      var sls = row('Somersloops', 'for more output', String(sloops));
+      sls.classList.add('extra-row');
+      rows.push(sls);
+    }
     machinesBox.appendChild(group('Machines', 'running · built', rows, 'machines'));
 
     var spare = Object.keys(solved.items)
@@ -4769,6 +4810,34 @@
   }
 
   /** The factory at a glance: resources, production, machines, power, alternates. */
+  /**
+   * Every building the model needs, from its cards: machines and extractors
+   * as built (a Resource Well also needs its Pressurizer), splitters and
+   * mergers (Pipeline Junctions on fluids), and Storage Containers (Fluid
+   * Buffers). Returns their total and the items they cost.
+   */
+  function buildCost() {
+    var buildings = {};
+    function add(id, k) { if (k > 0) buildings[id] = (buildings[id] || 0) + k; }
+    if (flow) flow.tally.forEach(function (t) { add(t.mid, t.built); });
+    state.custom.nodes.forEach(function (n) {
+      if (n.type === 'resource' && extractorOf(n) === 'Build_FrackingExtractor_C') add('Build_FrackingSmasher_C', 1);
+      if (n.type !== 'splitter' && n.type !== 'merger' && n.type !== 'sink') return;
+      var item = slotItem(n, 'in', 0) || slotItem(n, 'out', 0);
+      var fluid = item && isFluid(item);
+      if (n.type === 'sink') add(fluid ? 'Build_PipeStorageTank_C' : 'Build_StorageContainerMk1_C', 1);
+      else if (fluid) add('Build_PipelineJunction_Cross_C', 1);
+      else if (n.type === 'splitter') add(n.priority ? 'Build_ConveyorAttachmentSplitterSmart_C' : 'Build_ConveyorAttachmentSplitter_C', 1);
+      else add(n.priority ? 'Build_ConveyorAttachmentMergerPriority_C' : 'Build_ConveyorAttachmentMerger_C', 1);
+    });
+    var items = {}, count = 0;
+    Object.keys(buildings).forEach(function (id) {
+      count += buildings[id];
+      (DATA.buildCosts[id] || []).forEach(function (q) { items[q[0]] = (items[q[0]] || 0) + q[1] * buildings[id]; });
+    });
+    return { buildings: buildings, items: items, count: count };
+  }
+
   function renderOverview(t) {
     var el = document.getElementById('overview-list');
     el.innerHTML = '';
@@ -4808,8 +4877,21 @@
       return row(m.name, fmtNum(m.exact) + ' running', String(m.built));
     });
     if (t.shards) rows.push(row('Power Shards', 'for overclocking', String(t.shards)));
+    if (t.sloops) rows.push(row('Somersloops', 'for more output', String(t.sloops)));
     el.appendChild(boxed('Machines', t.buildings + (t.buildings === 1 ? ' building' : ' buildings'),
       rows.length ? rows : [quietRow('None yet')]));
+
+    // Build cost: what it takes to place every building, from the game's
+    // build recipes. Belts, pipes and foundations aren't counted.
+    var cost = buildCost();
+    var costIds = Object.keys(cost.items).sort(function (a, b) { return cost.items[b] - cost.items[a]; });
+    rows = costIds.map(function (id) { return row(itemName(id), '', fmtNum(cost.items[id])); });
+    if (costIds.length) {
+      var q = quietRow('Not counting belts, pipes or foundations');
+      rows.push(q);
+    }
+    el.appendChild(boxed('Build cost', cost.count ? cost.count + (cost.count === 1 ? ' building' : ' buildings') : '',
+      rows.length ? rows : [quietRow('Nothing to build yet')]));
 
     // Power: the total, split between making and extracting.
     var made = t.draws.filter(function (d) { return !d.extraction; }).reduce(function (s, d) { return s + d.power; }, 0);
@@ -4900,7 +4982,7 @@
       btn.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
       btn.addEventListener('click', function () {
         emptyPlan();
-        state.custom = { nodes: [], links: [] };
+        state.custom = { nodes: [], links: [], notes: [], strokes: [] };
         state.targets = ex.targets.map(function (t) { return { item: t.item, rate: t.rate || NEW_TARGET_RATE }; });
         if (!state.name || /^New factory( \d+)?$/.test(state.name)) {
           state.name = uniqueName(ex.name, currentFactory());
@@ -4933,7 +5015,7 @@
   /** Empties the model but keeps its name. Callers ask for confirmation. */
   function clearPlan() {
     emptyPlan();
-    state.custom = { nodes: [], links: [] };
+    state.custom = { nodes: [], links: [], notes: [], strokes: [] };
     state.optKey = null;
     clearSelection();
     changed();
@@ -5491,6 +5573,8 @@
     document.body.classList.add('custom-build');
     document.body.classList.toggle('model-canvas', model);
     palette.hidden = !model;
+    toolsEl.hidden = !model;
+    if (!model) setTool('select');
   }
 
   /** Switches between Model and its two views. Nothing in the model changes. */
@@ -5952,7 +6036,17 @@
     var itemOf = {};
     links.forEach(function (l) { itemOf[l.id] = byId[l.from] ? slotItem(byId[l.from], 'out', l.fk) : null; });
     var perOf = {};
-    nodes.forEach(function (n) { var r = nodeRecipe(n); perOf[n.id] = r ? SOLVER.perMinute(r) : {}; });
+    nodes.forEach(function (n) {
+      var r = nodeRecipe(n);
+      var per = r ? SOLVER.perMinute(r) : {};
+      // Somersloops multiply what comes out, not what goes in.
+      var b = r ? sloopsOf(n).boost : 0;
+      if (b) {
+        per = Object.assign({}, per);
+        Object.keys(per).forEach(function (id) { if (per[id] > 0) per[id] *= 1 + b; });
+      }
+      perOf[n.id] = per;
+    });
     function need(n, item) { return Math.max(0, -(perOf[n.id][item] || 0)); }
     function make(n, item) { return Math.max(0, perOf[n.id][item] || 0); }
     function outLink(n, k) { return (outL[n.id] || []).filter(function (l) { return l.fk === k; })[0] || null; }
@@ -6155,9 +6249,11 @@
           var label = itemName(n.item || r.out[0][0]);
           var list = stepClocks(n.recipe, c, n.clock);
           var m = DATA.machines[r.machine];
+          var sl = sloopsOf(n);
           res.tally.push({
             mid: r.machine, name: m.name, exact: a, built: list.length,
-            power: stepPower(n.recipe, a, n.clock, list.length),
+            power: stepPower(n.recipe, a, n.clock, list.length) * sl.power,
+            sloops: sl.used * list.length,
             label: label, note: list.length + ' × ' + m.name, id: n.id,
             shards: list.reduce(function (t, x) { return t + shardsFor(x); }, 0)
           });
@@ -6237,6 +6333,289 @@
       res.nodes[n.id] = st;
     });
     return res;
+  }
+
+  /* ---- notes, and the pencil ---- */
+
+  // In Model, a strip of tools at the canvas's top left says what a press
+  // does: select (the usual), draw with the pencil, rub drawings out, or
+  // drop a note. Notes and drawings are saved with the model and only show
+  // there.
+  var inkEl = document.getElementById('ink');
+  var toolsEl = document.getElementById('model-tools');
+  var tool = 'select';
+
+  function setTool(t) {
+    tool = t;
+    toolsEl.querySelectorAll('.mt-btn').forEach(function (b) { b.classList.toggle('on', b.dataset.tool === t); });
+    stage.classList.toggle('tool-pencil', t === 'pencil');
+    stage.classList.toggle('tool-eraser', t === 'eraser');
+    stage.classList.toggle('tool-note', t === 'note');
+  }
+  toolsEl.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+  toolsEl.addEventListener('click', function (e) {
+    var b = e.target.closest('.mt-btn');
+    if (b) setTool(b.dataset.tool === tool && tool !== 'select' ? 'select' : b.dataset.tool);
+  });
+
+  /** A stroke's points as a smooth path: straight to each midpoint, curving through the points. */
+  function inkPath(pts) {
+    if (pts.length < 4) return '';
+    var d = 'M' + pts[0] + ' ' + pts[1];
+    if (pts.length === 4) return d + ' L' + pts[2] + ' ' + pts[3];
+    for (var i = 2; i < pts.length - 2; i += 2) {
+      var mx = (pts[i] + pts[i + 2]) / 2, my = (pts[i + 1] + pts[i + 3]) / 2;
+      d += ' Q' + pts[i] + ' ' + pts[i + 1] + ' ' + mx + ' ' + my;
+    }
+    return d + ' L' + pts[pts.length - 2] + ' ' + pts[pts.length - 1];
+  }
+
+  function renderInk() {
+    inkEl.innerHTML = '';
+    (state.custom.strokes || []).forEach(function (k) {
+      var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p.setAttribute('d', inkPath(k.pts));
+      p.setAttribute('class', 'ink-stroke');
+      p.style.strokeWidth = (k.w || 3) + 'px';
+      p.dataset.id = k.id;
+      inkEl.appendChild(p);
+    });
+  }
+
+  function renderNotes() {
+    world.querySelectorAll('.cnote').forEach(function (el) { el.remove(); });
+    (state.custom.notes || []).forEach(function (n) { world.appendChild(noteEl(n)); });
+  }
+
+  /** A note: a bar to drag it by (with a ×), and its text, which grows as you type. */
+  function noteEl(n) {
+    var el = document.createElement('div');
+    el.className = 'cnote';
+    el.dataset.id = n.id;
+    el.style.left = n.x + 'px';
+    el.style.top = n.y + 'px';
+    var bar = document.createElement('div');
+    bar.className = 'cnote-bar';
+    var x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'cnote-x';
+    x.setAttribute('aria-label', 'Remove note');
+    x.textContent = '×';
+    bar.appendChild(x);
+    el.appendChild(bar);
+    var text = document.createElement('textarea');
+    text.className = 'cnote-text';
+    text.value = n.text || '';
+    text.placeholder = 'Write a note';
+    text.spellcheck = false;
+    el.appendChild(text);
+    function fit() { text.style.height = 'auto'; text.style.height = text.scrollHeight + 'px'; }
+    requestAnimationFrame(fit);
+    text.addEventListener('input', function () { n.text = text.value; fit(); save(); });
+    text.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    x.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    x.addEventListener('click', function () {
+      state.custom.notes = state.custom.notes.filter(function (m) { return m !== n; });
+      changed();
+    });
+    bar.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeAll();
+      var sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y, moved = false;
+      function move(ev) {
+        var dx = (ev.clientX - sx) / state.view.s, dy = (ev.clientY - sy) / state.view.s;
+        if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+        moved = true;
+        n.x = Math.round(ox + dx);
+        n.y = Math.round(oy + dy);
+        el.style.left = n.x + 'px';
+        el.style.top = n.y + 'px';
+      }
+      function up() {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        if (moved) save();
+      }
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+    el.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.target === text) return;
+      closeAll();
+      openCtx(e.clientX, e.clientY, [
+        { head: 'Note' },
+        { label: 'Remove', run: function () { x.click(); } }
+      ]);
+    });
+    return el;
+  }
+
+  /** A new note at a point on the canvas, ready to type in. */
+  function addNote(wx, wy) {
+    var n = { id: 'm' + uid(), x: Math.round(wx), y: Math.round(wy), text: '' };
+    state.custom.notes = (state.custom.notes || []).concat([n]);
+    changed();
+    var el = world.querySelector('.cnote[data-id="' + n.id + '"] .cnote-text');
+    if (el) el.focus();
+  }
+
+  // With the pencil, eraser or note tool, a press on the canvas (cards
+  // included) is theirs, caught before anything else sees it.
+  stage.addEventListener('pointerdown', function (e) {
+    if (state.build !== 'custom' || tool === 'select' || e.button !== 0) return;
+    if (e.target.closest('.view-opts, .model-tools, .cnote, .empty-hint')) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    closeAll();
+    var w = toWorld(e.clientX, e.clientY);
+    if (tool === 'note') {
+      addNote(w.x, w.y);
+      setTool('select');
+      return;
+    }
+    try { stage.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
+    if (tool === 'pencil') {
+      var pts = [Math.round(w.x), Math.round(w.y)];
+      // As thick as it looks now, whatever the zoom: it scales with the canvas after.
+      var width = Math.round(3 / state.view.s * 100) / 100;
+      var live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      live.setAttribute('class', 'ink-stroke live');
+      live.style.strokeWidth = width + 'px';
+      inkEl.appendChild(live);
+      var draw = function (ev) {
+        var p = toWorld(ev.clientX, ev.clientY);
+        var lx = pts[pts.length - 2], ly = pts[pts.length - 1];
+        // Points closer than a couple of pixels on screen add nothing.
+        if (Math.hypot(p.x - lx, p.y - ly) * state.view.s < 2.5) return;
+        pts.push(Math.round(p.x), Math.round(p.y));
+        live.setAttribute('d', inkPath(pts));
+      };
+      var done = function () {
+        stage.removeEventListener('pointermove', draw);
+        stage.removeEventListener('pointerup', done);
+        stage.removeEventListener('pointercancel', done);
+        if (pts.length < 4) pts.push(pts[0] + 1, pts[1]);  // a dot
+        state.custom.strokes = (state.custom.strokes || []).concat([{ id: 'k' + uid(), pts: pts, w: width }]);
+        changed();
+      };
+      stage.addEventListener('pointermove', draw);
+      stage.addEventListener('pointerup', done);
+      stage.addEventListener('pointercancel', done);
+      return;
+    }
+    // Eraser: any stroke passing near the pointer goes.
+    var gone = {};
+    var rub = function (ev) {
+      var p = toWorld(ev.clientX, ev.clientY);
+      var r = 10 / state.view.s;
+      (state.custom.strokes || []).forEach(function (k) {
+        if (gone[k.id]) return;
+        for (var i = 0; i < k.pts.length; i += 2) {
+          if (Math.hypot(k.pts[i] - p.x, k.pts[i + 1] - p.y) <= r) {
+            gone[k.id] = true;
+            var el = inkEl.querySelector('[data-id="' + k.id + '"]');
+            if (el) el.remove();
+            return;
+          }
+        }
+      });
+    };
+    rub(e);
+    var stop = function () {
+      stage.removeEventListener('pointermove', rub);
+      stage.removeEventListener('pointerup', stop);
+      stage.removeEventListener('pointercancel', stop);
+      if (Object.keys(gone).length) {
+        state.custom.strokes = state.custom.strokes.filter(function (k) { return !gone[k.id]; });
+        changed();
+      }
+    };
+    stage.addEventListener('pointermove', rub);
+    stage.addEventListener('pointerup', stop);
+    stage.addEventListener('pointercancel', stop);
+  }, true);
+
+  /* ---- factories feeding each other ---- */
+
+  // An Import card can come from another factory in the same save. That
+  // factory's outputs say how much there is; every factory importing from
+  // it shares that, and asking for more is a problem on the importing side.
+
+  var outputsMemo = null;  // factory id -> its outputs, for one redraw
+
+  /** The model's flow, with problems about imports from other factories. */
+  function modelFlow() {
+    outputsMemo = null;
+    var f = customFlow();
+    linkProblems(f);
+    return f;
+  }
+
+  function factoryLabel(f) { return f.name || 'Untitled factory'; }
+
+  function factoryById(id) {
+    return currentSave().factories.filter(function (f) { return f.id === id; })[0] || null;
+  }
+
+  /** The other factories in this save. */
+  function otherFactories() {
+    var me = currentFactory();
+    return currentSave().factories.filter(function (f) { return f !== me; });
+  }
+
+  /** What another factory sends out, per minute: its model's outputs. */
+  function factoryOutputs(f) {
+    outputsMemo = outputsMemo || {};
+    if (outputsMemo[f.id]) return outputsMemo[f.id];
+    var plan = f.plan || {};
+    var out = {};
+    var mine = state.custom;
+    try {
+      state.custom = readCustom(plan.custom);
+      if (state.custom.nodes.length) out = customFlow().outputs;
+      else (plan.targets || []).forEach(function (t) {
+        if (t && DATA.items[t.item]) out[t.item] = (out[t.item] || 0) + (Number(t.rate) || 0);
+      });
+    } finally {
+      state.custom = mine;
+    }
+    outputsMemo[f.id] = out;
+    return out;
+  }
+
+  /** Every Import in this save taking from factory `fid`: [{ factory, item, rate }]. */
+  function requestsOf(fid) {
+    var me = currentFactory();
+    var list = [];
+    currentSave().factories.forEach(function (f) {
+      var nodes = f === me ? state.custom.nodes : ((f.plan && f.plan.custom && f.plan.custom.nodes) || []);
+      nodes.forEach(function (n) {
+        if (n && n.type === 'import' && n.from === fid && DATA.items[n.item]) list.push({ factory: f, item: n.item, rate: Number(n.rate) || 0 });
+      });
+    });
+    return list;
+  }
+
+  function linkProblems(f) {
+    state.custom.nodes.forEach(function (n) {
+      if (n.type !== 'import' || !n.from) return;
+      function problem(text) { f.problems.push({ part: n.id, text: text }); f.bad[n.id] = true; }
+      var src = factoryById(n.from);
+      if (!src || src === currentFactory()) { problem('The factory it comes from is gone'); return; }
+      var makes = factoryOutputs(src)[n.item] || 0;
+      var asked = requestsOf(src.id).filter(function (r) { return r.item === n.item; })
+        .reduce(function (sum, r) { return sum + r.rate; }, 0);
+      if (asked > makes * (1 + 1e-3) + 1e-6) {
+        problem(factoryLabel(src) + ' makes ' + rateText(n.item, makes) + ', but ' +
+          (Math.abs(asked - (n.rate || 0)) < 1e-9 ? 'this asks for ' : 'imports ask for ') + rateText(n.item, asked));
+      }
+    });
   }
 
   /* ---- palette ---- */
@@ -6579,15 +6958,23 @@
       pic.alt = '';
       pic.draggable = false;
       body.appendChild(pic);
-      if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
+      if (n.type === 'import') {
+        var from = n.from && factoryById(n.from);
+        var fromCap = document.createElement('span');
+        fromCap.className = 'cn-caption cn-from';
+        fromCap.textContent = n.from ? 'from ' + (from ? factoryLabel(from) : 'a deleted factory') : 'from elsewhere';
+        body.appendChild(fromCap);
+      } else if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
         var cap = document.createElement('span');
         cap.className = 'cn-caption';
         cap.textContent = titleCase(n.purity || 'normal') + (isFluid(n.item) ? '' : ' · ' + DATA.extractors[extractorOf(n)].name.replace(/^Miner\s*/, ''));
         body.appendChild(cap);
-      } else if (n.type === 'recipe' && nodeRecipe(n) && (nodeRecipe(n).alt || n.clock)) {
+      } else if (n.type === 'recipe' && nodeRecipe(n) && (nodeRecipe(n).alt || n.clock || sloopsOf(n).used)) {
         var alt = document.createElement('span');
         alt.className = 'cn-caption alt';
-        alt.textContent = [nodeRecipe(n).alt ? 'ALT' : '', n.clock ? Math.round(n.clock * 100) + '%' : ''].filter(Boolean).join(' · ');
+        var used = sloopsOf(n).used;
+        alt.textContent = [nodeRecipe(n).alt ? 'ALT' : '', n.clock ? Math.round(n.clock * 100) + '%' : '',
+          used ? used + (used === 1 ? ' sloop' : ' sloops') : ''].filter(Boolean).join(' · ');
         body.appendChild(alt);
       }
     }
@@ -6938,7 +7325,17 @@
     }
     items.push('-');
     if (item && from.side === 'in') {
-      items.push({ label: 'Import', note: 'From outside this build', icon: iconOf(item), run: make(item, null, { type: 'import', rate: 60 }) });
+      items.push({ label: 'Import', note: 'From outside this save', icon: iconOf(item), run: make(item, null, { type: 'import', rate: 60 }) });
+      otherFactories().forEach(function (f) {
+        var makes = factoryOutputs(f)[item] || 0;
+        if (!(makes > EPS)) return;
+        var taken = requestsOf(f.id).filter(function (r) { return r.item === item; }).reduce(function (sum, r) { return sum + r.rate; }, 0);
+        var left = Math.max(0, makes - taken);
+        items.push({
+          label: 'Import from ' + factoryLabel(f), note: fmtNum(left) + ' of ' + rateText(item, makes) + ' free', icon: iconOf(item),
+          run: make(item, null, { type: 'import', rate: Number((left || makes).toFixed(4)), from: f.id })
+        });
+      });
     }
     if (from.side === 'out') {
       if (item) items.push({ label: 'Storage Container', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
@@ -6963,6 +7360,20 @@
     Object.keys(flow.outputs).sort().forEach(function (id) {
       outEl.appendChild(row(itemName(id), '', rateText(id, flow.outputs[id])));
     });
+    // Other factories importing from this one, and whether it keeps up.
+    var asked = requestsOf(currentFactory().id);
+    if (asked.length) {
+      var sub = document.createElement('p');
+      sub.className = 'custom-note sent-head';
+      sub.textContent = 'Sent to other factories';
+      outEl.appendChild(sub);
+      var per = {};
+      asked.forEach(function (r) { per[r.item] = (per[r.item] || 0) + r.rate; });
+      asked.forEach(function (r) {
+        var over = per[r.item] > (flow.outputs[r.item] || 0) * (1 + 1e-3) + 1e-6;
+        outEl.appendChild(row(factoryLabel(r.factory), itemName(r.item), rateText(r.item, r.rate), null, over));
+      });
+    }
     problemsEl.innerHTML = '';
     // One orange box per card, its problems listed inside; pressing it
     // brings the card into view.
@@ -7056,13 +7467,12 @@
     function at(v) { return 'calc(5px + ' + ((v - 1) / (MAX - 1)) + ' * (100% - 10px))'; }
     var marks = [100, 150, 200, 250].filter(function (v) { return v <= MAX; });
     var labels = [];
-    marks.forEach(function (v) {
-      if (v >= MAX) return;  // the bar's own end marks the top
-      var tick = document.createElement('span');
-      tick.className = 'clk-tick';
-      tick.style.left = at(v);
-      bar.appendChild(tick);
-    });
+    // The marks are drawn into the bar itself, so the handle covers them.
+    var ticks = marks.filter(function (v) { return v < MAX; }).map(function (v) {
+      var x = at(v);
+      return 'linear-gradient(to right, transparent calc(' + x + ' - 1px), rgba(0, 0, 0, .5) calc(' + x + ' - 1px), ' +
+        'rgba(0, 0, 0, .5) calc(' + x + ' + 1px), transparent calc(' + x + ' + 1px))';
+    }).join(', ');
     var scale = document.createElement('div');
     scale.className = 'clk-scale';
     [1].concat(marks).forEach(function (v) {
@@ -7077,6 +7487,7 @@
 
     function paint(v) {
       bar.style.setProperty('--fill', at(v));
+      bar.style.setProperty('--ticks', ticks);
       labels.forEach(function (l) { l.el.classList.toggle('on', l.v <= v); });
     }
     paint(Number(range.value));
@@ -7219,7 +7630,7 @@
       if (n.set && r) {
         // One setting, shown two ways: typing either side updates the other
         // as you go, and the step takes it when you leave the field.
-        var per = SOLVER.perMinute(r)[n.item] || SOLVER.perMinute(r)[r.out[0][0]];
+        var per = (SOLVER.perMinute(r)[n.item] || SOLVER.perMinute(r)[r.out[0][0]]) * (1 + sloopsOf(n).boost);
         var pair = document.createElement('div');
         pair.className = 'insp-pair';
         var cells = [
@@ -7288,6 +7699,33 @@
         if (n.clock) {
           box.appendChild(clockSlider(n.clock, function (k) { n.clock = k; changed(); }));
         }
+        // Somersloops in each machine, as many as the building has slots for.
+        var slots = DATA.machines[r.machine].sloops || 0;
+        if (slots) {
+          var sseg = document.createElement('div');
+          sseg.className = 'seg insp-seg';
+          for (var sv = 0; sv <= slots; sv++) {
+            (function (v) {
+              var b = document.createElement('button');
+              b.type = 'button';
+              b.className = 'seg-btn' + ((n.sloops || 0) === v ? ' on' : '');
+              b.textContent = v ? String(v) : 'None';
+              b.addEventListener('click', function () {
+                if (v) n.sloops = v; else delete n.sloops;
+                changed();
+              });
+              sseg.appendChild(b);
+            })(sv);
+          }
+          field('Somersloops', sseg);
+          var sl = sloopsOf(n);
+          if (sl.used) {
+            var hint = document.createElement('p');
+            hint.className = 'insp-hint';
+            hint.textContent = '+' + Math.round(sl.boost * 100) + '% output, ' + fmtNum(sl.power) + '× power, in each machine';
+            box.appendChild(hint);
+          }
+        }
         r.in.forEach(function (q, k) {
           var wantIn = Math.abs(SOLVER.perMinute(r)[q[0]]) * (st.count || 0);
           box.appendChild(row(itemName(q[0]), 'in', fmtNum(st.ins[k] || 0) + ' of ' + rateText(q[0], wantIn), null, (st.ins[k] || 0) < wantIn - 1e-6));
@@ -7315,8 +7753,19 @@
       note('Gives ' + fmtNum(st.run || 0) + ' of ' + rateText(n.item, resourceCap(n)) +
         (shardsFor(n.clock || 1) ? ' · ' + shardsFor(n.clock || 1) * (n.count || 1) + ' Power Shards' : ''));
     } else if (n.type === 'import') {
+      var sources = [{ value: '', label: 'Elsewhere', note: 'A train, truck or drone from outside this save' }];
+      otherFactories().forEach(function (f) {
+        var makes = factoryOutputs(f)[n.item] || 0;
+        if (makes > EPS || f.id === n.from) {
+          sources.push({ value: f.id, label: factoryLabel(f), note: 'Makes ' + rateText(n.item, makes) });
+        }
+      });
+      if (n.from && !factoryById(n.from)) sources.push({ value: n.from, label: 'A deleted factory', note: '' });
+      field('From', select(sources, n.from || '', function (v) {
+        if (v) n.from = v; else delete n.from;
+        changed();
+      }));
       field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = Math.max(0, v || 0); changed(); }));
-      note('Brought in from outside this build, like a train or truck delivery.');
     } else {
       note(n.type === 'splitter' && n.priority ? 'Its top output takes all it can; what it can’t take is shared by the others, as the game’s Overflow setting does.'
         : n.type === 'splitter' ? 'Shares what comes in evenly across its outputs; anything a branch can’t take goes to the others.'
@@ -7349,7 +7798,8 @@
       if (!r || !st) return;
       mainOf[r.out[0][0]] = true;
       var per = SOLVER.perMinute(r);
-      Object.keys(per).forEach(function (id) { net[id] = (net[id] || 0) + per[id] * st.count; });
+      var boost = 1 + sloopsOf(n).boost;
+      Object.keys(per).forEach(function (id) { net[id] = (net[id] || 0) + per[id] * (per[id] > 0 ? boost : 1) * st.count; });
     });
     var byItem = {};
     Object.keys(net).forEach(function (id) {
@@ -7387,6 +7837,22 @@
     });
     state.clockOf = {};
     Object.keys(clocks).forEach(function (rid) { if (clocks[rid]) state.clockOf[rid] = clocks[rid]; });
+    // Somersloops, averaged over each recipe's steps by how much they run.
+    var boosts = {};
+    state.custom.nodes.forEach(function (n) {
+      var st = f.nodes[n.id];
+      if (!nodeRecipe(n) || !st) return;
+      var sl = sloopsOf(n);
+      var b = boosts[n.recipe] || (boosts[n.recipe] = { count: 0, out: 0, power: 0 });
+      b.count += st.count;
+      b.out += st.count * (1 + sl.boost);
+      b.power += st.count * sl.power;
+    });
+    state.boostOf = {};
+    Object.keys(boosts).forEach(function (rid) {
+      var b = boosts[rid];
+      if (b.count > 0 && b.out > b.count * (1 + 1e-9)) state.boostOf[rid] = { out: b.out / b.count, power: b.power / b.count };
+    });
     state.targets = Object.keys(byItem).sort().map(function (id) { return { item: id, rate: Number(byItem[id].toFixed(4)) }; });
     state.supply = supply;
     state.imports = imports;
@@ -7424,8 +7890,11 @@
     if (!state.targets.length) return false;
     var targets = state.targets.map(function (t) { return { item: t.item, rate: t.rate }; });
     // Clocks set on steps stay with their recipes.
-    var clockWas = {};
-    state.custom.nodes.forEach(function (n) { if (nodeRecipe(n) && n.clock) clockWas[n.recipe] = n.clock; });
+    var clockWas = {}, sloopsWas = {};
+    state.custom.nodes.forEach(function (n) {
+      if (nodeRecipe(n) && n.clock) clockWas[n.recipe] = n.clock;
+      if (nodeRecipe(n) && n.sloops) sloopsWas[n.recipe] = n.sloops;
+    });
     // How the model mines each resource, kept for the new nodes.
     var how = {};
     state.custom.nodes.forEach(function (n) {
@@ -7463,7 +7932,10 @@
       var one = resourceCap(Object.assign({}, n, { count: 1 }));
       if (e && one > 0) n.count = Math.max(1, Math.ceil(e.supplied / one - 1e-6));
     });
-    state.custom.nodes.forEach(function (n) { if (nodeRecipe(n) && clockWas[n.recipe]) n.clock = clockWas[n.recipe]; });
+    state.custom.nodes.forEach(function (n) {
+      if (nodeRecipe(n) && clockWas[n.recipe]) n.clock = clockWas[n.recipe];
+      if (nodeRecipe(n) && sloopsWas[n.recipe]) n.sloops = sloopsWas[n.recipe];
+    });
     state.pins = {};
     keyAfterRender = true;
     return true;
@@ -7858,7 +8330,7 @@
       if (clear) break;
     }
 
-    state.custom = { nodes: nodes, links: links };
+    state.custom = { nodes: nodes, links: links, notes: state.custom.notes || [], strokes: state.custom.strokes || [] };
 
     // A step on Auto sizes itself from what's asked of it, which a loop (a
     // recipe feeding back into its own supply) can't settle. Any step that
@@ -7879,7 +8351,7 @@
 
   /** Custom's canvas: the cards and lines, and the panel worked out from them. */
   function renderCustomView() {
-    flow = customFlow();
+    flow = modelFlow();
     syncPlan(flow);
     if (keyAfterRender) {
       keyAfterRender = false;
@@ -7897,6 +8369,8 @@
       if (!alive) delete selected[k];
     });
     renderLinks();
+    renderNotes();
+    renderInk();
     renderPalette();
     renderBreakdown();
     refreshOptNote();
