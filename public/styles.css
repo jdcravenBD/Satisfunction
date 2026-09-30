@@ -2539,3 +2539,10 @@ body:not(.model-canvas) #add-target { display: none; }
   font-weight: 700;
   font-size: 14px;
 }
+
+/* Pipes in Model: a wide blue tube with a dark core, so they read apart
+   from belts at any zoom. */
+#wires .cwire.pipe { stroke: #6f98d0; stroke-width: 7; }
+#wires .cwire.pipe.selected { stroke: #d8e8ff; stroke-width: 8; }
+#wires .cwire.pipe.splice { stroke: #e08b3d; }
+#wires .cwire.pipe + .pipe-core { stroke: #16202c; stroke-width: 2.6; }

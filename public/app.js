@@ -47,7 +47,7 @@
     pipe: 2,       // fastest pipeline tier, 1–2
     picker: 'manual',     // who picks recipes: 'manual' or 'optimise'
     goal: 'resources',    // what the optimiser minimises after max outputs
-    unlocked: [],         // alternate (and converter) recipes the user has
+    unlocked: Object.keys(DATA.recipes).filter(unlockable), // alternates (and converter recipes) ticked: all, to start
     altsSet: true,        // the list above has been through its first default (every one ticked)
     pins: {},      // node key -> { x, y }, for nodes moved in the item view
     defaultMiner: 'Build_MinerMk1_C',
@@ -59,6 +59,7 @@
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     build: 'custom', // 'custom': the Model canvas; 'auto': one of its views (Item or Machine)
     optKey: null,  // planKey() when the model was last optimized or built
+    clockOf: {},   // recipe -> the clock its model steps are set to (from syncPlan)
     modelled: true, // saved from a version where the model is the main thing
     legacy: false,  // an older Auto plan, still to be laid out as a model
     custom: { nodes: [], links: [] } // the model: cards [{ id, type, x, y, … }] and lines [{ id, from, fk, to, tk }]
@@ -309,7 +310,32 @@
   }
 
   function recipeClocks(rid, count) {
-    return SOLVER.clocks(count, state.clock, clockTop(rid));
+    return stepClocks(rid, count, state.clockOf[rid]);
+  }
+
+  /**
+   * A step's machines and their clocks. With a clock of its own (k, 1 =
+   * 100%), it gets as few machines as that allows, sharing the work evenly,
+   * so none runs faster than k. Otherwise the Speed setting decides.
+   */
+  function stepClocks(rid, count, k) {
+    if (!k) return SOLVER.clocks(count, state.clock, clockTop(rid));
+    if (!(count > 1e-9)) return [];
+    var m = Math.max(1, Math.ceil(count / k - 1e-6));
+    var out = [];
+    for (var i = 0; i < m; i++) out.push(count / m);
+    return out;
+  }
+
+  /** Average draw of a step running `count` machines' worth, over `built` machines. */
+  function stepPower(rid, count, k, built) {
+    if (!k) return SOLVER.recipePower(DATA, rid, count, state.clock, clockTop(rid));
+    if (!(count > 1e-9)) return 0;
+    var r = DATA.recipes[rid];
+    var mach = DATA.machines[r.machine];
+    var base = r.power != null ? r.power : mach.power;
+    var m = built || Math.max(1, Math.ceil(count / k - 1e-6));
+    return m * base * Math.pow(count / m, mach.powerExp);
   }
 
   /** Power Shards a machine at clock `c` needs: one per 50% past 100%. */
@@ -500,6 +526,7 @@
         q.recipe = n.recipe;
         q.item = DATA.items[n.item] ? n.item : DATA.recipes[n.recipe].out[0][0];
         if (n.set) { q.set = true; q.count = Math.max(0, Number(n.count) || 0); }
+        if (Number(n.clock) > 0) q.clock = clamp(Number(n.clock), 0.01, SOLVER.MAX_CLOCK);
       } else if (n.type === 'resource') {
         if (!DATA.items[n.item] || !DATA.items[n.item].raw) return;
         q.item = n.item;
@@ -832,18 +859,22 @@
       renderCustomView();
       return;
     }
-    // Item and Machine: the model's plan, solved with the model's own
-    // recipes, and drawn the way the plan used to be.
+    // Item and Machine: the model's own steps at the counts they're sized
+    // for, balanced item by item (nothing re-solved, so the figures match
+    // the model's exactly, loops and all), and drawn the way the plan used
+    // to be.
     flow = customFlow();
     syncPlan(flow);
-    var built = buildablePlan(true);
-    var plan = {
-      targets: state.targets,
-      recipes: built.recipes,
-      imports: built.imports,
-      caps: currentCaps()
-    };
-    solved = SOLVER.solve(DATA, plan);
+    buildablePlan(true);
+    var counts = {}, owner = {}, outs = {};
+    state.custom.nodes.forEach(function (n) {
+      var st = flow.nodes[n.id];
+      if (!nodeRecipe(n) || !st || !(st.count > 0)) return;
+      counts[n.recipe] = (counts[n.recipe] || 0) + st.count;
+      owner[n.recipe] = nodeRecipe(n).out[0][0];
+    });
+    state.targets.forEach(function (t) { outs[t.item] = t.rate; });
+    solved = SOLVER.assemble(DATA, counts, owner, outs, currentCaps());
 
     // An output only an unticked building makes can't be planned at all.
     var stuck = state.targets.filter(function (t) { return blocked[t.item]; })[0];
@@ -1471,7 +1502,7 @@
       add(itemName(n.item), 'hi-title');
       add(rateText(n.item, net[n.item] || 0) + (r.name !== itemName(n.item) ? ' · ' + r.name : ''));
       add(clocks.length + ' × ' + machineName(n.rid) + ' · ' + fmtNum(n.count) + ' running');
-      add(fmtPower(SOLVER.recipePower(DATA, n.rid, n.count, state.clock, clockTop(n.rid))) + ' average');
+      add(fmtPower(stepPower(n.rid, n.count, state.clockOf[n.rid])) + ' average');
       var ins = flows(net, -1);
       var outs = flows(net, 1);
       if (ins.length) add('In: ' + ins.join(', '));
@@ -4620,7 +4651,7 @@
       var mid = DATA.recipes[rid].machine;
       var list = recipeClocks(rid, count);
       list.forEach(function (c) { shards += shardsFor(c); });
-      var p = SOLVER.recipePower(DATA, rid, count, state.clock, clockTop(rid));
+      var p = stepPower(rid, count, state.clockOf[rid], list.length);
       tally(mid, DATA.machines[mid].name, count, list.length, p);
       var r = DATA.recipes[rid];
       draws.push({
@@ -5991,7 +6022,13 @@
       }
       if (n.type === 'merger') {
         var o1 = (outL[n.id] || [])[0];
-        return o1 ? accept(o1, (depth || 0) + 1) : 0;
+        if (!o1) return 0;
+        var room = accept(o1, (depth || 0) + 1);
+        // A Priority Merger's top input comes first; any other input gets
+        // what the line out has left after the rest.
+        if (n.priority && l.tk === 0) return room;
+        var others = (inL[n.id] || []).reduce(function (sum, x) { return x === l || !flowOf ? sum : sum + (flowOf[x.id] || 0); }, 0);
+        return Math.max(0, room - others);
       }
       return 0;
     }
@@ -6028,7 +6065,10 @@
           var limit = Infinity;
           r.in.forEach(function (q) { var nd = need(n, q[0]); if (nd > 0) limit = Math.min(limit, (got[q[0]] || 0) / nd); });
           var c = aim[n.id] != null ? aim[n.id] : (limit === Infinity ? 0 : limit);
-          var a = Math.min(c, limit);
+          // The first pass runs every sized step at full, as if its loop
+          // (if it's in one) were already primed; later passes settle from
+          // there, and a loop that can't keep itself going runs down.
+          var a = pass === 0 && aim[n.id] != null ? c : Math.min(c, limit);
           count[n.id] = c;
           run[n.id] = a;
           // What it can't use backs up on its belts.
@@ -6113,12 +6153,11 @@
           st.count = c;
           st.run = a;
           var label = itemName(n.item || r.out[0][0]);
-          var top = clockTop(n.recipe);
-          var list = SOLVER.clocks(c, state.clock, top);
+          var list = stepClocks(n.recipe, c, n.clock);
           var m = DATA.machines[r.machine];
           res.tally.push({
             mid: r.machine, name: m.name, exact: a, built: list.length,
-            power: SOLVER.recipePower(DATA, n.recipe, a, state.clock, top),
+            power: stepPower(n.recipe, a, n.clock, list.length),
             label: label, note: list.length + ' × ' + m.name, id: n.id,
             shards: list.reduce(function (t, x) { return t + shardsFor(x); }, 0)
           });
@@ -6545,10 +6584,10 @@
         cap.className = 'cn-caption';
         cap.textContent = titleCase(n.purity || 'normal') + (isFluid(n.item) ? '' : ' · ' + DATA.extractors[extractorOf(n)].name.replace(/^Miner\s*/, ''));
         body.appendChild(cap);
-      } else if (n.type === 'recipe' && nodeRecipe(n) && nodeRecipe(n).alt) {
+      } else if (n.type === 'recipe' && nodeRecipe(n) && (nodeRecipe(n).alt || n.clock)) {
         var alt = document.createElement('span');
         alt.className = 'cn-caption alt';
-        alt.textContent = 'ALT';
+        alt.textContent = [nodeRecipe(n).alt ? 'ALT' : '', n.clock ? Math.round(n.clock * 100) + '%' : ''].filter(Boolean).join(' · ');
         body.appendChild(alt);
       }
     }
@@ -7104,7 +7143,7 @@
         });
         seg.appendChild(b);
       });
-      field('Machines', seg);
+      field('Production', seg);
       if (n.set && r) {
         // One setting, shown two ways: typing either side updates the other
         // as you go, and the step takes it when you leave the field.
@@ -7157,10 +7196,58 @@
         box.appendChild(pair);
       }
       if (r) {
-        var list = SOLVER.clocks(st.count || 0, state.clock, clockTop(n.recipe));
+        // Its own clock speed, or the Speed setting's.
+        var cseg = document.createElement('div');
+        cseg.className = 'seg insp-seg';
+        [['auto', 'Speed setting'], ['own', 'Own']].forEach(function (o) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'seg-btn' + ((o[0] === 'own') === !!n.clock ? ' on' : '');
+          b.textContent = o[1];
+          b.addEventListener('click', function () {
+            if (o[0] === 'own' && !n.clock) n.clock = 1;
+            else if (o[0] === 'auto') delete n.clock;
+            else return;
+            changed();
+          });
+          cseg.appendChild(b);
+        });
+        field('Clock speed', cseg);
+        if (n.clock) {
+          var wrap = document.createElement('div');
+          wrap.className = 'insp-clock';
+          var range = document.createElement('input');
+          range.type = 'range';
+          range.min = 1;
+          range.max = SOLVER.MAX_CLOCK * 100;
+          range.step = 1;
+          range.value = Math.round(n.clock * 100);
+          var num = document.createElement('input');
+          num.type = 'number';
+          num.min = 1;
+          num.max = SOLVER.MAX_CLOCK * 100;
+          num.step = 1;
+          num.value = Number((n.clock * 100).toFixed(4));
+          var pct = document.createElement('span');
+          pct.textContent = '%';
+          range.addEventListener('input', function () { num.value = range.value; });
+          var commit = function (v) {
+            n.clock = clamp((Number(v) || 100) / 100, 0.01, SOLVER.MAX_CLOCK);
+            changed();
+          };
+          range.addEventListener('change', function () { commit(range.value); });
+          num.addEventListener('change', function () { commit(num.value); });
+          wrap.appendChild(range);
+          wrap.appendChild(num);
+          wrap.appendChild(pct);
+          field('', wrap);
+        }
+        var list = stepClocks(n.recipe, st.count || 0, n.clock);
         var builds = list.length + ' × ' + machineName(n.recipe);
+        var shardsNeeded = list.reduce(function (t, x) { return t + shardsFor(x); }, 0);
         note('×' + fmtCount(st.count || 0) + ' → ' + builds +
           (list.length ? ' (' + list.map(fmtClock).join(', ') + ')' : '') +
+          (shardsNeeded ? ' · ' + shardsNeeded + ' Power Shard' + (shardsNeeded === 1 ? '' : 's') : '') +
           (st.run < (st.count || 0) - 1e-6 ? ' · running ×' + fmtCount(st.run) : ''));
         r.in.forEach(function (q, k) {
           var wantIn = Math.abs(SOLVER.perMinute(r)[q[0]]) * (st.count || 0);
@@ -7254,6 +7341,15 @@
       var rids = Object.keys(mixes[id]);
       recipes[id] = rids.length === 1 ? rids[0] : mixes[id];
     });
+    // A recipe whose steps all share a clock of their own keeps it in the views.
+    var clocks = {};
+    state.custom.nodes.forEach(function (n) {
+      if (!nodeRecipe(n)) return;
+      var k = n.clock || 0;
+      clocks[n.recipe] = clocks[n.recipe] == null ? k : clocks[n.recipe] === k ? k : 0;
+    });
+    state.clockOf = {};
+    Object.keys(clocks).forEach(function (rid) { if (clocks[rid]) state.clockOf[rid] = clocks[rid]; });
     state.targets = Object.keys(byItem).sort().map(function (id) { return { item: id, rate: Number(byItem[id].toFixed(4)) }; });
     state.supply = supply;
     state.imports = imports;
@@ -7290,6 +7386,9 @@
     if (state.custom.nodes.length) syncPlan();
     if (!state.targets.length) return false;
     var targets = state.targets.map(function (t) { return { item: t.item, rate: t.rate }; });
+    // Clocks set on steps stay with their recipes.
+    var clockWas = {};
+    state.custom.nodes.forEach(function (n) { if (nodeRecipe(n) && n.clock) clockWas[n.recipe] = n.clock; });
     // How the model mines each resource, kept for the new nodes.
     var how = {};
     state.custom.nodes.forEach(function (n) {
@@ -7327,6 +7426,7 @@
       var one = resourceCap(Object.assign({}, n, { count: 1 }));
       if (e && one > 0) n.count = Math.max(1, Math.ceil(e.supplied / one - 1e-6));
     });
+    state.custom.nodes.forEach(function (n) { if (nodeRecipe(n) && clockWas[n.recipe]) n.clock = clockWas[n.recipe]; });
     state.pins = {};
     keyAfterRender = true;
     return true;
@@ -7455,8 +7555,8 @@
       }
     });
     // Steps, by how far they are from the raw resources. The optimiser can
-    // leave recipes in at a count of next to nothing; they aren't steps.
-    var used = Object.keys(solved.recipes).filter(function (rid) { return solved.recipes[rid].count > 1e-4; });
+    // leave recipes in at a thousandth of a machine or less; they aren't steps.
+    var used = Object.keys(solved.recipes).filter(function (rid) { return solved.recipes[rid].count > 1e-3; });
     var madeBy = {};
     used.forEach(function (rid) {
       DATA.recipes[rid].out.forEach(function (o) { (madeBy[o[0]] = madeBy[o[0]] || []).push(rid); });
@@ -7505,23 +7605,9 @@
       if (solved.items[id].surplus > EPS && cons[id] && cons[id].length) collect(id, solved.items[id].surplus);
     });
 
-    // Columns left to right, cards stacked in each.
-    var x = 0;
-    Object.keys(cols).map(Number).sort(function (a, b) { return a - b; }).forEach(function (c) {
-      var y = 0;
-      var wMax = 0;
-      cols[c].forEach(function (n) {
-        var size = nodeSize(n);
-        n.x = x;
-        n.y = y;
-        y += size.h + 40;
-        wMax = Math.max(wMax, size.w);
-      });
-      x += wMax + 170;
-    });
-
-    // Lines: producers paired with consumers in order; where one pairs with
-    // several, a chain of splitters (or mergers) between.
+    // Lines, first as pairs of producer and consumer for each item: which
+    // cards are joined decides where they go.
+    var plans = [];
     Object.keys(prod).forEach(function (item) {
       var P = prod[item], C = cons[item] || [];
       if (!C.length) return;
@@ -7541,6 +7627,125 @@
       }
       // Anything still wanting some takes it from the last producer.
       for (; ci < C.length; ci++) if (!paired[ci]) pairs.push({ p: P[P.length - 1], c: C[ci] });
+      plans.push({ item: item, pairs: pairs });
+    });
+
+    // Who feeds whom, card to card.
+    var outTo = new Map(), inFrom = new Map();
+    function note(map, a, b) { if (!map.has(a)) map.set(a, []); if (map.get(a).indexOf(b) < 0) map.get(a).push(b); }
+    plans.forEach(function (pl) {
+      pl.pairs.forEach(function (pr) { note(outTo, pr.p.n, pr.c.n); note(inFrom, pr.c.n, pr.p.n); });
+    });
+
+    // Columns: every card as far right as the cards it feeds allow, so a
+    // line reaches the next column wherever it can; Storage last.
+    var colOf = new Map();
+    Object.keys(cols).forEach(function (c) { cols[c].forEach(function (n) { colOf.set(n, Number(c)); }); });
+    for (var sweep = 0; sweep < nodes.length + 2; sweep++) {
+      var shifted = false;
+      nodes.forEach(function (n) {
+        if (n.type === 'sink') return;
+        var outs = outTo.get(n) || [];
+        if (!outs.length) return;
+        var lim = Math.min.apply(null, outs.map(function (m) { return colOf.get(m); })) - 1;
+        if (lim > colOf.get(n)) { colOf.set(n, lim); shifted = true; }
+      });
+      if (!shifted) break;
+    }
+    var colNums = [];
+    nodes.forEach(function (n) { if (colOf.has(n) && colNums.indexOf(colOf.get(n)) < 0) colNums.push(colOf.get(n)); });
+    colNums.sort(function (a, b) { return a - b; });
+    var columns = colNums.map(function (c) { return nodes.filter(function (n) { return colOf.get(n) === c; }); });
+    columns.forEach(function (list, i) { list.forEach(function (n) { colOf.set(n, i); }); });
+
+    // Order within each column: by where its neighbours sit (a few sweeps
+    // each way), which untangles most crossings.
+    function rank(n) { var list = columns[colOf.get(n)]; return (list.indexOf(n) + 0.5) / list.length; }
+    function sortBy(list, near) {
+      var key = new Map();
+      list.forEach(function (n, i) {
+        var ns = near(n);
+        key.set(n, ns.length ? ns.reduce(function (s, m) { return s + rank(m); }, 0) / ns.length : (i + 0.5) / list.length);
+      });
+      list.sort(function (a, b) { return key.get(a) - key.get(b); });
+    }
+    for (var it = 0; it < 4; it++) {
+      for (var cf = 1; cf < columns.length; cf++) {
+        sortBy(columns[cf], function (n) { return (inFrom.get(n) || []).filter(function (m) { return colOf.get(m) < cf; }); });
+      }
+      for (var cb = columns.length - 2; cb >= 0; cb--) {
+        sortBy(columns[cb], function (n) { return (outTo.get(n) || []).filter(function (m) { return colOf.get(m) > cb; }); });
+      }
+    }
+
+    // Room between columns for the splitters and mergers each gap holds.
+    function chainLength(k) { return k <= 1 ? 0 : 1 + Math.ceil(Math.max(0, k - 3) / 2); }
+    var splitOut = new Map(), mergeIn = new Map();  // "card|slot" -> how many lines
+    plans.forEach(function (pl) {
+      pl.pairs.forEach(function (pr) {
+        var a = pr.p.n.id + '|' + pr.p.k, b = pr.c.n.id + '|' + pr.c.k;
+        splitOut.set(a, (splitOut.get(a) || 0) + 1);
+        mergeIn.set(b, (mergeIn.get(b) || 0) + 1);
+      });
+    });
+    var lanesAfter = columns.map(function () { return 0; });
+    var lanesBefore = columns.map(function () { return 0; });
+    splitOut.forEach(function (k, key) {
+      var n = nodes.filter(function (m) { return m.id === key.split('|')[0]; })[0];
+      lanesAfter[colOf.get(n)] = Math.max(lanesAfter[colOf.get(n)], chainLength(k));
+    });
+    mergeIn.forEach(function (k, key) {
+      var n = nodes.filter(function (m) { return m.id === key.split('|')[0]; })[0];
+      lanesBefore[colOf.get(n)] = Math.max(lanesBefore[colOf.get(n)], chainLength(k));
+    });
+    var LANE = 100, GAP_X = 150, GAP_Y = 70;
+    var x = 0;
+    columns.forEach(function (list, c) {
+      var wMax = 0;
+      list.forEach(function (n) { n.x = x; wMax = Math.max(wMax, nodeSize(n).w); });
+      var lanes = lanesAfter[c] + (c + 1 < columns.length ? lanesBefore[c + 1] : 0);
+      x += wMax + GAP_X + lanes * LANE;
+    });
+
+    // Heights: each card level with the middle of what it's joined to, kept
+    // in its column's order without overlapping; a few passes each way.
+    function mid(n) { return n.y + nodeSize(n).h / 2; }
+    columns.forEach(function (list) {
+      var y = 0;
+      list.forEach(function (n) { n.y = y; y += nodeSize(n).h + GAP_Y; });
+      list.forEach(function (n) { n.y -= y / 2; });
+    });
+    function settle(list, near) {
+      var want = list.map(function (n) {
+        var ns = near(n);
+        var centre = ns.length ? ns.reduce(function (s, m) { return s + mid(m); }, 0) / ns.length : mid(n);
+        return centre - nodeSize(n).h / 2;
+      });
+      var bottom = -Infinity;
+      list.forEach(function (n, i) {
+        n.y = Math.max(want[i], bottom + GAP_Y);
+        bottom = n.y + nodeSize(n).h;
+      });
+      // Pushing down drifts the column; move it back by the average drift.
+      var drift = list.reduce(function (s, n, i) { return s + (n.y - want[i]); }, 0) / (list.length || 1);
+      list.forEach(function (n) { n.y = Math.round(n.y - drift); });
+    }
+    for (var pass = 0; pass < 3; pass++) {
+      for (var c1 = 1; c1 < columns.length; c1++) {
+        settle(columns[c1], function (n) { return (inFrom.get(n) || []).filter(function (m) { return colOf.get(m) < c1; }); });
+      }
+      for (var c2 = columns.length - 2; c2 >= 0; c2--) {
+        settle(columns[c2], function (n) { return (outTo.get(n) || []).filter(function (m) { return colOf.get(m) > c2; }); });
+      }
+    }
+
+    // Now the lines, with a chain of splitters (or mergers) where one card
+    // pairs with several: splitters just past the producer, mergers just
+    // before the consumer, each branch in the order its far end sits.
+    var LOGI_H = nodeSize({ type: 'splitter' }).h;
+    var LOGI_W = nodeSize({ type: 'splitter' }).w;
+    plans.forEach(function (pl) {
+      var pairs = pl.pairs;
       var from = [], to = [];
       var byP = new Map(), byC = new Map();
       pairs.forEach(function (pr, i) {
@@ -7553,12 +7758,14 @@
         if (list.length === 1) { from[list[0]] = { n: end.n, k: end.k }; return; }
         var at = slotAt(end.n, 'out', end.k);
         var feed = { n: end.n, k: end.k };
-        var left = list.slice();
+        var left = list.slice().sort(function (a, b) { return slotAt(pairs[a].c.n, 'in', pairs[a].c.k).y - slotAt(pairs[b].c.n, 'in', pairs[b].c.k).y; });
         var step = 0;
+        var sy = at.y - LOGI_H / 2;
         while (left.length) {
           var sp = node({ type: 'splitter' });
-          sp.x = Math.round(at.x + 50 + step * 70);
-          sp.y = Math.round(at.y - 20 + step * 30);
+          sp.x = Math.round(at.x + 48 + step * LANE);
+          sp.y = Math.round(sy);
+          sy += LOGI_H * (2.5 / 3) - LOGI_H / 2;  // the next hangs off this one's bottom output
           step++;
           links.push({ id: 'l' + uid(), from: feed.n.id, fk: feed.k, to: sp.id, tk: 0 });
           var room = left.length <= 3 ? left.length : 2;
@@ -7574,13 +7781,18 @@
         // topped up from a resource, a Priority Merger takes the byproduct
         // first, as it would be built, so nothing backs up.
         var fromSource = function (i) { var t = pairs[i].p.n.type; return t === 'resource' || t === 'import'; };
-        var left = list.slice().sort(function (a, b) { return (fromSource(a) ? 1 : 0) - (fromSource(b) ? 1 : 0); });
+        var left = list.slice().sort(function (a, b) {
+          return (fromSource(a) ? 1 : 0) - (fromSource(b) ? 1 : 0) ||
+            slotAt(pairs[a].p.n, 'out', pairs[a].p.k).y - slotAt(pairs[b].p.n, 'out', pairs[b].p.k).y;
+        });
         var topUp = left.some(fromSource) && !left.every(fromSource);
         var step = 0;
+        var my = at.y - LOGI_H / 2;
         while (left.length) {
           var mg = node(topUp && step === 0 ? { type: 'merger', priority: true } : { type: 'merger' });
-          mg.x = Math.round(at.x - 110 - step * 70);
-          mg.y = Math.round(at.y - 20 + step * 30);
+          mg.x = Math.round(at.x - 48 - LOGI_W - step * LANE);
+          mg.y = Math.round(my);
+          my += LOGI_H * (2.5 / 3) - LOGI_H / 2;
           step++;
           links.push({ id: 'l' + uid(), from: mg.id, fk: 0, to: into.n.id, tk: into.k });
           var room = left.length <= 3 ? 3 : 2;
@@ -7592,6 +7804,22 @@
         if (from[i] && to[i]) links.push({ id: 'l' + uid(), from: from[i].n.id, fk: from[i].k, to: to[i].n.id, tk: to[i].k });
       });
     });
+
+    // Splitters and mergers moved down off anything they'd sit on.
+    function box(n) { var sz = nodeSize(n); return { x: n.x, y: n.y, w: sz.w, h: sz.h }; }
+    function hits(a, b) { return a.x < b.x + b.w + 12 && b.x < a.x + a.w + 12 && a.y < b.y + b.h + 12 && b.y < a.y + a.h + 12; }
+    var logi = nodes.filter(isLogistic);
+    for (var round = 0; round < 40; round++) {
+      var clear = true;
+      logi.forEach(function (n, i) {
+        nodes.forEach(function (m) {
+          if (m === n || (isLogistic(m) && logi.indexOf(m) > i)) return;
+          var a = box(n), b = box(m);
+          if (hits(a, b)) { n.y = b.y + b.h + 14; clear = false; }
+        });
+      });
+      if (clear) break;
+    }
 
     state.custom = { nodes: nodes, links: links };
 
