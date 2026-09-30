@@ -1924,9 +1924,9 @@ html, body {
 }
 
 /* The support button, top right of the header. */
-.bar-right { margin-left: auto; display: flex; align-items: center; }
-#support { color: #ffd3b0; }
-#support:hover { color: #fff; }
+.bar-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+#support, #info { color: #ffd3b0; }
+#support:hover, #info:hover { color: #fff; }
 
 /* ---------- round 14 ---------- */
 
@@ -2733,7 +2733,7 @@ body:not(.model-canvas) #add-target { display: none; }
 /* The pencil's cursor is a circle the size of its line; the eraser's, a
    square the size of what it rubs out; text, a caret. */
 #stage.tool-pencil, #stage.tool-pencil * {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Ccircle cx='6' cy='6' r='3.5' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Ccircle cx='6' cy='6' r='2.5' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 6 6, crosshair;
+  cursor: var(--pen-cursor, crosshair), crosshair;
 }
 #stage.tool-eraser, #stage.tool-eraser * {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Crect x='1.5' y='1.5' width='9' height='9' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Crect x='2.5' y='2.5' width='7' height='7' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 6 6, cell;
@@ -2749,7 +2749,8 @@ body:not(.model-canvas) #add-target { display: none; }
   pointer-events: none;
   z-index: 5;
 }
-/* Each line's width is set as it's drawn (5px on screen then). */
+/* Drawn onto the canvas at one width (5 canvas px), so zooming makes it look
+   bigger or smaller like everything else. */
 .ink-stroke { fill: none; stroke: #f4f4f4; stroke-width: 5px; stroke-linecap: round; stroke-linejoin: round; }
 .ink-stroke.live { opacity: .85; }
 
@@ -2759,11 +2760,12 @@ body:not(.model-canvas) #add-target { display: none; }
   position: absolute;
   z-index: 4;
   padding: 5px;
-  /* One screen pixel at any zoom: a fraction of a pixel smears as it moves. */
+  /* One screen pixel at any zoom. It's painted strictly inside the box
+     (contain: paint), so moving or zooming can't leave smeared edges behind. */
   border: calc(1px / var(--zoom, 1)) solid transparent;
-  transition: border-color .12s ease;
+  contain: paint;
 }
-.cnote.moving { transition: none; border-color: #fff; }
+.cnote.moving { border-color: #fff; }
 .cnote:hover, .cnote:focus-within { border-color: #fff; }
 /* The arrow over text until it's being typed in; the closed hand while it's dragged. */
 #stage .cnote, #stage .cnote .cnote-text { cursor: default; }

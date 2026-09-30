@@ -802,8 +802,10 @@
     var v = state.view;
     world.style.transform =
       'translate(' + v.x + 'px,' + v.y + 'px) scale(' + v.s + ')';
-    // Pencil lines and text outlines stay the same width on screen at any zoom.
+    // Text outlines stay one pixel on screen at any zoom; the pencil's
+    // cursor follows how wide its line looks now.
     world.style.setProperty('--zoom', v.s);
+    if (typeof tool !== 'undefined' && tool === 'pencil') penCursor();
 
     // Drag the plus field along with the nodes, and scale it with the zoom,
     // so the canvas reads as one surface rather than a fixed backdrop. In the
@@ -6375,11 +6377,23 @@
   });
   var toolsEl = document.getElementById('model-tools');
   var tool = 'select';
-  var PEN = 5;     // pencil width on screen, px (its cursor is a circle this size)
+  var PEN = 5;     // pencil width on the canvas (so on screen, times the zoom)
   var RUB = 4;     // eraser reach from the pointer, px (its cursor is a square twice this)
+
+  /** The pencil's cursor: a circle as wide as its line looks at this zoom. */
+  function penCursor() {
+    var d = clamp(PEN * state.view.s, 2, 100);
+    var size = Math.ceil(d + 4);
+    var c = size / 2;
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '">' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + (d / 2 + 1) + '" fill="none" stroke="#000" stroke-opacity=".55" stroke-width="1"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + (d / 2) + '" fill="none" stroke="#fff" stroke-width="1"/></svg>';
+    stage.style.setProperty('--pen-cursor', 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") ' + Math.round(c) + ' ' + Math.round(c));
+  }
 
   function setTool(t) {
     tool = t;
+    if (t === 'pencil') penCursor();
     toolsEl.querySelectorAll('.mt-btn').forEach(function (b) { b.classList.toggle('on', b.dataset.tool === t); });
     stage.classList.toggle('tool-pencil', t === 'pencil');
     stage.classList.toggle('tool-eraser', t === 'eraser');
@@ -6409,7 +6423,6 @@
       var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute('d', inkPath(k.pts));
       p.setAttribute('class', 'ink-stroke');
-      p.style.strokeWidth = (k.w || PEN) + 'px';
       p.dataset.id = k.id;
       inkEl.appendChild(p);
     });
@@ -6567,12 +6580,8 @@
     try { stage.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
     if (tool === 'pencil') {
       var pts = [Math.round(w.x), Math.round(w.y)];
-      // The pen is always 5px on screen as you draw; the line then keeps
-      // that width on the canvas, so it zooms with everything else.
-      var width = Math.round(PEN / state.view.s * 100) / 100;
       var live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       live.setAttribute('class', 'ink-stroke live');
-      live.style.strokeWidth = width + 'px';
       inkEl.appendChild(live);
       var draw = function (ev) {
         var p = toWorld(ev.clientX, ev.clientY);
@@ -6587,7 +6596,7 @@
         stage.removeEventListener('pointerup', done);
         stage.removeEventListener('pointercancel', done);
         if (pts.length < 4) pts.push(pts[0] + 1, pts[1]);  // a dot
-        state.custom.strokes = (state.custom.strokes || []).concat([{ id: 'k' + uid(), pts: pts, w: width }]);
+        state.custom.strokes = (state.custom.strokes || []).concat([{ id: 'k' + uid(), pts: pts }]);
         changed();
       };
       stage.addEventListener('pointermove', draw);
@@ -8515,6 +8524,28 @@
       }
     ]);
     // Right edge under the button's right edge.
+    ctx.style.left = Math.max(8, r.right - ctx.offsetWidth) + 'px';
+  });
+
+  /* ----------------------------------------------------------------- info */
+
+  var REPO_URL = 'https://github.com/jdcravenBD/Satisfunction';
+  var infoBtn = document.getElementById('info');
+  infoBtn.addEventListener('click', function () {
+    var r = infoBtn.getBoundingClientRect();
+    openCtx(r.left, r.bottom + 6, [
+      { head: 'Satisfunction' },
+      {
+        label: 'GitHub',
+        note: 'The code behind the app',
+        run: function () { window.open(REPO_URL, '_blank', 'noopener'); }
+      },
+      {
+        label: 'Report a problem',
+        note: 'Opens a new issue on GitHub',
+        run: function () { window.open(REPO_URL + '/issues/new', '_blank', 'noopener'); }
+      }
+    ]);
     ctx.style.left = Math.max(8, r.right - ctx.offsetWidth) + 'px';
   });
 
