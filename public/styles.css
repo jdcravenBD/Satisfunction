@@ -2749,8 +2749,8 @@ body:not(.model-canvas) #add-target { display: none; }
   pointer-events: none;
   z-index: 5;
 }
-/* 5px on screen whatever the zoom (--zoom is set on the world). */
-.ink-stroke { fill: none; stroke: #f4f4f4; stroke-width: calc(5px / var(--zoom, 1)); stroke-linecap: round; stroke-linejoin: round; }
+/* Each line's width is set as it's drawn (5px on screen then). */
+.ink-stroke { fill: none; stroke: #f4f4f4; stroke-width: 5px; stroke-linecap: round; stroke-linejoin: round; }
 .ink-stroke.live { opacity: .85; }
 
 /* Text on the canvas: white, no background, a thin square outline that
@@ -2826,3 +2826,7 @@ body:not(.model-canvas) #add-target { display: none; }
 }
 .pal-clear:hover { color: var(--ink); background: rgba(255, 255, 255, .08); }
 .pal-clear[hidden] { display: none; }
+
+/* The views are only looked at: no grab hand over their cards. */
+body:not(.model-canvas) #world .node,
+body:not(.model-canvas) #world .node * { cursor: default; }

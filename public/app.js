@@ -3648,7 +3648,9 @@
   function onCanvas(target) {
     if (target === stage || target === world || emptyHint.contains(target)) return true;
     if (customHint.contains(target)) return true;
-    return (state.mode === 'machines' || state.build === 'custom') && world.contains(target);
+    // In Model, and in both views (which can't be edited), a press anywhere
+    // in the world counts: on a view's card it pans.
+    return world.contains(target);
   }
 
   // Right-click on bare canvas.
@@ -5242,6 +5244,9 @@
       done = true;
       if (keep) {
         state.name = uniqueName(input.value, currentFactory());
+        // The tabs are drawn from the save's records, so this one takes the
+        // name now rather than when the save next lands.
+        currentFactory().name = state.name;
         save();
       }
       renderTabs();
@@ -6404,6 +6409,7 @@
       var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute('d', inkPath(k.pts));
       p.setAttribute('class', 'ink-stroke');
+      p.style.strokeWidth = (k.w || PEN) + 'px';
       p.dataset.id = k.id;
       inkEl.appendChild(p);
     });
@@ -6561,8 +6567,12 @@
     try { stage.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
     if (tool === 'pencil') {
       var pts = [Math.round(w.x), Math.round(w.y)];
+      // The pen is always 5px on screen as you draw; the line then keeps
+      // that width on the canvas, so it zooms with everything else.
+      var width = Math.round(PEN / state.view.s * 100) / 100;
       var live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       live.setAttribute('class', 'ink-stroke live');
+      live.style.strokeWidth = width + 'px';
       inkEl.appendChild(live);
       var draw = function (ev) {
         var p = toWorld(ev.clientX, ev.clientY);
@@ -6577,7 +6587,7 @@
         stage.removeEventListener('pointerup', done);
         stage.removeEventListener('pointercancel', done);
         if (pts.length < 4) pts.push(pts[0] + 1, pts[1]);  // a dot
-        state.custom.strokes = (state.custom.strokes || []).concat([{ id: 'k' + uid(), pts: pts }]);
+        state.custom.strokes = (state.custom.strokes || []).concat([{ id: 'k' + uid(), pts: pts, w: width }]);
         changed();
       };
       stage.addEventListener('pointermove', draw);
