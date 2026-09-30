@@ -6367,7 +6367,7 @@
   var toolsEl = document.getElementById('model-tools');
   var tool = 'select';
   var PEN = 5;     // pencil width on screen, px (its cursor is a circle this size)
-  var RUB = 9;     // eraser reach from the pointer, px (its cursor is a square twice this)
+  var RUB = 6;     // eraser reach from the pointer, px (its cursor is a square twice this)
 
   function setTool(t) {
     tool = t;
@@ -6443,15 +6443,20 @@
       changed();
     }
     text.addEventListener('input', function () { var m = live(); if (m) m.text = text.value; fit(); save(); });
-    text.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    // While typing, presses in the text are the text's own (caret, selection).
+    text.addEventListener('pointerdown', function (e) {
+      if (document.activeElement === text) e.stopPropagation();
+    });
     text.addEventListener('blur', function () {
       if (!text.value.trim() && live()) remove();
     });
     text.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { e.stopPropagation(); text.blur(); }
     });
+    // Otherwise a press anywhere on it drags it, or, if it doesn't move,
+    // starts typing at the end.
     el.addEventListener('pointerdown', function (e) {
-      if (e.button !== 0 || e.target === text) return;
+      if (e.button !== 0 || document.activeElement === text) return;
       e.preventDefault();
       e.stopPropagation();
       closeAll();
@@ -6460,6 +6465,7 @@
       function move(ev) {
         var dx = (ev.clientX - sx) / state.view.s, dy = (ev.clientY - sy) / state.view.s;
         if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+        if (!moved) stage.classList.add('moving-note');
         moved = true;
         m.x = Math.round(ox + dx);
         m.y = Math.round(oy + dy);
@@ -6470,7 +6476,10 @@
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         window.removeEventListener('pointercancel', up);
-        if (moved) save(); else text.focus({ preventScroll: true });
+        stage.classList.remove('moving-note');
+        if (moved) { save(); return; }
+        text.focus({ preventScroll: true });
+        text.setSelectionRange(text.value.length, text.value.length);
       }
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
@@ -6479,7 +6488,7 @@
     el.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      if (e.target === text) return;
+      if (document.activeElement === text) return;
       closeAll();
       openCtx(e.clientX, e.clientY, [
         { head: 'Text' },

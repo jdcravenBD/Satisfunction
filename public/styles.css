@@ -2677,15 +2677,65 @@ body:not(.model-canvas) #add-target { display: none; }
   cursor: pointer;
   transition: background-color .12s ease, color .12s ease;
 }
-.mt-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .06); }
-.mt-btn.on { color: #ffc08a; background: rgba(var(--machine), .24); }
+.mt-btn { position: relative; }
+.mt-btn:hover { background: rgba(255, 255, 255, .06); }
+/* Each tool its own colour: select white, pencil orange, eraser red, text blue. */
+.mt-btn[data-tool="select"] { --tool: 236, 236, 236; }
+.mt-btn[data-tool="pencil"] { --tool: 240, 150, 70; }
+.mt-btn[data-tool="eraser"] { --tool: 232, 92, 84; }
+.mt-btn[data-tool="note"]   { --tool: 110, 165, 240; }
+.mt-btn { color: rgba(var(--tool), .7); }
+.mt-btn:hover { color: rgb(var(--tool)); }
+.mt-btn.on { color: rgb(var(--tool)); background: rgba(var(--tool), .2); }
+/* What the tool is and its key, under it on hover. */
+.mt-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translate(-50%, -3px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .5);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .12s ease .25s, transform .12s ease .25s, visibility 0s linear .37s;
+}
+.mt-btn:first-child .mt-tip { left: 0; transform: translate(0, -3px); }
+.mt-btn:hover .mt-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition: opacity .12s ease .25s, transform .12s ease .25s, visibility 0s linear .25s;
+}
+.mt-btn:first-child:hover .mt-tip { transform: translate(0, 0); }
+.mt-tip kbd {
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--edge-hi);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .06);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
 /* The pencil's cursor is a circle the size of its line; the eraser's, a
    square the size of what it rubs out; text, a caret. */
 #stage.tool-pencil, #stage.tool-pencil * {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Ccircle cx='6' cy='6' r='3.5' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Ccircle cx='6' cy='6' r='2.5' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 6 6, crosshair;
 }
 #stage.tool-eraser, #stage.tool-eraser * {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22'%3E%3Crect x='1.5' y='1.5' width='19' height='19' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Crect x='2.5' y='2.5' width='17' height='17' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 11 11, cell;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect x='1.5' y='1.5' width='13' height='13' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Crect x='2.5' y='2.5' width='11' height='11' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 8 8, cell;
 }
 #stage.tool-note, #stage.tool-note * { cursor: text; }
 
@@ -2707,11 +2757,14 @@ body:not(.model-canvas) #add-target { display: none; }
   position: absolute;
   z-index: 4;
   padding: 5px;
-  border: 1px solid rgba(255, 255, 255, .22);
-  cursor: move;
+  border: 1px solid transparent;
   transition: border-color .12s ease;
 }
 .cnote:hover, .cnote:focus-within { border-color: #fff; }
+/* The arrow over text until it's being typed in; the closed hand while it's dragged. */
+#stage .cnote, #stage .cnote .cnote-text { cursor: default; }
+#stage .cnote .cnote-text:focus { cursor: text; }
+#stage.moving-note, #stage.moving-note *, #stage.moving-note .cnote .cnote-text { cursor: grabbing; }
 .cnote-text {
   display: block;
   field-sizing: content;
@@ -2728,7 +2781,6 @@ body:not(.model-canvas) #add-target { display: none; }
   resize: none;
   overflow: hidden;
   outline: none;
-  cursor: text;
   white-space: pre;
 }
 .cnote-text::placeholder { color: rgba(255, 255, 255, .35); }
