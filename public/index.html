@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Satisfunction</title>
-<link rel="icon" href="favicon.svg?v=39" type="image/svg+xml">
-<link rel="icon" href="favicon-32.png?v=39" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon.svg?v=41" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=41" type="image/png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=39">
+<link rel="stylesheet" href="styles.css?v=41">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   <header class="bar">
     <div class="bar-left">
       <div class="brand">
-        <img class="mark-img" src="favicon.svg?v=39" alt="" width="20" height="20">
+        <img class="mark-img" src="favicon.svg?v=41" alt="" width="20" height="20">
         <strong>SATISFUNCTION</strong>
         <span class="sub">Production Planner</span>
       </div>
@@ -97,21 +97,24 @@
       <button id="delete" class="tb-btn danger" title="Delete this factory">Delete</button>
     </div>
     <span class="tb-space"></span>
-    <!-- Viewing it, on the right. -->
-    <!-- Auto: the plan generates the build. Custom: you place every part. -->
+    <!-- Model is where the factory is made; Item and Machine are views of it:
+         one card per recipe, or every building at its real footprint. -->
+    <div class="tb-with-label">
     <span class="tb-label">Mode</span>
-    <div class="seg bar-seg build-seg" id="build-seg" role="group" aria-label="Build">
-      <button type="button" class="seg-btn" data-build="custom">Model</button>
-      <button type="button" class="seg-btn" data-build="auto">Auto</button>
+    <div class="seg bar-seg view-seg" id="view-seg" role="group" aria-label="Mode">
+      <button type="button" class="seg-btn vs-model" data-view="model">
+        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M4 16l.8-3.4 8.6-8.6a1.7 1.7 0 0 1 2.4 2.4l-8.6 8.6z"/><path d="M11.8 5.6l2.6 2.6"/></svg>
+        Model</button>
+      <span class="vs-div" aria-hidden="true"></span>
+      <button type="button" class="seg-btn" data-view="items">
+        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 10s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z"/><circle cx="10" cy="10" r="2.2"/></svg>
+        Item</button>
+      <button type="button" class="seg-btn" data-view="machines">
+        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 10s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z"/><circle cx="10" cy="10" r="2.2"/></svg>
+        Machine</button>
     </div>
-    <span class="tb-sep"></span>
-    <span class="tb-label">View</span>
-    <!-- Every step as one card, or every step expanded into its buildings. -->
-    <div class="seg bar-seg" id="mode" role="group" aria-label="View">
-      <button type="button" class="seg-btn" data-mode="items" title="One card per step">Item</button>
-      <button type="button" class="seg-btn" data-mode="machines" title="Every building, at its real footprint">Machine</button>
     </div>
-    <!-- How each line's inputs reach its machines: Machines view only. -->
+    <!-- How each line's inputs reach its machines: Machine view only. -->
     <div class="seg bar-seg" id="balance" role="group" aria-label="Logistics">
       <button type="button" class="seg-btn" data-balance="manifold" title="One belt runs past every machine, with a splitter at each">Manifold</button>
       <button type="button" class="seg-btn" data-balance="balancer" title="A tree of splitters gives every machine exactly the same share">Balancer</button>
@@ -142,7 +145,7 @@
   <div id="empty" class="empty-hint">
     <p class="eh-lead">Start from an example, or <button type="button" id="eh-blank" class="eh-link">pick an output</button>.</p>
     <div class="tpl-grid" id="tpl-grid"></div>
-    <p class="eh-tip">Drag the background to pan &middot; Scroll to zoom &middot; Right-click a node for its recipes</p>
+    <p class="eh-tip">Or drag an item from the left &middot; Drag the background to pan &middot; Scroll to zoom</p>
   </div>
 
   <div id="solve-error" class="solve-error" hidden></div>
@@ -150,7 +153,7 @@
   <!-- The hovered node's figures, bottom left: plain text over a blur. -->
   <div id="hover-info" class="hover-info" hidden></div>
 
-  <!-- Machine view only: it's a picture of the build, laid out for you. -->
+  <!-- Item and Machine views: pictures of the model, edited in Model. -->
   <div id="view-note" class="view-note" hidden>
     <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
       <rect x="4.1" y="4.1" width="11.8" height="11.8" rx="2.6" transform="rotate(45 10 10)"
@@ -158,7 +161,7 @@
       <path d="M10 6.7v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       <circle cx="10" cy="13.5" r="1.05" fill="currentColor"/>
     </svg>
-    <span>Arrangement is not allowed in machine view</span>
+    <span id="view-note-text">Viewing your model &middot; edit it in Model</span>
   </div>
 
   <!-- What the canvas labels. -->
@@ -257,7 +260,6 @@
         <span class="sum-group-name" data-icon="recipe">Chosen by</span>
         <span class="sum-group-count" id="picker-sub"></span>
       </div>
-      <p class="custom-note">In Model, each machine's recipe is picked on the machine.</p>
       <div class="seg panel-seg" id="picker-seg">
         <button type="button" class="seg-btn" data-picker="manual" title="Each item uses its standard recipe unless you pick another on its node">I pick</button>
         <button type="button" class="seg-btn" data-picker="optimise" title="The best mix of recipes for your outputs, redone as the plan changes">Optimise</button>
@@ -288,6 +290,12 @@
           </div>
         </div>
         <p class="opt-note" id="opt-note"></p>
+      </div>
+      <!-- Rebuilds the model's machines for its outputs: Optimize, or Build
+           with the recipes you've picked. -->
+      <div class="opt-run">
+        <button type="button" class="opt-btn" id="opt-run">Optimize</button>
+        <p class="opt-need" id="opt-need" hidden>You need an output in order to optimize.</p>
       </div>
       </div>
     </div>
@@ -384,11 +392,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=39"></script>
-<script src="solver.js?v=39"></script>
-<script src="lp.js?v=39"></script>
-<script src="optimise.js?v=39"></script>
-<script src="examples.js?v=39"></script>
-<script src="app.js?v=39"></script>
+<script src="data.js?v=41"></script>
+<script src="solver.js?v=41"></script>
+<script src="lp.js?v=41"></script>
+<script src="optimise.js?v=41"></script>
+<script src="examples.js?v=41"></script>
+<script src="app.js?v=41"></script>
 </body>
 </html>

@@ -2038,11 +2038,15 @@ html, body {
 :root { --pal-w: 248px; }
 
 /* Auto (green) or Custom (orange). */
-.build-seg .seg-btn.on[data-build="custom"] { background: rgba(var(--machine), .26); color: #ffc08a; }
-.build-seg .seg-btn.on[data-build="auto"] { background: rgba(var(--output), .22); color: #9ce8bb; }
+/* Model, where things are made, then a divider and the two views of it. */
+.view-seg { align-items: center; }
+.view-seg .seg-btn { display: inline-flex; align-items: center; gap: 5px; }
+.view-seg .seg-btn svg { flex: none; opacity: .8; }
+.view-seg .vs-div { width: 1px; align-self: stretch; margin: 4px 3px; background: var(--edge-hi); }
+.view-seg .seg-btn.on.vs-model { background: rgba(var(--machine), .26); color: #ffc08a; }
 
 /* The parts panel, its own rounded column left of the canvas. */
-body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
+body.model-canvas #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 .palette {
   position: fixed;
   top: calc(var(--bar-h) + var(--frame));
@@ -2125,12 +2129,9 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 /* Settings Custom doesn't use give way to a short note. */
 .custom-note { display: none; margin: 4px 2px 2px; font-size: 12px; color: var(--ink-faint); }
 .custom-build .custom-note { display: block; }
-.custom-build #targets,
-.custom-build #add-target,
-.custom-build #picker-seg,
-.custom-build .aim-head,
-.custom-build #goal-seg,
-.custom-build #opt-note { display: none; }
+.custom-build #targets { display: none; }
+/* Outputs are added in Model; the views only show them. */
+body:not(.model-canvas) #add-target { display: none; }
 
 /* ---------- custom build: ports and belts ---------- */
 
@@ -2390,3 +2391,34 @@ body.custom-build #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 
 /* A folding section's first sub-heading sits just under the fold's own. */
 .panel-box .sub-head.first-sub { margin-top: 2px; }
+
+/* The button that rebuilds the model's machines, under the recipe settings. */
+.opt-run { margin-top: 12px; }
+.opt-btn {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--machine), .6);
+  border-radius: 8px;
+  background: rgba(var(--machine), .2);
+  color: #ffc08a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.opt-btn:hover { background: rgba(var(--machine), .3); }
+/* Already up to date: quiet, but it still runs again if pressed. */
+.opt-btn.done { background: rgba(255, 255, 255, .04); border-color: var(--edge); color: var(--ink-faint); font-weight: 500; }
+.opt-btn.done:hover { background: rgba(255, 255, 255, .08); color: var(--ink-dim); }
+.opt-btn:disabled { opacity: .45; cursor: default; }
+.opt-btn:disabled:hover { background: rgba(var(--machine), .2); }
+.opt-need { margin: 6px 2px 0; font-size: 12px; color: var(--ink-faint); }
+
+/* Smart Splitter and Priority Merger: the side that goes first is marked. */
+.cnode .cn-slot.prio { box-shadow: inset 2px 0 0 #e08b3d; }
+.cnode .cn-side.in .cn-slot.prio { box-shadow: inset -2px 0 0 #e08b3d; }
+.cn-letter.small { font-size: 12px; letter-spacing: .02em; }
+
+/* A label stays on the same row as the control it names. */
+.tb-with-label { display: flex; align-items: center; flex: none; }

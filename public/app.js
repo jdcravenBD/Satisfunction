@@ -35,8 +35,10 @@
 
   var state = {
     name: '',
+    // The plan the Item and Machine views draw, worked out from the model
+    // (see syncPlan); and what Optimize and Build aim for.
     targets: [],   // [{ item, rate, max }] — what the plan is for, per minute
-    recipes: {},   // item -> recipe id, where the user overrode the default
+    recipes: {},   // item -> recipe id (or a mix of them)
     imports: {},   // item -> true, when it comes from outside this factory
     supply: {},    // raw item -> { nodes: [{ purity, miner }], miner }
     clock: 'none', // how work is split over machines: 'none', 'even', 'fill' or 'max'
@@ -49,14 +51,16 @@
     pins: {},      // node key -> { x, y }, for nodes moved in the item view
     defaultMiner: 'Build_MinerMk1_C',
     view: { x: 60, y: 40, s: 1 },
-    mode: 'items', // 'items' or 'machines'
+    mode: 'items', // the view of the model shown when build is 'auto': 'items' or 'machines'
     folds: {},     // panel sections the user has collapsed: { inputs: true }
     show: { products: true, rates: true, clocks: true, short: false, lines: 'curved' }, // what the canvas labels
     page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
-    build: 'auto',  // 'auto': the plan generates the build; 'custom': placed by hand
-    customKept: null, // the hand-built layout, kept while Auto shows its plan: { custom, key }
-    custom: { nodes: [], links: [] } // Custom: cards [{ id, type, x, y, … }] and lines [{ id, from, fk, to, tk }]
+    build: 'custom', // 'custom': the Model canvas; 'auto': one of its views (Item or Machine)
+    optKey: null,  // planKey() when the model was last optimized or built
+    modelled: true, // saved from a version where the model is the main thing
+    legacy: false,  // an older Auto plan, still to be laid out as a model
+    custom: { nodes: [], links: [] } // the model: cards [{ id, type, x, y, … }] and lines [{ id, from, fk, to, tk }]
   };
 
   // What a new factory starts from.
@@ -411,7 +415,7 @@
   var STORE_KEY = 'satisfunction.saves.v1';
   var PROGRESS = ['unlocked', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
   var FACTORY = ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal',
-    'pins', 'view', 'mode', 'balance', 'build', 'custom', 'customKept'];
+    'pins', 'view', 'mode', 'balance', 'build', 'custom', 'optKey', 'modelled'];
   var store = null;  // { active, saves: [{ id, name, active, progress, factories: [{ id, name, plan }] }], prefs }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -506,7 +510,9 @@
         if (!DATA.items[n.item]) return;
         q.item = n.item;
         q.rate = Math.max(0, Number(n.rate) || 0);
-      } else if (['splitter', 'merger', 'sink'].indexOf(n.type) < 0) {
+      } else if (n.type === 'splitter' || n.type === 'merger') {
+        if (n.priority) q.priority = true;  // Smart Splitter (overflow), Priority Merger
+      } else if (n.type !== 'sink') {
         return;
       }
       out.nodes.push(q);
@@ -568,10 +574,18 @@
       };
     });
     state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'none';
-    state.build = data.build === 'custom' ? 'custom' : 'auto';
-    state.customKept = data.customKept && data.customKept.custom && typeof data.customKept.key === 'string'
-      ? { custom: readCustom(data.customKept.custom), key: data.customKept.key } : null;
     state.custom = readCustom(data.custom);
+    state.optKey = typeof data.optKey === 'string' ? data.optKey : null;
+    // Plans from before the model was the main thing: an Auto plan becomes
+    // a model on the first redraw (see recompute), and shows in Model.
+    if (data.modelled) {
+      state.build = data.build === 'auto' ? 'auto' : 'custom';
+      state.legacy = false;
+    } else {
+      state.build = 'custom';
+      state.legacy = data.build !== 'custom' && !state.custom.nodes.length && state.targets.length > 0;
+    }
+    state.modelled = true;
     state.unavailable = (Array.isArray(data.unavailable) ? data.unavailable : []).filter(function (id) {
       return BUILDINGS.indexOf(id) >= 0;
     });
@@ -805,30 +819,27 @@
    * survives any change that doesn't remove that step outright.
    */
   function recompute() {
+    // An Auto plan from before the model: laid out as one, once.
+    if (state.legacy) {
+      state.legacy = false;
+      buildModel();
+    }
     if (state.build === 'custom') {
       renderCustomView();
       return;
     }
-    var built = buildablePlan();
+    // Item and Machine: the model's plan, solved with the model's own
+    // recipes, and drawn the way the plan used to be.
+    flow = customFlow();
+    syncPlan(flow);
+    var built = buildablePlan(true);
     var plan = {
       targets: state.targets,
       recipes: built.recipes,
       imports: built.imports,
       caps: currentCaps()
     };
-    solved = null;
-    if (state.picker === 'optimise') {
-      // Recipes picked on a node become pins the optimiser has to keep.
-      plan.pins = built.recipes;
-      solved = OPTIMISE.solveOptimised(DATA, plan, { goal: state.goal, allowed: recipeAllowed, built: canBuild });
-      if (!solved) {
-        plan.recipes = buildablePlan(true).recipes;
-        solved = SOLVER.solve(DATA, plan);
-        solved.error = 'The optimiser couldn’t settle this plan, so it’s showing your own recipe picks.';
-      }
-    } else {
-      solved = SOLVER.solve(DATA, plan);
-    }
+    solved = SOLVER.solve(DATA, plan);
 
     // An output only an unticked building makes can't be planned at all.
     var stuck = state.targets.filter(function (t) { return blocked[t.item]; })[0];
@@ -858,8 +869,9 @@
     lowestAdders();
     hideHoverInfo();
     renderBreakdown();
-    refreshMaxRates();
+    renderCustomPanel();
     refreshOptNote();
+    refreshRunButton();
     refreshEmptyHint();
   }
 
@@ -1258,7 +1270,8 @@
       return line;
     }
 
-    var readOnly = state.mode === 'machines';
+    // The views are pictures of the model: nothing on them is edited.
+    var readOnly = true;
 
     if (n.kind === 'recipe' || n.kind === 'bank') {
       var r = DATA.recipes[n.rid];
@@ -1358,7 +1371,7 @@
           el.appendChild(more);
         }
         if (readOnly && n.kind === 'raw') {
-          note('Pick a node purity in the Item view to place its ' +
+          note('Set its node purity in Model to place its ' +
             (isFluid(n.item) ? 'extractors' : 'miners'));
         }
       } else if (state.imports[n.item]) {
@@ -1389,14 +1402,6 @@
       machine.textContent = label;
     }
 
-    // The machine view is a picture of the build: nothing on it is edited or
-    // moved. Recipes and nodes are changed in the Items view.
-    if (readOnly) {
-      recipeBtn.disabled = true;
-      recipeBtn.removeAttribute('title');
-      return el;
-    }
-
     el.addEventListener('pointerenter', function () {
       focusNode(n.key, true);
       showHoverInfo(n);
@@ -1405,6 +1410,16 @@
       focusNode(n.key, false);
       if (!dragging) hideHoverInfo();
     });
+
+    // Recipes and nodes are changed in Model.
+    if (readOnly) {
+      recipeBtn.disabled = true;
+      recipeBtn.removeAttribute('title');
+      el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      // Cards in the Item view can still be moved about to read it better.
+      dragBehaviour(el, n);
+      return el;
+    }
 
     recipeBtn.addEventListener('click', function () {
       if (recipeBtn.disabled) return;
@@ -3513,10 +3528,7 @@
       return;
     }
     if (state.mode !== 'items') return;
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes().length) {
-      e.preventDefault();
-      removeNodes(selectedNodes());
-    } else if (e.key === 'Escape' && selectedNodes().length) {
+    if (e.key === 'Escape' && selectedNodes().length) {
       clearSelection();
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
       e.preventDefault();
@@ -3570,22 +3582,21 @@
     closeAll();
 
     if (state.build === 'custom') {
-      openCtx(e.clientX, e.clientY, [
-        { label: 'Fit to view', run: fitView },
-        '-',
-        { label: 'Clear build', note: 'Removes every placed part', danger: true, confirm: true, run: clearPlan }
-      ]);
+      var menuItems = [
+        { label: '+ Add output…', run: function () { askForOutput(null, e.clientX, e.clientY); } },
+        { label: 'Fit to view', run: fitView }
+      ];
+      if (clip) menuItems.push({ label: 'Paste', run: pasteParts });
+      menuItems.push('-');
+      menuItems.push({ label: 'Clear model', note: 'Removes every card', danger: true, confirm: true, run: clearPlan });
+      openCtx(e.clientX, e.clientY, menuItems);
       return;
     }
-    var items = [
-      { label: '+ Add output…', run: function () { askForOutput(null, e.clientX, e.clientY); } },
-      { label: 'Fit to view', run: fitView }
-    ];
+    // The views only look: fit, and in the Item view, undo any moving.
+    var items = [{ label: 'Fit to view', run: fitView }];
     if (Object.keys(pins()).length) {
-      items.push({ label: 'Tidy layout', note: 'Unpins every node you’ve moved', run: tidyLayout });
+      items.push({ label: 'Tidy layout', note: 'Unpins every card you’ve moved', run: tidyLayout });
     }
-    items.push('-');
-    items.push({ label: 'Clear plan', danger: true, confirm: true, run: clearPlan });
     openCtx(e.clientX, e.clientY, items);
   });
 
@@ -4297,7 +4308,7 @@
   /* ------------------------------------------------------------- targets */
 
   function askForOutput(anchor, x, y) {
-    openItemPicker(anchor, addTarget, x, y);
+    openItemPicker(anchor, addModelOutput, x, y);
   }
 
   /** Adds an output (or finds the existing one) and shows it in the panel. */
@@ -4793,12 +4804,9 @@
   /* ------------------------------------------------------------- examples */
 
   function refreshEmptyHint() {
-    customHint.hidden = state.build !== 'custom' || state.custom.nodes.length > 0;
-    if (state.build === 'custom') {
-      emptyHint.hidden = true;
-      return;
-    }
-    var empty = state.targets.length === 0;
+    customHint.hidden = true;
+    // An empty model offers the examples; the views just say there's nothing yet.
+    var empty = state.build === 'custom' && !state.custom.nodes.length;
     emptyHint.hidden = !empty;
     if (empty) {
       renderExamples();
@@ -4833,16 +4841,13 @@
       btn.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
       btn.addEventListener('click', function () {
         emptyPlan();
-        state.targets = ex.targets.map(function (t) {
-          var out = { item: t.item, rate: t.rate || NEW_TARGET_RATE };
-          if (t.max) out.max = true;
-          return out;
-        });
+        state.custom = { nodes: [], links: [] };
+        state.targets = ex.targets.map(function (t) { return { item: t.item, rate: t.rate || NEW_TARGET_RATE }; });
         if (!state.name || /^New factory( \d+)?$/.test(state.name)) {
           state.name = uniqueName(ex.name, currentFactory());
         }
         renderTabs();
-        renderTargets();
+        buildModel();
         changed();
         fitView();
       });
@@ -4866,18 +4871,12 @@
     state.pins = {};
   }
 
-  /** Empties the plan (or in Custom, the build) but keeps its name. Callers ask for confirmation. */
+  /** Empties the model but keeps its name. Callers ask for confirmation. */
   function clearPlan() {
-    if (state.build === 'custom') {
-      state.custom.nodes = [];
-      state.custom.links = [];
-      clearSelection();
-      changed();
-      fitView();
-      return;
-    }
     emptyPlan();
-    renderTargets();
+    state.custom = { nodes: [], links: [] };
+    state.optKey = null;
+    clearSelection();
     changed();
     fitView();
   }
@@ -5398,106 +5397,72 @@
 
   var clearBtn = document.getElementById('clear');
   clearBtn.addEventListener('click', function () {
-    if (state.build === 'custom' ? !state.custom.nodes.length : !state.targets.length) return;
+    if (!state.custom.nodes.length) return;
     askConfirm(clearBtn, clearPlan);
   });
 
   /* ------------------------------------------------------ view and clocks */
 
-  // Items: one card per step. Machines: every step expanded into its actual
-  // buildings. All steps switch together.
-  var modeSeg = document.getElementById('mode');
+  // Model is where the factory is made. Item (one card per recipe) and
+  // Machine (every building at its real footprint) are views of it, worked
+  // out from the model and not edited directly. One switch holds all three.
+  var viewSeg = document.getElementById('view-seg');
+  var balanceSeg = document.getElementById('balance');
+
+  function currentView() { return state.build === 'custom' ? 'model' : state.mode; }
 
   function refreshModeSeg() {
-    modeSeg.querySelectorAll('.seg-btn').forEach(function (b) {
-      b.classList.toggle('on', b.dataset.mode === state.mode);
+    var model = state.build === 'custom';
+    var machinesOn = !model && state.mode === 'machines';
+    viewSeg.querySelectorAll('.seg-btn').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.view === currentView());
     });
-    // How inputs are fed only means something in the machine view, so it's
-    // greyed out in the item view; and only the machine view can't be
-    // rearranged by hand.
-    var custom = state.build === 'custom';
-    var machinesOn = state.mode === 'machines' && !custom;
-    balanceSeg.classList.toggle('disabled', !machinesOn);
-    balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) { b.disabled = !machinesOn; });
-    // Custom has one view of its own: the build as placed.
-    modeSeg.classList.toggle('disabled', custom);
-    modeSeg.querySelectorAll('.seg-btn').forEach(function (b) { b.disabled = custom; });
-    document.getElementById('view-note').hidden = !machinesOn;
-    buildSeg.querySelectorAll('.seg-btn').forEach(function (b) {
-      b.classList.toggle('on', b.dataset.build === state.build);
-    });
-    document.body.classList.toggle('custom-build', custom);
-    palette.hidden = !custom;
+    // Manifold or Balancer only means something in the Machine view.
+    balanceSeg.hidden = !machinesOn;
     balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.balance === state.balance);
     });
+    document.getElementById('view-note').hidden = model;
+    document.getElementById('view-note-text').textContent = state.custom.nodes.length
+      ? (machinesOn ? 'Viewing your model, laid out for you · edit it in Model'
+        : 'Viewing your model · edit it in Model')
+      : 'Nothing to view yet · make something in Model';
+    document.body.classList.add('custom-build');
+    document.body.classList.toggle('model-canvas', model);
+    palette.hidden = !model;
   }
 
-  // Auto or Custom, one toggle like the others: pressing the side that's
-  // on flips to the other.
-  var buildSeg = document.getElementById('build-seg');
-  buildSeg.addEventListener('click', function (e) {
-    var btn = e.target.closest('.seg-btn');
-    if (!btn) return;
-    var next = btn.dataset.build === state.build
-      ? (state.build === 'auto' ? 'custom' : 'auto')
-      : btn.dataset.build;
-    if (next === 'auto' && state.custom.nodes.length) {
-      askConfirm(btn, function () { switchBuild('auto'); }, false, {
-        q: 'Switch to Auto? It keeps your build\u2019s inputs and outputs, but may rearrange the machines in between.',
-        yes: 'Switch',
-        no: 'Cancel'
-      });
-      return;
-    }
-    if (next === 'custom' && !keptStillFits() && state.custom.nodes.length) {
-      askConfirm(btn, function () { switchBuild('custom'); }, false, {
-        q: 'Switch to Model? This plan will be laid out as cards, replacing your current model.',
-        yes: 'Switch',
-        no: 'Cancel'
-      });
-      return;
-    }
-    switchBuild(next);
-  });
-
-  /** Everything that shapes the Auto plan, to tell whether it's changed. */
-  function autoKey() {
-    return JSON.stringify(pick(state, ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal']));
-  }
-
-  /** Whether the kept custom build still goes with the Auto plan as it is now. */
-  function keptStillFits() {
-    return !!state.customKept && state.customKept.key === autoKey();
-  }
-
-  function switchBuild(next) {
+  /** Switches between Model and its two views. Nothing in the model changes. */
+  function setView(v) {
+    if (v === currentView()) return;
     closeAll();
     clearSelection();
     hideHoverInfo();
-    if (next === 'auto' && state.build === 'custom') {
-      if (state.custom.nodes.length) {
-        customToAuto();
-        // Coming straight back, with the plan untouched, restores this layout.
-        state.customKept = { custom: clone(state.custom), key: autoKey() };
-      }
-    } else if (next === 'custom' && state.build === 'auto') {
-      if (keptStillFits()) state.custom = clone(state.customKept.custom);
-      else if (state.targets.length) autoToCustom();
-      state.customKept = null;
+    if (v === 'model') {
+      state.build = 'custom';
+    } else {
+      state.build = 'auto';
+      state.mode = v;
     }
-    state.build = next;
     refreshModeSeg();
     refreshRecipeControls();
-    renderTargets();
     recompute();
     fitView();
     save();
   }
 
+  // One toggle like the others: pressing the view that's on goes back to
+  // Model, or from Model to the Item view.
+  viewSeg.addEventListener('click', function (e) {
+    var btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    var v = btn.dataset.view;
+    if (v === currentView()) v = v === 'model' ? 'items' : 'model';
+    setView(v);
+  });
+
   // Manifold: one belt past every machine, a splitter at each. Balancer: a
   // tree of splitters giving every machine exactly the same share.
-  var balanceSeg = document.getElementById('balance');
   balanceSeg.addEventListener('click', function (e) {
     var btn = e.target.closest('.seg-btn');
     if (!btn || btn.disabled) return;
@@ -5505,18 +5470,6 @@
       ? (state.balance === 'manifold' ? 'balancer' : 'manifold')
       : btn.dataset.balance;
     refreshModeSeg();
-    recompute();
-    fitView();
-  });
-
-  modeSeg.addEventListener('click', function (e) {
-    var btn = e.target.closest('.seg-btn');
-    if (!btn) return;
-    state.mode = btn.dataset.mode === state.mode
-      ? (state.mode === 'items' ? 'machines' : 'items')
-      : btn.dataset.mode;
-    refreshModeSeg();
-    closeAll();
     recompute();
     fitView();
   });
@@ -5654,10 +5607,14 @@
     var optimising = state.picker === 'optimise';
     markSeg(pickerSeg, 'picker', state.picker);
     markSeg(goalSeg, 'goal', state.goal);
-    // Custom keeps the alternates list: it limits what a placed machine can run.
-    optSettings.hidden = !optimising && state.build !== 'custom';
-    document.getElementById('picker-sub').textContent = state.build === 'custom' ? 'on each machine'
-      : optimising ? 'picked for you' : 'picked by you';
+    // The alternates list always shows: it limits what a card can run. What
+    // to aim for only matters to the optimiser.
+    optSettings.hidden = false;
+    optSettings.querySelector('.aim-head').hidden = !optimising;
+    goalSeg.hidden = !optimising;
+    optNote.hidden = !optimising;
+    document.getElementById('picker-sub').textContent = optimising ? 'picked for you' : 'on each machine';
+    if (flow) refreshRunButton();
     altCount.textContent = state.unlocked.length + ' of ' + UNLOCKABLE.length + ' ticked';
   }
 
@@ -5667,10 +5624,11 @@
       optNote.textContent = '';
       return;
     }
-    var used = Object.keys(solved.recipes).filter(unlockable);
+    var inUse = solved.custom ? flow.recipes : solved.recipes;
+    var used = Object.keys(inUse).filter(unlockable);
     var items = {};
     var mixed = 0;
-    Object.keys(solved.recipes).forEach(function (rid) {
+    Object.keys(inUse).forEach(function (rid) {
       var main = DATA.recipes[rid].out[0][0];
       items[main] = (items[main] || 0) + 1;
       if (items[main] === 2) mixed++;
@@ -5678,8 +5636,6 @@
     var bits = [];
     bits.push(used.length ? used.length + ' alternate' + (used.length === 1 ? '' : 's') + ' in use' : 'Standard recipes only');
     if (mixed) bits.push(mixed + ' item' + (mixed === 1 ? '' : 's') + ' made more than one way');
-    var pinned = Object.keys(state.recipes).length;
-    if (pinned) bits.push(pinned + ' pinned by you');
     optNote.textContent = bits.join(' · ') + '.';
   }
 
@@ -5779,6 +5735,14 @@
     '<path d="M10 6.7v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
     '<circle cx="10" cy="13.5" r="1.05" fill="currentColor"/></svg>';
   function isLogistic(n) { return n.type === 'splitter' || n.type === 'merger'; }
+
+  /** A card's building by its in-game name. */
+  function partName(n) {
+    if (n.type === 'splitter') return n.priority ? 'Smart Splitter' : 'Conveyor Splitter';
+    if (n.type === 'merger') return n.priority ? 'Priority Merger' : 'Conveyor Merger';
+    if (n.type === 'sink') return 'Storage Container';
+    return titleCase(n.type);
+  }
 
   function nodeRecipe(n) {
     return n.type === 'recipe' && DATA.recipes[n.recipe] ? DATA.recipes[n.recipe] : null;
@@ -5949,8 +5913,11 @@
       }
       if (n.type === 'merger') {
         var o1 = (outL[n.id] || [])[0];
+        if (!o1) return 0;
+        // A Priority Merger asks its top input for everything.
+        if (n.priority && inLink(n, 0)) return l.tk === 0 ? request(o1, depth + 1) : 0;
         var ins = (inL[n.id] || []).length || 1;
-        return o1 ? request(o1, depth + 1) / ins : 0;
+        return request(o1, depth + 1) / ins;
       }
       return 0;
     }
@@ -6050,8 +6017,14 @@
           // Branches to Storage only take the overflow.
           var main = branches.filter(function (l) { return !(byId[l.to] && byId[l.to].type === 'sink'); });
           var spill = branches.filter(function (l) { return byId[l.to] && byId[l.to].type === 'sink'; });
-          var shares = evenShare(F, main.map(function (l) { return accept(l); }));
           var left = F;
+          // A Smart Splitter fills its top output first; the rest overflow.
+          if (n.priority && main.length && main[0].fk === 0) {
+            var first = main.shift();
+            outs[0] = Math.min(F, accept(first));
+            left -= outs[0];
+          }
+          var shares = evenShare(left, main.map(function (l) { return accept(l); }));
           main.forEach(function (l, i) { outs[l.fk] = shares[i]; left -= shares[i]; });
           var spillShares = evenShare(Math.max(0, left), spill.map(function () { return Infinity; }));
           spill.forEach(function (l, i) { outs[l.fk] = spillShares[i]; });
@@ -6067,7 +6040,17 @@
           var o1 = (outL[n.id] || [])[0];
           var sent = o1 ? flowOf[o1.id] : 0;
           var total2 = outs[0] || 0;
-          if (total2 > sent + 1e-9) ins.forEach(function (l) { flowOf[l.id] *= total2 > 0 ? sent / total2 : 0; });
+          if (total2 > sent + 1e-9) {
+            var top = n.priority ? inLink(n, 0) : null;
+            if (top) {
+              var keep = Math.min(flowOf[top.id], sent);
+              var rest = total2 - flowOf[top.id];
+              flowOf[top.id] = keep;
+              ins.forEach(function (l) { if (l !== top) flowOf[l.id] *= rest > 0 ? (sent - keep) / rest : 0; });
+            } else {
+              ins.forEach(function (l) { flowOf[l.id] *= total2 > 0 ? sent / total2 : 0; });
+            }
+          }
         }
       });
     }
@@ -6150,7 +6133,9 @@
           it.cap += cap;
         }
         if (!lo) problem(n, itemName(n.item) + ' isn’t connected to anything');
-        else {
+        else if (!(byId[lo.to] && byId[lo.to].type === 'merger' && byId[lo.to].priority)) {
+          // (Into a Priority Merger, the other inputs make up any shortfall;
+          // a step left short says so itself.)
           var asked = request(lo, 0);
           if (asked > cap * (1 + 1e-3) + 1e-6) problem(n, itemName(n.item) + ': the steps ask for ' + fmtNum(asked) + '/min, but its nodes give ' + fmtNum(cap));
         }
@@ -6174,7 +6159,7 @@
         // One item per line: a splitter or merger can't mix them.
         var kinds = {};
         (inL[n.id] || []).concat(outL[n.id] || []).forEach(function (l) { if (itemOf[l.id]) kinds[itemOf[l.id]] = true; });
-        if (Object.keys(kinds).length > 1) problem(n, (n.type === 'splitter' ? 'A splitter' : 'A merger') + ' mixes ' + Object.keys(kinds).map(itemName).join(' and '));
+        if (Object.keys(kinds).length > 1) problem(n, 'A ' + partName(n) + ' mixes ' + Object.keys(kinds).map(itemName).join(' and '));
       }
       res.nodes[n.id] = st;
     });
@@ -6204,12 +6189,13 @@
     // In the order the game brings them in (see order in tools/extract-data.mjs).
     function progression(a, b) { return (DATA.items[a].order || 0) - (DATA.items[b].order || 0); }
     var sections = [
-      { head: 'Logistics', kinds: ['splitter', 'merger', 'sink'] },
+      { head: 'Logistics', kinds: ['splitter', 'smart', 'merger', 'priority', 'sink'] },
       { head: 'Resources', kinds: RAW_ITEMS.slice().sort(progression) },
       { head: 'Parts', kinds: PICKABLE.slice().sort(progression) }
     ];
-    var NAMES = { splitter: 'Splitter', merger: 'Merger', sink: 'Storage' };
-    var ICONS = { splitter: 'splitter', merger: 'merger', sink: 'storage' };
+    var NAMES = { splitter: 'Conveyor Splitter', smart: 'Smart Splitter', merger: 'Conveyor Merger',
+      priority: 'Priority Merger', sink: 'Storage Container' };
+    var ICONS = { splitter: 'splitter', smart: 'splitter', merger: 'merger', priority: 'merger', sink: 'storage' };
     sections.forEach(function (sec) {
       var wrap = document.createElement('div');
       wrap.className = 'pal-section';
@@ -6310,6 +6296,10 @@
     var n;
     if (kind === 'splitter' || kind === 'merger' || kind === 'sink') {
       n = { type: kind };
+    } else if (kind === 'smart') {
+      n = { type: 'splitter', priority: true };
+    } else if (kind === 'priority') {
+      n = { type: 'merger', priority: true };
     } else if (DATA.items[kind].raw) {
       n = { type: 'resource', item: kind, purity: 'normal', count: 1, clock: 1 };
       if (!isFluid(kind)) n.miner = availableMiner(state.defaultMiner);
@@ -6455,8 +6445,8 @@
     el.appendChild(body);
     if (isLogistic(n)) {
       var letter = document.createElement('span');
-      letter.className = 'cn-letter';
-      letter.textContent = n.type === 'splitter' ? 'S' : 'M';
+      letter.className = 'cn-letter' + (n.priority ? ' small' : '');
+      letter.textContent = n.type === 'splitter' ? (n.priority ? 'SS' : 'S') : (n.priority ? 'PM' : 'M');
       body.appendChild(letter);
     } else {
       var badge = document.createElement('span');
@@ -6503,7 +6493,8 @@
       side[1].forEach(function (item, k) {
         var shown = item || slotItem(n, side[0], k);
         var slot = document.createElement('div');
-        slot.className = 'cn-slot ' + side[0] + (shown && isFluid(shown) ? ' fluid' : '') + (linkOn(n, side[0], k) ? ' linked' : '');
+        slot.className = 'cn-slot ' + side[0] + (shown && isFluid(shown) ? ' fluid' : '') + (linkOn(n, side[0], k) ? ' linked' : '') +
+          (n.priority && k === 0 && side[0] === (n.type === 'splitter' ? 'out' : 'in') ? ' prio' : '');
         slot.dataset.node = n.id;
         slot.dataset.side = side[0];
         slot.dataset.k = k;
@@ -6557,7 +6548,7 @@
       flag.addEventListener('pointerleave', hideHoverInfo);
       el.appendChild(flag);
     }
-    el.setAttribute('aria-label', n.item ? itemName(n.item) : n.type);
+    el.setAttribute('aria-label', n.item ? itemName(n.item) : partName(n));
     el.addEventListener('pointerdown', function (e) { dragCard(el, n, e); });
     el.addEventListener('contextmenu', function (e) {
       e.preventDefault();
@@ -6810,13 +6801,19 @@
           run: make(from.side === 'out' ? r.out[0][0] : item, rid)
         });
       });
-      if (from.side === 'out') items.push({ label: 'Storage', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
+      if (from.side === 'out') items.push({ label: 'Storage Container', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
     }
     items.push('-');
     if (item && from.side === 'in') {
       items.push({ label: 'Import', note: 'From outside this build', icon: iconOf(item), run: make(item, null, { type: 'import', rate: 60 }) });
     }
-    items.push({ label: from.side === 'out' ? 'Splitter' : 'Merger', icon: iconOf(from.side === 'out' ? 'splitter' : 'merger'), run: make(from.side === 'out' ? 'splitter' : 'merger') });
+    if (from.side === 'out') {
+      items.push({ label: 'Conveyor Splitter', note: 'Shares evenly', icon: iconOf('splitter'), run: make('splitter') });
+      items.push({ label: 'Smart Splitter', note: 'Top output first, the rest overflow', icon: iconOf('splitter'), run: make('smart') });
+    } else {
+      items.push({ label: 'Conveyor Merger', note: 'Joins evenly', icon: iconOf('merger'), run: make('merger') });
+      items.push({ label: 'Priority Merger', note: 'Top input first', icon: iconOf('merger'), run: make('priority') });
+    }
     openCtx(cx, cy, items);
     if (dropped) changed();
   }
@@ -6883,7 +6880,7 @@
     if (n.item) return itemName(n.item);
     var r = nodeRecipe(n);
     if (r) return itemName(r.out[0][0]);
-    return n.type === 'sink' ? 'Storage' : titleCase(n.type);
+    return partName(n);
   }
 
   /** The selected card's settings and rates. */
@@ -6904,7 +6901,7 @@
     img.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type));
     var title = document.createElement('span');
     title.className = 'sum-group-name';
-    title.textContent = n.item ? itemName(n.item) : n.type === 'sink' ? 'Storage' : titleCase(n.type);
+    title.textContent = n.item ? itemName(n.item) : partName(n);
     head.appendChild(img);
     head.appendChild(title);
     box.appendChild(head);
@@ -7033,49 +7030,51 @@
       field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = Math.max(0, v || 0); changed(); }));
       note('Brought in from outside this build, like a train or truck delivery.');
     } else {
-      note(n.type === 'splitter' ? 'Shares what comes in evenly across its outputs; anything a branch can’t take goes to the others.'
+      note(n.type === 'splitter' && n.priority ? 'Its top output takes all it can; what it can’t take is shared by the others, as the game’s Overflow setting does.'
+        : n.type === 'splitter' ? 'Shares what comes in evenly across its outputs; anything a branch can’t take goes to the others.'
+        : n.type === 'merger' && n.priority ? 'Joins up to three lines into one, its top input first: when the line out is full, the others back up.'
         : n.type === 'merger' ? 'Joins up to three lines into one.'
         : 'Collects whatever reaches it. From a splitter, it only takes what the other branches leave.');
     }
     inspectorEl.appendChild(box);
   }
 
-  /* ---- Custom <-> Auto ---- */
+  /* ---- the model's plan, and rebuilding the model ---- */
 
   /**
-   * The custom build as an Auto plan: what's collected (in Storage, or left
-   * at a step's main output) becomes the outputs, resource nodes become
-   * resource nodes, recipes become recipe picks, and what's brought in
-   * becomes imports. Auto then lays out the steps in between its own way.
+   * The model as a plan, written to state.targets, supply, imports and
+   * recipes: what the Item and Machine views draw, and what Optimize and
+   * Build aim for. Outputs are the surplus of what the steps are for;
+   * resource nodes and imports are the inputs; each item's recipes, the
+   * recipe picks.
    */
-  function customToAuto() {
-    var f = customFlow();
-    var byItem = {};
+  function syncPlan(f) {
+    f = f || customFlow();
+    // What the steps make, less what they use, at the counts they're sized
+    // for (not what a short supply lets through, or a rebuild would aim
+    // lower each time). A surplus of an item some step is for is an output;
+    // one only made on the side is spare.
+    var net = {}, mainOf = {};
     state.custom.nodes.forEach(function (n) {
       var r = nodeRecipe(n);
-      if (r) {
-        var st = f.nodes[n.id];
-        slotsOf(n).outs.forEach(function (item, k) {
-          if (k === 0 && !linkOn(n, 'out', k) && st.outs[k] > 1e-6) byItem[item] = (byItem[item] || 0) + st.outs[k];
-        });
-      }
-      if (n.type === 'sink') {
-        var l = linkOn(n, 'in', 0);
-        var it = l && f.links[l.id] && f.links[l.id].item;
-        // A byproduct in Storage is Auto's spare, not an output.
-        var mainSomewhere = state.custom.nodes.some(function (m) { var q = nodeRecipe(m); return q && q.out[0][0] === it; }) ||
-          state.custom.nodes.some(function (m) { return (m.type === 'resource' || m.type === 'import') && m.item === it; });
-        if (it && mainSomewhere && f.links[l.id].total > 1e-6) byItem[it] = (byItem[it] || 0) + f.links[l.id].total;
-      }
+      var st = f.nodes[n.id];
+      if (!r || !st) return;
+      mainOf[r.out[0][0]] = true;
+      var per = SOLVER.perMinute(r);
+      Object.keys(per).forEach(function (id) { net[id] = (net[id] || 0) + per[id] * st.count; });
+    });
+    var byItem = {};
+    Object.keys(net).forEach(function (id) {
+      if (mainOf[id] && net[id] > 1e-4) byItem[id] = net[id];
     });
     var supply = {}, imports = {}, mixes = {};
     state.custom.nodes.forEach(function (n) {
       if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
-        var s = supply[n.item] || (supply[n.item] = { nodes: [] });
+        var sp = supply[n.item] || (supply[n.item] = { nodes: [] });
         for (var i = 0; i < (n.count || 1); i++) {
           var node = { purity: n.purity || 'normal' };
           if (!isFluid(n.item)) node.miner = extractorOf(n);
-          s.nodes.push(node);
+          sp.nodes.push(node);
         }
       }
       if (n.type === 'import') imports[n.item] = true;
@@ -7083,7 +7082,7 @@
       if (r) {
         var main = r.out[0][0];
         var m = mixes[main] || (mixes[main] = {});
-        m[n.recipe] = (m[n.recipe] || 0) + Math.max(0.0001, f.nodes[n.id].count || 1);
+        m[n.recipe] = (m[n.recipe] || 0) + Math.max(0.0001, (f.nodes[n.id] && f.nodes[n.id].count) || 1);
       }
     });
     var recipes = {};
@@ -7091,14 +7090,156 @@
       var rids = Object.keys(mixes[id]);
       recipes[id] = rids.length === 1 ? rids[0] : mixes[id];
     });
-    state.targets = Object.keys(byItem).map(function (id) { return { item: id, rate: Number(byItem[id].toFixed(4)) }; });
+    state.targets = Object.keys(byItem).sort().map(function (id) { return { item: id, rate: Number(byItem[id].toFixed(4)) }; });
     state.supply = supply;
     state.imports = imports;
     state.recipes = recipes;
   }
 
   /**
-   * The Auto plan as cards: resources and imports on the left, one card per
+   * Everything a rebuild depends on, as one string: the outputs, what's
+   * brought in, the recipes in use (with I pick), and the recipe settings.
+   * When it matches the one saved at the last rebuild, the model is as
+   * Optimize (or Build) left it.
+   */
+  function planKey() {
+    var optimising = state.picker === 'optimise';
+    return JSON.stringify({
+      t: state.targets.map(function (t) { return t.item + '@' + Number(t.rate.toPrecision(4)); }),
+      i: Object.keys(state.imports).sort(),
+      r: optimising ? null : state.recipes,
+      p: state.picker,
+      g: optimising ? state.goal : null,
+      a: optimising ? state.unlocked.slice().sort() : null,
+      u: state.unavailable.slice().sort()
+    });
+  }
+
+  /**
+   * Rebuilds the model's machines for its outputs: the optimiser's pick of
+   * recipes (Optimise), or the ones already in the model and the standard
+   * ones for the rest (I pick). Resource nodes are added as needed, at the
+   * purity and miner the model already uses for that resource. Returns
+   * false when there's nothing to aim for.
+   */
+  function buildModel() {
+    if (state.custom.nodes.length) syncPlan();
+    if (!state.targets.length) return false;
+    var targets = state.targets.map(function (t) { return { item: t.item, rate: t.rate }; });
+    // How the model mines each resource, kept for the new nodes.
+    var how = {};
+    state.custom.nodes.forEach(function (n) {
+      if (n.type === 'resource' && !how[n.item]) how[n.item] = { purity: n.purity || 'normal', miner: n.miner, clock: n.clock || 1 };
+    });
+    // An old plan's resource settings count too.
+    Object.keys(state.supply).forEach(function (id) {
+      var sp = state.supply[id];
+      if (!how[id] && sp && sp.nodes && sp.nodes.length) how[id] = { purity: sp.nodes[0].purity, miner: sp.nodes[0].miner || sp.miner, clock: 1 };
+    });
+    // Resources aren't capped: the new model gets the nodes it needs.
+    state.supply = {};
+    var built = buildablePlan(state.picker !== 'optimise');
+    var plan = { targets: targets, recipes: built.recipes, imports: built.imports, caps: {} };
+    solved = null;
+    if (state.picker === 'optimise') {
+      plan.pins = {};
+      solved = OPTIMISE.solveOptimised(DATA, plan, { goal: state.goal, allowed: recipeAllowed, built: canBuild });
+    }
+    if (!solved) {
+      plan.recipes = buildablePlan(true).recipes;
+      solved = SOLVER.solve(DATA, plan);
+    }
+    autoToCustom();
+    // Each resource's card mines the way the model did, with as many nodes
+    // as the new plan takes.
+    state.custom.nodes.forEach(function (n) {
+      if (n.type !== 'resource') return;
+      if (how[n.item]) {
+        n.purity = how[n.item].purity;
+        if (how[n.item].miner && !isFluid(n.item)) n.miner = how[n.item].miner;
+        n.clock = how[n.item].clock;
+      }
+      var e = solved.items[n.item];
+      var one = resourceCap(Object.assign({}, n, { count: 1 }));
+      if (e && one > 0) n.count = Math.max(1, Math.ceil(e.supplied / one - 1e-6));
+    });
+    state.pins = {};
+    keyAfterRender = true;
+    return true;
+  }
+
+  // Set by buildModel: the next Model redraw records the new planKey.
+  var keyAfterRender = false;
+
+  var runBtn = document.getElementById('opt-run');
+  var runNeed = document.getElementById('opt-need');
+
+  /** "Optimize", "Optimized" or "Reoptimize" (Build, Built, Rebuild with I pick). */
+  function refreshRunButton() {
+    var optimising = state.picker === 'optimise';
+    var none = !state.targets.length;
+    var key = none ? null : planKey();
+    var fresh = !!key && state.optKey === key;
+    var again = !!state.optKey && !fresh;
+    runBtn.textContent = optimising
+      ? (fresh ? 'Optimized' : again ? 'Reoptimize' : 'Optimize')
+      : (fresh ? 'Built' : again ? 'Rebuild' : 'Build');
+    runBtn.classList.toggle('done', fresh);
+    runBtn.disabled = none;
+    runNeed.hidden = !none;
+    runNeed.textContent = 'You need an output in order to ' + (optimising ? 'optimize.' : 'build.');
+  }
+
+  runBtn.addEventListener('click', function () {
+    if (!state.targets.length) return;
+    var optimising = state.picker === 'optimise';
+    var go = function () {
+      if (!buildModel()) return;
+      clearSelection();
+      changed();
+      fitView();
+    };
+    if (!state.custom.nodes.length) { go(); return; }
+    askConfirm(runBtn, go, false, {
+      q: (optimising ? 'Optimize' : 'Rebuild') + ' your model? It keeps your outputs and replaces the machines in between.',
+      yes: optimising ? 'Optimize' : 'Rebuild',
+      no: 'Cancel'
+    });
+  });
+
+  /**
+   * A new output: in an empty model, its whole chain is built straight
+   * away; otherwise its step is placed to the right of everything, set to
+   * make the usual starting rate, for Optimize (or you) to feed.
+   */
+  function addModelOutput(id) {
+    if (!state.custom.nodes.length) {
+      state.targets = [{ item: id, rate: NEW_TARGET_RATE }];
+      state.imports = {};
+      state.recipes = {};
+      if (buildModel()) {
+        changed();
+        fitView();
+      }
+      return;
+    }
+    var right = -Infinity, top = Infinity;
+    customBoxes().forEach(function (b) { right = Math.max(right, b.x + b.w); top = Math.min(top, b.y); });
+    var n = newNode(id, 0, 0);
+    n.x = Math.round(right + 140);
+    n.y = Math.round(top);
+    var r = nodeRecipe(n);
+    if (r) {
+      var per = SOLVER.perMinute(r)[r.out[0][0]] || 1;
+      n.set = true;
+      n.count = NEW_TARGET_RATE / per;
+    }
+    selectOnly(n.id);
+    changed();
+  }
+
+  /**
+   * The solved plan as cards: resources and imports on the left, one card per
    * step (Set to the plan's count) in columns by how far it is from the raw
    * resources, Storage for the outputs and spares. Lines pair producers with
    * consumers, through splitters and mergers where one feeds several.
@@ -7211,14 +7352,20 @@
       if (!C.length) return;
       var pairs = [];
       var pi = 0, ci = 0, pl = P[0].rate, cl = C[0].rate;
+      // What's left under a ten-thousandth of a rate is rounding, not a
+      // share of its own (the optimiser's figures are seldom exact).
+      function spent(left, all) { return left <= Math.max(1e-6, all * 1e-4); }
+      var paired = {};
       while (pi < P.length && ci < C.length) {
         var q = Math.min(pl, cl);
         pairs.push({ p: P[pi], c: C[ci] });
+        paired[ci] = true;
         pl -= q; cl -= q;
-        if (pl <= 1e-6) { pi++; pl = P[pi] ? P[pi].rate : 0; }
-        if (cl <= 1e-6) { ci++; cl = C[ci] ? C[ci].rate : 0; }
+        if (spent(pl, P[pi].rate)) { pi++; pl = P[pi] ? P[pi].rate : 0; }
+        if (spent(cl, C[ci].rate)) { ci++; cl = C[ci] ? C[ci].rate : 0; }
       }
-      for (; ci < C.length; ci++) pairs.push({ p: P[P.length - 1], c: C[ci] });
+      // Anything still wanting some takes it from the last producer.
+      for (; ci < C.length; ci++) if (!paired[ci]) pairs.push({ p: P[P.length - 1], c: C[ci] });
       var from = [], to = [];
       var byP = new Map(), byC = new Map();
       pairs.forEach(function (pr, i) {
@@ -7274,6 +7421,11 @@
   /** Custom's canvas: the cards and lines, and the panel worked out from them. */
   function renderCustomView() {
     flow = customFlow();
+    syncPlan(flow);
+    if (keyAfterRender) {
+      keyAfterRender = false;
+      state.optKey = state.targets.length ? planKey() : null;
+    }
     solved = { recipes: {}, items: flow.items, targets: flow.outputs, flows: [], custom: true };
     graph = { nodes: [], edges: [], byKey: {} };
     errorEl.hidden = true;
@@ -7289,6 +7441,7 @@
     renderPalette();
     renderBreakdown();
     refreshOptNote();
+    refreshRunButton();
     refreshEmptyHint();
   }
 
