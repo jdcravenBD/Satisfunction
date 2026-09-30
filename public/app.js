@@ -3569,11 +3569,18 @@
   }
 
   // Delete removes the selection; Escape lets it go; Ctrl+A takes every node.
-  // In Custom, Ctrl+C, X and V copy, cut and paste cards.
+  // In Custom, Ctrl+C, X and V copy, cut and paste cards; V, P, E and T pick
+  // the select, pencil, eraser and text tools.
   document.addEventListener('keydown', function (e) {
     var el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
     if (state.build === 'custom') {
+      var keyTool = { v: 'select', p: 'pencil', e: 'eraser', t: 'note' }[e.key.toLowerCase()];
+      if (keyTool && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setTool(keyTool);
+        return;
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedParts().length || selectedLinks().length)) {
         e.preventDefault();
         removeParts(selectedParts(), selectedLinks());
@@ -4885,7 +4892,15 @@
     // build recipes. Belts, pipes and foundations aren't counted.
     var cost = buildCost();
     var costIds = Object.keys(cost.items).sort(function (a, b) { return cost.items[b] - cost.items[a]; });
-    rows = costIds.map(function (id) { return row(itemName(id), '', fmtNum(cost.items[id])); });
+    rows = costIds.map(function (id) {
+      var r = row(itemName(id), '', fmtNum(cost.items[id]));
+      var ic = document.createElement('img');
+      ic.className = 'row-icon';
+      ic.src = iconOf(id);
+      ic.alt = '';
+      r.insertBefore(ic, r.firstChild);
+      return r;
+    });
     if (costIds.length) {
       var q = quietRow('Not counting belts, pipes or foundations');
       rows.push(q);
@@ -6342,8 +6357,17 @@
   // drop a note. Notes and drawings are saved with the model and only show
   // there.
   var inkEl = document.getElementById('ink');
+
+  // The canvas clips rather than scrolls, but focusing something near its
+  // edge (a note) can still scroll it; that would shift everything, so any
+  // scroll is put straight back.
+  stage.addEventListener('scroll', function () {
+    if (stage.scrollLeft || stage.scrollTop) { stage.scrollLeft = 0; stage.scrollTop = 0; }
+  });
   var toolsEl = document.getElementById('model-tools');
   var tool = 'select';
+  var PEN = 5;     // pencil width on screen, px (its cursor is a circle this size)
+  var RUB = 9;     // eraser reach from the pointer, px (its cursor is a square twice this)
 
   function setTool(t) {
     tool = t;
@@ -6387,57 +6411,66 @@
     (state.custom.notes || []).forEach(function (n) { world.appendChild(noteEl(n)); });
   }
 
-  /** A note: a bar to drag it by (with a ×), and its text, which grows as you type. */
+  /**
+   * A note: white text in a thin outline, the box growing with what's typed.
+   * Click the text to type; drag by the outline around it. A note left empty
+   * goes away.
+   */
   function noteEl(n) {
     var el = document.createElement('div');
     el.className = 'cnote';
     el.dataset.id = n.id;
     el.style.left = n.x + 'px';
     el.style.top = n.y + 'px';
-    var bar = document.createElement('div');
-    bar.className = 'cnote-bar';
-    var x = document.createElement('button');
-    x.type = 'button';
-    x.className = 'cnote-x';
-    x.setAttribute('aria-label', 'Remove note');
-    x.textContent = '×';
-    bar.appendChild(x);
-    el.appendChild(bar);
     var text = document.createElement('textarea');
     text.className = 'cnote-text';
     text.value = n.text || '';
-    text.placeholder = 'Write a note';
+    text.placeholder = 'Text';
     text.spellcheck = false;
+    text.rows = 1;
     el.appendChild(text);
-    function fit() { text.style.height = 'auto'; text.style.height = text.scrollHeight + 'px'; }
+    function fit() {
+      // Browsers without field-sizing grow it by hand.
+      if (CSS.supports && CSS.supports('field-sizing', 'content')) return;
+      text.style.height = 'auto';
+      text.style.height = text.scrollHeight + 'px';
+    }
     requestAnimationFrame(fit);
-    text.addEventListener('input', function () { n.text = text.value; fit(); save(); });
-    text.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
-    x.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
-    x.addEventListener('click', function () {
-      state.custom.notes = state.custom.notes.filter(function (m) { return m !== n; });
+    // The note as it is in the model now (a redraw or undo may have swapped the object).
+    function live() { return (state.custom.notes || []).filter(function (m) { return m.id === n.id; })[0]; }
+    function remove() {
+      state.custom.notes = (state.custom.notes || []).filter(function (m) { return m.id !== n.id; });
       changed();
+    }
+    text.addEventListener('input', function () { var m = live(); if (m) m.text = text.value; fit(); save(); });
+    text.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    text.addEventListener('blur', function () {
+      if (!text.value.trim() && live()) remove();
     });
-    bar.addEventListener('pointerdown', function (e) {
-      if (e.button !== 0) return;
+    text.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.stopPropagation(); text.blur(); }
+    });
+    el.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0 || e.target === text) return;
       e.preventDefault();
       e.stopPropagation();
       closeAll();
-      var sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y, moved = false;
+      var m = live() || n;
+      var sx = e.clientX, sy = e.clientY, ox = m.x, oy = m.y, moved = false;
       function move(ev) {
         var dx = (ev.clientX - sx) / state.view.s, dy = (ev.clientY - sy) / state.view.s;
         if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
         moved = true;
-        n.x = Math.round(ox + dx);
-        n.y = Math.round(oy + dy);
-        el.style.left = n.x + 'px';
-        el.style.top = n.y + 'px';
+        m.x = Math.round(ox + dx);
+        m.y = Math.round(oy + dy);
+        el.style.left = m.x + 'px';
+        el.style.top = m.y + 'px';
       }
       function up() {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         window.removeEventListener('pointercancel', up);
-        if (moved) save();
+        if (moved) save(); else text.focus({ preventScroll: true });
       }
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
@@ -6449,8 +6482,8 @@
       if (e.target === text) return;
       closeAll();
       openCtx(e.clientX, e.clientY, [
-        { head: 'Note' },
-        { label: 'Remove', run: function () { x.click(); } }
+        { head: 'Text' },
+        { label: 'Remove', run: remove }
       ]);
     });
     return el;
@@ -6462,7 +6495,7 @@
     state.custom.notes = (state.custom.notes || []).concat([n]);
     changed();
     var el = world.querySelector('.cnote[data-id="' + n.id + '"] .cnote-text');
-    if (el) el.focus();
+    if (el) el.focus({ preventScroll: true });
   }
 
   // With the pencil, eraser or note tool, a press on the canvas (cards
@@ -6483,7 +6516,7 @@
     if (tool === 'pencil') {
       var pts = [Math.round(w.x), Math.round(w.y)];
       // As thick as it looks now, whatever the zoom: it scales with the canvas after.
-      var width = Math.round(3 / state.view.s * 100) / 100;
+      var width = Math.round(PEN / state.view.s * 100) / 100;
       var live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       live.setAttribute('class', 'ink-stroke live');
       live.style.strokeWidth = width + 'px';
@@ -6513,11 +6546,11 @@
     var gone = {};
     var rub = function (ev) {
       var p = toWorld(ev.clientX, ev.clientY);
-      var r = 10 / state.view.s;
+      var r = RUB / state.view.s;
       (state.custom.strokes || []).forEach(function (k) {
         if (gone[k.id]) return;
         for (var i = 0; i < k.pts.length; i += 2) {
-          if (Math.hypot(k.pts[i] - p.x, k.pts[i + 1] - p.y) <= r) {
+          if (Math.abs(k.pts[i] - p.x) <= r && Math.abs(k.pts[i + 1] - p.y) <= r) {
             gone[k.id] = true;
             var el = inkEl.querySelector('[data-id="' + k.id + '"]');
             if (el) el.remove();
@@ -7476,9 +7509,17 @@
     var scale = document.createElement('div');
     scale.className = 'clk-scale';
     [1].concat(marks).forEach(function (v) {
-      var l = document.createElement('span');
+      var l = document.createElement('button');
+      l.type = 'button';
       l.textContent = (v === 1 ? 0 : v) + '%';
       l.style.left = at(v);
+      // Pressing a mark snaps to it (0% is as low as the game goes: 1%).
+      l.addEventListener('click', function () {
+        range.value = v;
+        num.value = v;
+        paint(v);
+        onSet(v / 100);
+      });
       scale.appendChild(l);
       labels.push({ el: l, v: v });
     });
