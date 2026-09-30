@@ -802,6 +802,8 @@
     var v = state.view;
     world.style.transform =
       'translate(' + v.x + 'px,' + v.y + 'px) scale(' + v.s + ')';
+    // Pencil lines and text outlines stay the same width on screen at any zoom.
+    world.style.setProperty('--zoom', v.s);
 
     // Drag the plus field along with the nodes, and scale it with the zoom,
     // so the canvas reads as one surface rather than a fixed backdrop. In the
@@ -3784,16 +3786,18 @@
     }
 
     try { stage.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
-    stage.classList.add('panning');
-
     // Panning is applied incrementally from the previous pointer position, so
-    // a wheel-zoom mid-drag doesn't make the view lurch.
+    // a wheel-zoom mid-drag doesn't make the view lurch. The hand shows once
+    // it's really moving, not on a plain click.
     var lastX = e.clientX;
     var lastY = e.clientY;
     var panStartX = e.clientX;
     var panStartY = e.clientY;
 
     function onMove(ev) {
+      if (!stage.classList.contains('panning') && Math.abs(ev.clientX - panStartX) + Math.abs(ev.clientY - panStartY) >= 3) {
+        stage.classList.add('panning');
+      }
       state.view.x += ev.clientX - lastX;
       state.view.y += ev.clientY - lastY;
       lastX = ev.clientX;
@@ -6367,7 +6371,7 @@
   var toolsEl = document.getElementById('model-tools');
   var tool = 'select';
   var PEN = 5;     // pencil width on screen, px (its cursor is a circle this size)
-  var RUB = 6;     // eraser reach from the pointer, px (its cursor is a square twice this)
+  var RUB = 4;     // eraser reach from the pointer, px (its cursor is a square twice this)
 
   function setTool(t) {
     tool = t;
@@ -6400,7 +6404,6 @@
       var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute('d', inkPath(k.pts));
       p.setAttribute('class', 'ink-stroke');
-      p.style.strokeWidth = (k.w || 3) + 'px';
       p.dataset.id = k.id;
       inkEl.appendChild(p);
     });
@@ -6451,7 +6454,12 @@
       if (!text.value.trim() && live()) remove();
     });
     text.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { e.stopPropagation(); text.blur(); }
+      // Enter finishes; Shift+Enter starts a new line.
+      if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        text.blur();
+      }
     });
     // Otherwise a press anywhere on it drags it, or, if it doesn't move,
     // starts typing at the end.
@@ -6464,8 +6472,8 @@
       var sx = e.clientX, sy = e.clientY, ox = m.x, oy = m.y, moved = false;
       function move(ev) {
         var dx = (ev.clientX - sx) / state.view.s, dy = (ev.clientY - sy) / state.view.s;
-        if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
-        if (!moved) stage.classList.add('moving-note');
+        if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 3) return;
+        if (!moved) { stage.classList.add('moving-note'); el.classList.add('moving'); }
         moved = true;
         m.x = Math.round(ox + dx);
         m.y = Math.round(oy + dy);
@@ -6477,9 +6485,11 @@
         window.removeEventListener('pointerup', up);
         window.removeEventListener('pointercancel', up);
         stage.classList.remove('moving-note');
+        el.classList.remove('moving');
         if (moved) { save(); return; }
+        var at = caretAt(text, sx, sy);
         text.focus({ preventScroll: true });
-        text.setSelectionRange(text.value.length, text.value.length);
+        text.setSelectionRange(at, at);
       }
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
@@ -6496,6 +6506,33 @@
       ]);
     });
     return el;
+  }
+
+  /**
+   * Where in a text box's text a screen point falls: its line from the
+   * height, then the nearest gap between letters along it, measured in the
+   * box's own font (the canvas zoom taken out).
+   */
+  var measureCtx = null;
+  function caretAt(ta, x, y) {
+    var cs = getComputedStyle(ta);
+    var r = ta.getBoundingClientRect();
+    var z = state.view.s;
+    var lx = (x - r.left) / z - parseFloat(cs.paddingLeft);
+    var ly = (y - r.top) / z - parseFloat(cs.paddingTop);
+    var lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.25;
+    var lines = ta.value.split('\n');
+    var row = clamp(Math.floor(ly / lh), 0, lines.length - 1);
+    measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+    measureCtx.font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    var line = lines[row], col = line.length;
+    for (var i = 0; i < line.length; i++) {
+      var mid = (measureCtx.measureText(line.slice(0, i)).width + measureCtx.measureText(line.slice(0, i + 1)).width) / 2;
+      if (lx < mid) { col = i; break; }
+    }
+    var at = col;
+    for (var j = 0; j < row; j++) at += lines[j].length + 1;
+    return at;
   }
 
   /** A new note at a point on the canvas, ready to type in. */
@@ -6524,11 +6561,8 @@
     try { stage.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
     if (tool === 'pencil') {
       var pts = [Math.round(w.x), Math.round(w.y)];
-      // As thick as it looks now, whatever the zoom: it scales with the canvas after.
-      var width = Math.round(PEN / state.view.s * 100) / 100;
       var live = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       live.setAttribute('class', 'ink-stroke live');
-      live.style.strokeWidth = width + 'px';
       inkEl.appendChild(live);
       var draw = function (ev) {
         var p = toWorld(ev.clientX, ev.clientY);
@@ -6543,7 +6577,7 @@
         stage.removeEventListener('pointerup', done);
         stage.removeEventListener('pointercancel', done);
         if (pts.length < 4) pts.push(pts[0] + 1, pts[1]);  // a dot
-        state.custom.strokes = (state.custom.strokes || []).concat([{ id: 'k' + uid(), pts: pts, w: width }]);
+        state.custom.strokes = (state.custom.strokes || []).concat([{ id: 'k' + uid(), pts: pts }]);
         changed();
       };
       stage.addEventListener('pointermove', draw);
@@ -6669,17 +6703,37 @@
     if (palette.dataset.built) { filterPalette(); return; }
     palette.dataset.built = '1';
     palette.innerHTML = '';
+    // The title and search stay at the top while the items scroll under them.
+    var top = document.createElement('div');
+    top.className = 'pal-top';
     var title = document.createElement('div');
     title.className = 'pal-title';
     title.textContent = 'Items';
-    palette.appendChild(title);
+    top.appendChild(title);
+    var field = document.createElement('div');
+    field.className = 'pal-field';
     var search = document.createElement('input');
     search.type = 'text';
     search.className = 'pal-search';
     search.placeholder = 'Search items';
     search.spellcheck = false;
-    search.addEventListener('input', function () { palQuery = search.value.trim().toLowerCase(); filterPalette(); });
-    palette.appendChild(search);
+    var clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'pal-clear';
+    clear.setAttribute('aria-label', 'Clear the search');
+    clear.textContent = '×';
+    clear.hidden = true;
+    function query() {
+      palQuery = search.value.trim().toLowerCase();
+      clear.hidden = !search.value;
+      filterPalette();
+    }
+    search.addEventListener('input', query);
+    clear.addEventListener('click', function () { search.value = ''; query(); search.focus(); });
+    field.appendChild(search);
+    field.appendChild(clear);
+    top.appendChild(field);
+    palette.appendChild(top);
     // In the order the game brings them in (see order in tools/extract-data.mjs).
     function progression(a, b) { return (DATA.items[a].order || 0) - (DATA.items[b].order || 0); }
     var sections = [
@@ -7374,13 +7428,12 @@
         var taken = requestsOf(f.id).filter(function (r) { return r.item === item; }).reduce(function (sum, r) { return sum + r.rate; }, 0);
         var left = Math.max(0, makes - taken);
         items.push({
-          label: 'Import from ' + factoryLabel(f), note: fmtNum(left) + ' of ' + rateText(item, makes) + ' free', icon: iconOf(item),
+          label: 'Import from \u201c' + factoryLabel(f) + '\u201d', note: fmtNum(left) + ' of ' + rateText(item, makes) + ' free', icon: iconOf(item),
           run: make(item, null, { type: 'import', rate: Number((left || makes).toFixed(4)), from: f.id })
         });
       });
     }
     if (from.side === 'out') {
-      if (item) items.push({ label: 'Storage Container', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
       items.push({ label: 'Splitter', note: 'Shares evenly', icon: iconOf('splitter'), run: make('splitter') });
       items.push({ label: 'Smart Splitter', note: 'Top output first, the rest overflow', icon: iconOf('splitter'), run: make('smart') });
     } else {

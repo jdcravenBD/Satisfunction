@@ -2684,8 +2684,9 @@ body:not(.model-canvas) #add-target { display: none; }
 .mt-btn[data-tool="pencil"] { --tool: 240, 150, 70; }
 .mt-btn[data-tool="eraser"] { --tool: 232, 92, 84; }
 .mt-btn[data-tool="note"]   { --tool: 110, 165, 240; }
-.mt-btn { color: rgba(var(--tool), .7); }
+.mt-btn { color: rgba(255, 255, 255, .82); }
 .mt-btn:hover { color: rgb(var(--tool)); }
+.mt-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--edge-hi); }
 .mt-btn.on { color: rgb(var(--tool)); background: rgba(var(--tool), .2); }
 /* What the tool is and its key, under it on hover. */
 .mt-tip {
@@ -2707,14 +2708,14 @@ body:not(.model-canvas) #add-target { display: none; }
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity .12s ease .25s, transform .12s ease .25s, visibility 0s linear .37s;
+  transition: opacity .12s ease .7s, transform .12s ease .7s, visibility 0s linear .82s;
 }
 .mt-btn:first-child .mt-tip { left: 0; transform: translate(0, -3px); }
 .mt-btn:hover .mt-tip {
   opacity: 1;
   visibility: visible;
   transform: translate(-50%, 0);
-  transition: opacity .12s ease .25s, transform .12s ease .25s, visibility 0s linear .25s;
+  transition: opacity .12s ease .7s, transform .12s ease .7s, visibility 0s linear .7s;
 }
 .mt-btn:first-child:hover .mt-tip { transform: translate(0, 0); }
 .mt-tip kbd {
@@ -2735,7 +2736,7 @@ body:not(.model-canvas) #add-target { display: none; }
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Ccircle cx='6' cy='6' r='3.5' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Ccircle cx='6' cy='6' r='2.5' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 6 6, crosshair;
 }
 #stage.tool-eraser, #stage.tool-eraser * {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect x='1.5' y='1.5' width='13' height='13' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Crect x='2.5' y='2.5' width='11' height='11' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 8 8, cell;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Crect x='1.5' y='1.5' width='9' height='9' fill='none' stroke='%23000' stroke-opacity='.55' stroke-width='1'/%3E%3Crect x='2.5' y='2.5' width='7' height='7' fill='none' stroke='%23fff' stroke-width='1'/%3E%3C/svg%3E") 6 6, cell;
 }
 #stage.tool-note, #stage.tool-note * { cursor: text; }
 
@@ -2748,7 +2749,8 @@ body:not(.model-canvas) #add-target { display: none; }
   pointer-events: none;
   z-index: 5;
 }
-.ink-stroke { fill: none; stroke: #f4f4f4; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+/* 5px on screen whatever the zoom (--zoom is set on the world). */
+.ink-stroke { fill: none; stroke: #f4f4f4; stroke-width: calc(5px / var(--zoom, 1)); stroke-linecap: round; stroke-linejoin: round; }
 .ink-stroke.live { opacity: .85; }
 
 /* Text on the canvas: white, no background, a thin square outline that
@@ -2757,9 +2759,11 @@ body:not(.model-canvas) #add-target { display: none; }
   position: absolute;
   z-index: 4;
   padding: 5px;
-  border: 1px solid transparent;
+  /* One screen pixel at any zoom: a fraction of a pixel smears as it moves. */
+  border: calc(1px / var(--zoom, 1)) solid transparent;
   transition: border-color .12s ease;
 }
+.cnote.moving { transition: none; border-color: #fff; }
 .cnote:hover, .cnote:focus-within { border-color: #fff; }
 /* The arrow over text until it's being typed in; the closed hand while it's dragged. */
 #stage .cnote, #stage .cnote .cnote-text { cursor: default; }
@@ -2791,3 +2795,34 @@ body:not(.model-canvas) #add-target { display: none; }
 @supports not (field-sizing: content) {
   .cnote-text { width: 280px; white-space: pre-wrap; }
 }
+
+/* The items panel's title and search stay at the top as it scrolls. */
+.pal-top {
+  position: sticky;
+  top: -10px;
+  z-index: 2;
+  margin: -10px -10px 0;
+  padding: 10px 10px 6px;
+  background: var(--panel-2);
+  border-radius: var(--inner-radius) var(--inner-radius) 0 0;
+}
+.pal-top .pal-search { margin: 0; padding-right: 28px; }
+.pal-field { position: relative; }
+.pal-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  margin-top: -11px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 16px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.pal-clear:hover { color: var(--ink); background: rgba(255, 255, 255, .08); }
+.pal-clear[hidden] { display: none; }
