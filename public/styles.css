@@ -1412,8 +1412,23 @@ html, body {
   position: absolute;
   top: 14px; right: 14px;
   z-index: 26;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   transition: right .2s ease;
 }
+/* A view's own switch, floating beside the options button to match it. */
+.vo-float {
+  margin: 0;
+  height: 32px;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+}
+.vo-float[hidden] { display: none; }
+.vo-float .seg-btn { flex: 0 0 auto; padding: 4px 11px; font-size: 12.5px; }
 .view-opts .btn.icon {
   display: flex;
   align-items: center;
@@ -2422,3 +2437,105 @@ body:not(.model-canvas) #add-target { display: none; }
 
 /* A label stays on the same row as the control it names. */
 .tb-with-label { display: flex; align-items: center; flex: none; }
+
+/* The line a held splitter or merger would go into. */
+#wires .cwire.splice { stroke: #e08b3d; stroke-width: 4; }
+
+/* The inspector's dropdowns: a button with the current choice and a chevron,
+   opening the app's own menu. */
+.insp-drop {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .05);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .12s ease, background-color .12s ease;
+}
+.insp-drop:hover { border-color: var(--edge-hi); background: rgba(255, 255, 255, .08); }
+.insp-drop img { width: 20px; height: 20px; object-fit: contain; flex: none; }
+.insp-drop-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.insp-drop-tag {
+  flex: none;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--edge-hi);
+  color: var(--ink-dim);
+}
+.insp-drop-chev { flex: none; display: flex; color: var(--ink-faint); }
+
+/* The current choice in a menu that isn't a picker. */
+.ctx button.on { background: rgba(255, 255, 255, .06); color: var(--ink); }
+
+/* A shortcut, at the far end of a menu row. */
+.ctx-kbd { margin-left: auto; padding-left: 22px; font-size: 11px; color: var(--ink-ghost); }
+
+/* A Set step's size: machines and the rate they make, one control read two
+   ways, joined by "=". Typing one side moves the other. */
+.insp-pair {
+  display: flex;
+  align-items: stretch;
+  margin: 4px 2px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  transition: border-color .12s ease;
+}
+.insp-pair:focus-within { border-color: rgba(var(--machine), .7); }
+.ip-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 9px 6px;
+  cursor: text;
+}
+.ip-cell input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.ip-unit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ip-unit img { width: 14px; height: 14px; object-fit: contain; flex: none; }
+.ip-eq {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  border-left: 1px solid var(--edge);
+  border-right: 1px solid var(--edge);
+  color: #e08b3d;
+  font-weight: 700;
+  font-size: 14px;
+}

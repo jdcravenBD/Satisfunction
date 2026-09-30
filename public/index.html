@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Satisfunction</title>
-<link rel="icon" href="favicon.svg?v=41" type="image/svg+xml">
-<link rel="icon" href="favicon-32.png?v=41" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon.svg?v=42" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=42" type="image/png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=41">
+<link rel="stylesheet" href="styles.css?v=42">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
   <header class="bar">
     <div class="bar-left">
       <div class="brand">
-        <img class="mark-img" src="favicon.svg?v=41" alt="" width="20" height="20">
+        <img class="mark-img" src="favicon.svg?v=42" alt="" width="20" height="20">
         <strong>SATISFUNCTION</strong>
         <span class="sub">Production Planner</span>
       </div>
@@ -114,11 +114,6 @@
         Machine</button>
     </div>
     </div>
-    <!-- How each line's inputs reach its machines: Machine view only. -->
-    <div class="seg bar-seg" id="balance" role="group" aria-label="Logistics">
-      <button type="button" class="seg-btn" data-balance="manifold" title="One belt runs past every machine, with a splitter at each">Manifold</button>
-      <button type="button" class="seg-btn" data-balance="balancer" title="A tree of splitters gives every machine exactly the same share">Balancer</button>
-    </div>
     <span class="tb-sep"></span>
     <div class="group">
       <button id="zoom-out" class="tb-btn icon" title="Zoom out">&minus;</button>
@@ -166,6 +161,17 @@
 
   <!-- What the canvas labels. -->
   <div id="view-opts" class="view-opts">
+    <!-- Beside the options button, what only one view needs: how the Item
+         view draws its lines, and how the Machine view feeds its machines. -->
+    <div class="seg vo-float" id="lines-seg" role="group" aria-label="Lines" hidden>
+      <button type="button" class="seg-btn" data-lines="curved">Curved</button>
+      <button type="button" class="seg-btn" data-lines="straight">Straight</button>
+    </div>
+    <!-- How each line's inputs reach its machines: Machine view only. -->
+    <div class="seg vo-float" id="balance" role="group" aria-label="Logistics">
+      <button type="button" class="seg-btn" data-balance="manifold" title="One belt runs past every machine, with a splitter at each">Manifold</button>
+      <button type="button" class="seg-btn" data-balance="balancer" title="A tree of splitters gives every machine exactly the same share">Balancer</button>
+    </div>
     <button type="button" id="view-opts-btn" class="btn icon" title="Display options" aria-haspopup="true" aria-expanded="false">
       <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
         <path d="M3 5.5h14M3 10h14M3 14.5h14"/>
@@ -175,14 +181,6 @@
       </svg>
     </button>
     <div id="vo-menu" class="vo-menu" role="menu" hidden>
-      <!-- How the Items view draws its lines. -->
-      <div class="vo-seg-row">
-        <span class="vo-main">Lines</span>
-        <div class="seg vo-seg" id="lines-seg" role="group" aria-label="Lines">
-          <button type="button" class="seg-btn" data-lines="curved">Curved</button>
-          <button type="button" class="seg-btn" data-lines="straight">Straight</button>
-        </div>
-      </div>
       <button type="button" class="vo-row" data-show="products" role="menuitemcheckbox">
         <span class="vo-main">Resource names</span>
         <span class="vo-note">What each building makes, in the Machine view</span>
@@ -392,11 +390,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=41"></script>
-<script src="solver.js?v=41"></script>
-<script src="lp.js?v=41"></script>
-<script src="optimise.js?v=41"></script>
-<script src="examples.js?v=41"></script>
-<script src="app.js?v=41"></script>
+<script src="data.js?v=42"></script>
+<script src="solver.js?v=42"></script>
+<script src="lp.js?v=42"></script>
+<script src="optimise.js?v=42"></script>
+<script src="examples.js?v=42"></script>
+<script src="app.js?v=42"></script>
 </body>
 </html>

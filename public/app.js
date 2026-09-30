@@ -48,6 +48,7 @@
     picker: 'manual',     // who picks recipes: 'manual' or 'optimise'
     goal: 'resources',    // what the optimiser minimises after max outputs
     unlocked: [],         // alternate (and converter) recipes the user has
+    altsSet: true,        // the list above has been through its first default (every one ticked)
     pins: {},      // node key -> { x, y }, for nodes moved in the item view
     defaultMiner: 'Build_MinerMk1_C',
     view: { x: 60, y: 40, s: 1 },
@@ -66,10 +67,10 @@
   // What a new factory starts from.
   var DEFAULTS = JSON.parse(JSON.stringify(state));
 
-  /** Pins for whichever view is showing. The machine view is laid out
-      automatically and can't be rearranged, so it has none. */
+  /** Where cards were moved to by hand. The views are laid out for you and
+      can't be rearranged, so none are kept any more. */
   function pins() {
-    return state.mode === 'machines' ? {} : state.pins;
+    return {};
   }
 
   var solved = null;       // last solver result
@@ -413,7 +414,7 @@
    * folded in; writeNow() files it back.
    */
   var STORE_KEY = 'satisfunction.saves.v1';
-  var PROGRESS = ['unlocked', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
+  var PROGRESS = ['unlocked', 'altsSet', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
   var FACTORY = ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal',
     'pins', 'view', 'mode', 'balance', 'build', 'custom', 'optKey', 'modelled'];
   var store = null;  // { active, saves: [{ id, name, active, progress, factories: [{ id, name, plan }] }], prefs }
@@ -552,6 +553,9 @@
     // Older plans had a None / Unlocked / All switch over the ticked list.
     if (data.alts === 'all') state.unlocked = Object.keys(DATA.recipes).filter(unlockable);
     if (data.alts === 'none') state.unlocked = [];
+    // A save starts with every alternate ticked; older saves get that once.
+    if (!data.altsSet) state.unlocked = Object.keys(DATA.recipes).filter(unlockable);
+    state.altsSet = true;
     state.imports = {};
     Object.keys(data.imports || {}).forEach(function (id) {
       if (data.imports[id] && DATA.items[id]) state.imports[id] = true;
@@ -1416,8 +1420,6 @@
       recipeBtn.disabled = true;
       recipeBtn.removeAttribute('title');
       el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-      // Cards in the Item view can still be moved about to read it better.
-      dragBehaviour(el, n);
       return el;
     }
 
@@ -3582,38 +3584,45 @@
     closeAll();
 
     if (state.build === 'custom') {
+      if (dragMenuSkip()) return;
+      var at = { x: e.clientX, y: e.clientY };
       var menuItems = [
+        { label: 'Paste', kbd: 'Ctrl+V', disabled: !clip, run: function () { pasteParts(at); } },
+        '-',
         { label: '+ Add output…', run: function () { askForOutput(null, e.clientX, e.clientY); } },
         { label: 'Fit to view', run: fitView }
       ];
-      if (clip) menuItems.push({ label: 'Paste', run: pasteParts });
       menuItems.push('-');
       menuItems.push({ label: 'Clear model', note: 'Removes every card', danger: true, confirm: true, run: clearPlan });
       openCtx(e.clientX, e.clientY, menuItems);
       return;
     }
-    // The views only look: fit, and in the Item view, undo any moving.
-    var items = [{ label: 'Fit to view', run: fitView }];
-    if (Object.keys(pins()).length) {
-      items.push({ label: 'Tidy layout', note: 'Unpins every card you’ve moved', run: tidyLayout });
-    }
-    openCtx(e.clientX, e.clientY, items);
+    // The views only look.
+    openCtx(e.clientX, e.clientY, [{ label: 'Fit to view', run: fitView }]);
   });
 
   var marquee = document.getElementById('marquee');
+
+  // After a right-button drag, the context menu that follows is skipped.
+  var skipMenuUntil = 0;
+  function dragMenuSkip() {
+    if (Date.now() < skipMenuUntil) { skipMenuUntil = 0; return true; }
+    return false;
+  }
 
   /**
    * Draws the selection rectangle; on release, the nodes it touches become
    * the selection (Items view).
    */
-  function startMarquee(e) {
+  function startMarquee(e, rightButton) {
     var box = stage.getBoundingClientRect();
     var x0 = e.clientX - box.left;
     var y0 = e.clientY - box.top;
     var x1 = x0;
     var y1 = y0;
 
-    marquee.classList.add('on');
+    // With the right button, the box only shows once the pointer moves.
+    if (!rightButton) marquee.classList.add('on');
     marquee.style.left = x0 + 'px';
     marquee.style.top = y0 + 'px';
     marquee.style.width = '0px';
@@ -3624,6 +3633,10 @@
     function onMove(ev) {
       x1 = ev.clientX - box.left;
       y1 = ev.clientY - box.top;
+      if (rightButton && !marquee.classList.contains('on') && Math.abs(x1 - x0) + Math.abs(y1 - y0) >= 4) {
+        marquee.classList.add('on');
+        closeAll();
+      }
       marquee.style.left = Math.min(x0, x1) + 'px';
       marquee.style.top = Math.min(y0, y1) + 'px';
       marquee.style.width = Math.abs(x1 - x0) + 'px';
@@ -3637,6 +3650,8 @@
       stage.removeEventListener('pointercancel', onUp);
       marquee.classList.remove('on');
       if (Math.abs(x1 - x0) + Math.abs(y1 - y0) < 4) return;
+      // The menu a right-button release would open isn't wanted after a box.
+      if (rightButton) skipMenuUntil = Date.now() + 600;
       if (state.build === 'custom') {
         var cv = state.view;
         var cx0 = (Math.min(x0, x1) - cv.x) / cv.s, cx1 = (Math.max(x0, x1) - cv.x) / cv.s;
@@ -3668,6 +3683,12 @@
   }
 
   stage.addEventListener('pointerdown', function (e) {
+    // In Model, holding the right button and dragging draws a selection box;
+    // a right-click that doesn't move still opens the menu.
+    if (e.button === 2 && state.build === 'custom' && onCanvas(e.target)) {
+      startMarquee(e, true);
+      return;
+    }
     if (e.button !== 0 && e.button !== 1) return;
     // The empty-state block is click-through except for its own controls, and
     // those stop the event before it gets here.
@@ -3868,10 +3889,11 @@
    * section heading, or { label, run, note, tag, on, danger, confirm }.
    * Placed at the point given, nudged back inside the window if it overflows.
    */
-  function openCtx(clientX, clientY, items, asPicker) {
+  function openCtx(clientX, clientY, items, asPicker, minWidth) {
     popOpener = clickFrom;
     ctx.innerHTML = '';
     ctx.classList.toggle('picker', !!asPicker);
+    ctx.style.minWidth = minWidth ? minWidth + 'px' : '';
     items.forEach(function (item) {
       if (item === '-') {
         var sep = document.createElement('div');
@@ -3914,6 +3936,12 @@
         ic.alt = '';
         b.classList.add('with-icon');
         b.insertBefore(ic, b.firstChild);
+      }
+      if (item.kbd) {
+        var kbd = document.createElement('span');
+        kbd.className = 'ctx-kbd';
+        kbd.textContent = item.kbd;
+        b.appendChild(kbd);
       }
       if (item.danger) b.classList.add('danger');
       if (item.on) b.classList.add('on');
@@ -5417,8 +5445,10 @@
     viewSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.view === currentView());
     });
-    // Manifold or Balancer only means something in the Machine view.
+    // Beside the options button: Manifold or Balancer in the Machine view,
+    // Curved or Straight lines in the Item view.
     balanceSeg.hidden = !machinesOn;
+    document.getElementById('lines-seg').hidden = model || state.mode !== 'items';
     balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) {
       b.classList.toggle('on', b.dataset.balance === state.balance);
     });
@@ -5498,13 +5528,14 @@
   var viewOpts = document.getElementById('view-opts');
   var voBtn = document.getElementById('view-opts-btn');
   var voMenu = document.getElementById('vo-menu');
+  var linesSeg = document.getElementById('lines-seg');
 
   function applyShow() {
     stage.classList.toggle('hide-products', !state.show.products);
     stage.classList.toggle('hide-rates', !state.show.rates);
     stage.classList.toggle('short-names', state.show.short);
     stage.classList.toggle('hide-clocks', !state.show.clocks);
-    voMenu.querySelectorAll('[data-lines]').forEach(function (b) {
+    linesSeg.querySelectorAll('[data-lines]').forEach(function (b) {
       b.classList.toggle('on', b.dataset.lines === state.show.lines);
     });
     voMenu.querySelectorAll('[data-show]').forEach(function (b) {
@@ -5521,18 +5552,18 @@
   }
 
   voBtn.addEventListener('click', function () { setOptsOpen(voMenu.hidden); });
-  voMenu.addEventListener('click', function (e) {
-    // Curved or straight: one toggle, pressing either side.
+  // Curved or straight (Item view): one toggle, pressing either side.
+  linesSeg.addEventListener('click', function (e) {
     var l = e.target.closest('[data-lines]');
-    if (l) {
-      state.show.lines = l.dataset.lines === state.show.lines
-        ? (state.show.lines === 'curved' ? 'straight' : 'curved')
-        : l.dataset.lines;
-      applyShow();
-      writeNow();
-      if (state.mode === 'items') renderWires();
-      return;
-    }
+    if (!l) return;
+    state.show.lines = l.dataset.lines === state.show.lines
+      ? (state.show.lines === 'curved' ? 'straight' : 'curved')
+      : l.dataset.lines;
+    applyShow();
+    writeNow();
+    if (state.mode === 'items') renderWires();
+  });
+  voMenu.addEventListener('click', function (e) {
     var b = e.target.closest('[data-show]');
     if (!b) return;
     state.show[b.dataset.show] = !state.show[b.dataset.show];
@@ -5965,26 +5996,27 @@
       return 0;
     }
 
-    // 2. Items pushed forward, sources first (loops go round a few times).
+    // 2. Items pushed forward, sources first. The order is a depth-first
+    // one from the sources, so a loop (a step feeding back into its own
+    // supply) is cut at one line and everything after it still comes in
+    // order; passes repeat until the flows stop changing.
     var order = [];
-    var indeg = {};
-    nodes.forEach(function (n) { indeg[n.id] = 0; });
-    links.forEach(function (l) { if (indeg[l.to] != null) indeg[l.to]++; });
-    var queue = nodes.filter(function (n) { return !indeg[n.id]; });
-    var seen = {};
-    while (queue.length) {
-      var q = queue.shift();
-      if (seen[q.id]) continue;
-      seen[q.id] = true;
-      order.push(q);
-      (outL[q.id] || []).forEach(function (l) { if (--indeg[l.to] === 0 && byId[l.to]) queue.push(byId[l.to]); });
+    var visited = {};
+    function visit(n) {
+      if (visited[n.id]) return;
+      visited[n.id] = true;
+      (outL[n.id] || []).forEach(function (l) { if (byId[l.to]) visit(byId[l.to]); });
+      order.push(n);
     }
-    nodes.forEach(function (n) { if (!seen[n.id]) order.push(n); });
+    nodes.filter(function (n) { return !(inL[n.id] || []).length; }).forEach(visit);
+    nodes.forEach(visit);
+    order.reverse();
 
     var flowOf = {};
     links.forEach(function (l) { flowOf[l.id] = 0; });
     var count = {}, run = {}, avail = {};
-    for (var pass = 0; pass < 4; pass++) {
+    for (var pass = 0; pass < 40; pass++) {
+      var before = links.map(function (l) { return flowOf[l.id]; });
       order.forEach(function (n) {
         var ins = inL[n.id] || [];
         var outs = [];
@@ -6053,6 +6085,8 @@
           }
         }
       });
+      // Settled: another pass wouldn't change anything.
+      if (pass >= 3 && links.every(function (l, i) { return Math.abs(flowOf[l.id] - before[i]) <= 1e-9 + before[i] * 1e-9; })) break;
     }
 
     // 3. What it comes to.
@@ -6259,12 +6293,15 @@
       if (!moved) { moved = true; document.body.appendChild(ghost); }
       ghost.style.left = ev.clientX + 'px';
       ghost.style.top = ev.clientY + 'px';
+      // A splitter or merger held over a line goes into it when dropped.
+      if (SPLICERS[kind]) markSplice(linkAt(ev.clientX, ev.clientY));
     }
     function up(ev) {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
       ghost.remove();
+      markSplice(null);
       if (!moved) {
         var r = stage.getBoundingClientRect();
         var mid = toWorld(r.left + r.width / 2, r.top + r.height / 2);
@@ -6274,7 +6311,7 @@
       var over = document.elementFromPoint(ev.clientX, ev.clientY);
       if (!over || !stage.contains(over) || over.closest('.view-opts, .hover-info')) return;
       var at = toWorld(ev.clientX, ev.clientY);
-      placeItem(kind, at.x, at.y);
+      placeItem(kind, at.x, at.y, SPLICERS[kind] ? linkAt(ev.clientX, ev.clientY) : null);
     }
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -6315,10 +6352,42 @@
     return n;
   }
 
-  function placeItem(kind, wx, wy) {
+  function placeItem(kind, wx, wy, onLink) {
     var n = newNode(kind, wx, wy);
+    if (onLink) splice(onLink, n);
     selectOnly(n.id);
     changed();
+  }
+
+  /* ---- splitters and mergers dropped onto a line ---- */
+
+  var SPLICERS = { splitter: true, smart: true, merger: true, priority: true };
+
+  /** The line under a screen point, if any. */
+  function linkAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    var hit = el && el.closest && el.closest('.belt-hit');
+    return hit ? state.custom.links.filter(function (l) { return l.id === hit.dataset.hit; })[0] || null : null;
+  }
+
+  /** Marks the line a drop would go into (or none). */
+  function markSplice(l) {
+    wires.querySelectorAll('.cwire.splice').forEach(function (p) { p.classList.remove('splice'); });
+    if (!l) return;
+    var p = wires.querySelector('.cwire[data-link="' + l.id + '"]');
+    if (p) p.classList.add('splice');
+  }
+
+  /** Puts a splitter or merger into a line: the line's start feeds it, and it feeds the line's end. */
+  function splice(l, n) {
+    state.custom.links = state.custom.links.filter(function (x) { return x !== l; });
+    state.custom.links.push({ id: 'l' + uid(), from: l.from, fk: l.fk, to: n.id, tk: 0 });
+    state.custom.links.push({ id: 'l' + uid(), from: n.id, fk: 0, to: l.to, tk: l.tk });
+  }
+
+  /** Whether a card could go into a line: a splitter or merger with nothing joined yet. */
+  function canSplice(n) {
+    return isLogistic(n) && !state.custom.links.some(function (l) { return l.from === n.id || l.to === n.id; });
   }
 
   /* ---- selection helpers ---- */
@@ -6366,7 +6435,7 @@
   }
 
   /** New copies of the copied cards: under the pointer, or a step along from the last. */
-  function pasteParts() {
+  function pasteParts(atScreen) {
     if (!clip || !clip.nodes.length) return;
     var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     clip.nodes.forEach(function (n) {
@@ -6375,8 +6444,9 @@
       x1 = Math.max(x1, n.x + size.w); y1 = Math.max(y1, n.y + size.h);
     });
     var dx, dy;
-    if (pointerOnStage) {
-      var w = toWorld(pointerOnStage.x, pointerOnStage.y);
+    var point = atScreen || pointerOnStage;
+    if (point) {
+      var w = toWorld(point.x, point.y);
       dx = Math.round(w.x - (x0 + x1) / 2);
       dy = Math.round(w.y - (y0 + y1) / 2);
     } else {
@@ -6553,13 +6623,18 @@
     el.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       e.stopPropagation();
+      if (dragMenuSkip()) return;
       closeAll();
       if (!selected[n.id]) selectOnly(n.id);
       var list = selectedParts();
       openCtx(e.clientX, e.clientY, [
-        { head: list.length > 1 ? list.length + ' selected' : (n.item ? itemName(n.item) : titleCase(n.type)) },
-        { label: 'Copy', run: function () { copyParts(list); } },
-        { label: list.length > 1 ? 'Remove these' : 'Remove', run: function () { removeParts(list, selectedLinks()); } }
+        { head: list.length > 1 ? list.length + ' selected' : (n.item ? itemName(n.item) : partName(n)) },
+        { label: 'Cut', kbd: 'Ctrl+X', run: function () { copyParts(list); removeParts(list, []); } },
+        { label: 'Copy', kbd: 'Ctrl+C', run: function () { copyParts(list); } },
+        // Pasting goes where you right-click empty canvas.
+        { label: 'Paste', kbd: 'Ctrl+V', disabled: true, run: function () {} },
+        '-',
+        { label: list.length > 1 ? 'Remove these' : 'Remove', kbd: 'Del', run: function () { removeParts(list, selectedLinks()); } }
       ]);
     });
     return el;
@@ -6576,11 +6651,19 @@
     var origins = group.map(function (g) { return { x: g.x, y: g.y }; });
     var startX = e.clientX, startY = e.clientY;
     var moved = false;
+    // A splitter or merger with nothing joined, dragged on its own, can go
+    // into a line: the card lets the pointer through to find it.
+    var splicing = group.length === 1 && canSplice(n);
+    var target = null;
     function move(ev) {
       var dx = (ev.clientX - startX) / state.view.s;
       var dy = (ev.clientY - startY) / state.view.s;
       if (!moved && Math.abs(dx) + Math.abs(dy) < 3 / state.view.s) return;
-      if (!moved) { moved = true; el.classList.add('dragging'); }
+      if (!moved) {
+        moved = true;
+        el.classList.add('dragging');
+        if (splicing) el.style.pointerEvents = 'none';
+      }
       group.forEach(function (g, i) {
         g.x = Math.round(origins[i].x + dx);
         g.y = Math.round(origins[i].y + dy);
@@ -6588,12 +6671,24 @@
         if (ge) { ge.style.left = g.x + 'px'; ge.style.top = g.y + 'px'; }
       });
       renderLinks();
+      if (splicing) {
+        target = linkAt(ev.clientX, ev.clientY);
+        markSplice(target);
+      }
     }
     function up() {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
       el.classList.remove('dragging');
+      el.style.pointerEvents = '';
+      markSplice(null);
+      if (moved && target) {
+        splice(target, n);
+        selectOnly(n.id);
+        changed();
+        return;
+      }
       if (moved) { save(); return; }
       if (mods.ctrl || mods.shift) {
         if (selected[n.id]) delete selected[n.id];
@@ -6801,13 +6896,13 @@
           run: make(from.side === 'out' ? r.out[0][0] : item, rid)
         });
       });
-      if (from.side === 'out') items.push({ label: 'Storage Container', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
     }
     items.push('-');
     if (item && from.side === 'in') {
       items.push({ label: 'Import', note: 'From outside this build', icon: iconOf(item), run: make(item, null, { type: 'import', rate: 60 }) });
     }
     if (from.side === 'out') {
+      if (item) items.push({ label: 'Storage Container', note: 'Collect it here', icon: iconOf('storage'), run: make('sink') });
       items.push({ label: 'Conveyor Splitter', note: 'Shares evenly', icon: iconOf('splitter'), run: make('splitter') });
       items.push({ label: 'Smart Splitter', note: 'Top output first, the rest overflow', icon: iconOf('splitter'), run: make('smart') });
     } else {
@@ -6916,18 +7011,40 @@
       wrap.appendChild(control);
       box.appendChild(wrap);
     }
+    // A button showing the current choice, opening the app's own menu of
+    // the rest (with icons and a second line where they help).
     function select(options, value, onPick) {
-      var s = document.createElement('select');
-      s.className = 'insp-select';
-      options.forEach(function (o) {
-        var opt = document.createElement('option');
-        opt.value = o.value;
-        opt.textContent = o.label;
-        if (o.value === value) opt.selected = true;
-        s.appendChild(opt);
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'insp-drop';
+      var cur = options.filter(function (o) { return o.value === value; })[0] || options[0];
+      if (cur && cur.icon) {
+        var ic = document.createElement('img');
+        ic.src = cur.icon;
+        ic.alt = '';
+        b.appendChild(ic);
+      }
+      var t = document.createElement('span');
+      t.className = 'insp-drop-text';
+      t.textContent = cur ? (cur.short || cur.label) : '';
+      b.appendChild(t);
+      if (cur && cur.tag) {
+        var tg = document.createElement('span');
+        tg.className = 'insp-drop-tag';
+        tg.textContent = cur.tag;
+        b.appendChild(tg);
+      }
+      var chev = document.createElement('span');
+      chev.className = 'insp-drop-chev';
+      chev.innerHTML = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      b.appendChild(chev);
+      b.addEventListener('click', function () {
+        var r = b.getBoundingClientRect();
+        openCtx(r.left, r.bottom + 4, options.map(function (o) {
+          return { label: o.label, note: o.note, icon: o.icon, tag: o.tag, on: o.value === value, run: function () { onPick(o.value); } };
+        }), false, r.width);
       });
-      s.addEventListener('change', function () { onPick(s.value); });
-      return s;
+      return b;
     }
     function number(value, min, step, onSet) {
       var i = document.createElement('input');
@@ -6953,7 +7070,14 @@
       });
       field('Recipe', select(rids.map(function (rid) {
         var q = DATA.recipes[rid];
-        return { value: rid, label: q.name + (q.alt ? ' (alternate)' : '') + ' · ' + machineName(rid) };
+        var per = SOLVER.perMinute(q);
+        var side = function (list) {
+          return list.map(function (x) { return fmtNum(Math.abs(per[x[0]])) + ' ' + itemName(x[0]); }).join(' + ');
+        };
+        return {
+          value: rid, label: q.name, tag: q.alt ? 'ALT' : '', icon: iconOf(q.machine),
+          note: machineName(rid) + ' · ' + side(q.in) + ' → ' + side(q.out)
+        };
       }), n.recipe, function (v) {
         // Lines on slots the new recipe doesn't have come off.
         n.recipe = v;
@@ -6982,15 +7106,55 @@
       });
       field('Machines', seg);
       if (n.set && r) {
-        field('Count', number(Number((n.count || 0).toFixed(4)), 0, 0.01, function (v) {
-          n.count = Math.max(0, v || 0);
-          changed();
-        }));
+        // One setting, shown two ways: typing either side updates the other
+        // as you go, and the step takes it when you leave the field.
         var per = SOLVER.perMinute(r)[n.item] || SOLVER.perMinute(r)[r.out[0][0]];
-        field('Or ' + itemName(n.item) + '/min', number(Number(((n.count || 0) * per).toFixed(4)), 0, 0.1, function (v) {
-          n.count = Math.max(0, (v || 0) / per);
-          changed();
-        }));
+        var pair = document.createElement('div');
+        pair.className = 'insp-pair';
+        var cells = [
+          { value: n.count || 0, step: 0.01, unit: 'machines', toCount: function (v) { return v; } },
+          { value: (n.count || 0) * per, step: 0.1, unit: itemName(n.item) + '/min', icon: iconOf(n.item), toCount: function (v) { return v / per; } }
+        ];
+        var inputs = [];
+        cells.forEach(function (c, i) {
+          if (i) {
+            var eq = document.createElement('span');
+            eq.className = 'ip-eq';
+            eq.textContent = '=';
+            pair.appendChild(eq);
+          }
+          var cell = document.createElement('label');
+          cell.className = 'ip-cell';
+          var inp = document.createElement('input');
+          inp.type = 'number';
+          inp.min = 0;
+          inp.step = c.step;
+          inp.value = Number(c.value.toFixed(4));
+          cell.appendChild(inp);
+          var unit = document.createElement('span');
+          unit.className = 'ip-unit';
+          if (c.icon) {
+            var ui = document.createElement('img');
+            ui.src = c.icon;
+            ui.alt = '';
+            unit.appendChild(ui);
+          }
+          unit.appendChild(document.createTextNode(c.unit));
+          cell.appendChild(unit);
+          pair.appendChild(cell);
+          inputs.push(inp);
+          inp.addEventListener('input', function () {
+            var count = Math.max(0, c.toCount(Number(inp.value) || 0));
+            var other = inputs[1 - i];
+            other.value = Number((i ? count : count * per).toFixed(4));
+            pair.classList.add('live');
+          });
+          inp.addEventListener('change', function () {
+            n.count = Math.max(0, c.toCount(Number(inp.value) || 0));
+            changed();
+          });
+        });
+        box.appendChild(pair);
       }
       if (r) {
         var list = SOLVER.clocks(st.count || 0, state.clock, clockTop(n.recipe));
@@ -7009,7 +7173,7 @@
     } else if (n.type === 'resource') {
       if (!isFluid(n.item)) {
         field('Miner', select(MINERS.filter(function (m) { return DATA.extractors[m] && (hasBuilding(m) || m === n.miner); }).map(function (m) {
-          return { value: m, label: DATA.extractors[m].name };
+          return { value: m, label: DATA.extractors[m].name, icon: iconOf(m) };
         }), extractorOf(n), function (v) { n.miner = v; state.defaultMiner = v; changed(); }));
       }
       if (n.item !== 'Desc_Water_C') {
@@ -7185,6 +7349,8 @@
       ? (fresh ? 'Optimized' : again ? 'Reoptimize' : 'Optimize')
       : (fresh ? 'Built' : again ? 'Rebuild' : 'Build');
     runBtn.classList.toggle('done', fresh);
+    // With I pick there's nothing to press until an output or recipe changes.
+    runBtn.hidden = !optimising && fresh;
     runBtn.disabled = none;
     runNeed.hidden = !none;
     runNeed.textContent = 'You need an output in order to ' + (optimising ? 'optimize.' : 'build.');
@@ -7247,6 +7413,7 @@
   function autoToCustom() {
     if (!solved || solved.custom) return;
     var nodes = [], links = [];
+    var planned = {};  // card id -> the count the plan gives it
     function node(obj) { obj.id = 'n' + uid(); obj.x = 0; obj.y = 0; nodes.push(obj); return obj; }
     var prod = {}, cons = {};
     function give(item, n, k, rate) { (prod[item] = prod[item] || []).push({ n: n, k: k, rate: rate }); }
@@ -7287,9 +7454,11 @@
         place(0, im);
       }
     });
-    // Steps, by how far they are from the raw resources.
+    // Steps, by how far they are from the raw resources. The optimiser can
+    // leave recipes in at a count of next to nothing; they aren't steps.
+    var used = Object.keys(solved.recipes).filter(function (rid) { return solved.recipes[rid].count > 1e-4; });
     var madeBy = {};
-    Object.keys(solved.recipes).forEach(function (rid) {
+    used.forEach(function (rid) {
       DATA.recipes[rid].out.forEach(function (o) { (madeBy[o[0]] = madeBy[o[0]] || []).push(rid); });
     });
     var depth = {};
@@ -7305,10 +7474,16 @@
       return d;
     }
     var last = 1;
-    Object.keys(solved.recipes).forEach(function (rid) {
+    used.forEach(function (rid) {
       var r = DATA.recipes[rid];
       var count = solved.recipes[rid].count;
-      var n = node({ type: 'recipe', recipe: rid, item: solved.recipes[rid].item, set: true, count: count });
+      // Only the steps making an output are Set; the rest size themselves
+      // (Auto) to what those ask for.
+      var item = solved.recipes[rid].item;
+      var n = node(solved.targets[item] > EPS
+        ? { type: 'recipe', recipe: rid, item: item, set: true, count: count }
+        : { type: 'recipe', recipe: rid, item: item });
+      planned[n.id] = count;
       var col = stepDepth(rid, {});
       last = Math.max(last, col);
       place(col, n);
@@ -7395,10 +7570,15 @@
         if (list.length === 1) { to[list[0]] = { n: end.n, k: end.k }; return; }
         var at = slotAt(end.n, 'in', end.k);
         var into = { n: end.n, k: end.k };
-        var left = list.slice();
+        // Made items before mined or bought ones: where a byproduct is
+        // topped up from a resource, a Priority Merger takes the byproduct
+        // first, as it would be built, so nothing backs up.
+        var fromSource = function (i) { var t = pairs[i].p.n.type; return t === 'resource' || t === 'import'; };
+        var left = list.slice().sort(function (a, b) { return (fromSource(a) ? 1 : 0) - (fromSource(b) ? 1 : 0); });
+        var topUp = left.some(fromSource) && !left.every(fromSource);
         var step = 0;
         while (left.length) {
-          var mg = node({ type: 'merger' });
+          var mg = node(topUp && step === 0 ? { type: 'merger', priority: true } : { type: 'merger' });
           mg.x = Math.round(at.x - 110 - step * 70);
           mg.y = Math.round(at.y - 20 + step * 30);
           step++;
@@ -7414,6 +7594,20 @@
     });
 
     state.custom = { nodes: nodes, links: links };
+
+    // A step on Auto sizes itself from what's asked of it, which a loop (a
+    // recipe feeding back into its own supply) can't settle. Any step that
+    // doesn't come to its planned count is Set to it instead.
+    for (var pass = 0; pass < 6; pass++) {
+      var f = customFlow();
+      var off = nodes.filter(function (n) {
+        if (n.type !== 'recipe' || n.set) return false;
+        var got = (f.nodes[n.id] && f.nodes[n.id].count) || 0;
+        return Math.abs(got - planned[n.id]) > Math.max(1e-4, planned[n.id] * 1e-3);
+      });
+      if (!off.length) break;
+      off.forEach(function (n) { n.set = true; n.count = planned[n.id]; });
+    }
   }
 
   /* ---- the view ---- */
