@@ -40,9 +40,12 @@
         op = op === '<=' ? '>=' : op === '>=' ? '<=' : '=';
       }
       // Most rows sit at zero, which is heavily degenerate. Nudging each by
-      // a different sliver breaks the ties that make simplex stall.
+      // a different sliver breaks the ties that make simplex stall. The
+      // answer is read back with the nudges taken out again, or the solver
+      // treats them as free goods (a recipe run at a sliver of a machine).
+      var exact = b;
       if (op === '<=') b += 1e-7 * (1 + (i * 7919) % 997 / 997);
-      return { a: a, op: op, b: b };
+      return { a: a, op: op, b: b, exact: exact };
     });
 
     var m = rows.length;
@@ -217,10 +220,18 @@
     var status = run(artStart);
     if (status !== 'optimal') return { status: status };
     reinvert();
+    var nudged = T.map(function (row) { return row[RHS]; });
+
+    // The same basis without the nudges. It's still the best one, as long
+    // as it stays feasible; if it doesn't, the nudged answer stands.
+    for (var i4 = 0; i4 < m; i4++) T0[i4][RHS] = rows[i4].exact;
+    reinvert();
+    var bScale = rows.reduce(function (s3, r) { return Math.max(s3, Math.abs(r.b)); }, 1);
+    var exactOk = T.every(function (row) { return row[RHS] > -1e-9 * bScale; });
 
     var x = new Array(nVars).fill(0);
     for (var r2 = 0; r2 < m; r2++) {
-      if (basis[r2] < nVars) x[basis[r2]] = Math.max(0, T[r2][RHS]);
+      if (basis[r2] < nVars) x[basis[r2]] = Math.max(0, exactOk ? T[r2][RHS] : nudged[r2]);
     }
 
     // Trust nothing: the answer has to meet the rows it was given.

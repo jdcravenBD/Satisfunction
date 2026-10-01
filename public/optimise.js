@@ -72,6 +72,15 @@
     });
     var wanted = Object.keys(fixed).concat(maxItems);
     if (!wanted.length) return { status: 'optimal', counts: {}, maxRate: null, maxItems: [], fixed: {}, usesGathered: false };
+    // With nothing capped, the answer just scales with the outputs, so it's
+    // solved at a set size and scaled back: a plan for 0.05/min gets the same
+    // precision as one for 500/min.
+    var caps0 = plan.caps || {};
+    var norm = 1;
+    if (!maxItems.length && !Object.keys(caps0).length) {
+      var top = Math.max.apply(null, Object.keys(fixed).map(function (id) { return fixed[id]; }));
+      if (top > 0) norm = 100 / top;
+    }
 
     // A pinned item is made only by its pinned recipes; an imported one isn't
     // made here at all. Anything else: whatever the user's recipes allow.
@@ -124,7 +133,13 @@
     // resource's nodes, and the shared max rate.
     var rids = Object.keys(recipes);
     var ids = Object.keys(items);
-    var nets = rids.map(function (rid) { return perMinute(data.recipes[rid]); });
+    // Somersloops multiply a recipe's output (plan.outMult), not its input.
+    var outMult = plan.outMult || {};
+    var nets = rids.map(function (rid) {
+      var net = perMinute(data.recipes[rid]);
+      Object.keys(net).forEach(function (id) { if (net[id] > 0) net[id] *= outMult[rid] || 1; });
+      return net;
+    });
     var supplied = ids.filter(function (id) {
       return data.items[id].raw || imports[id] ||
         !(producers[id] || []).some(function (rid) { return recipes[rid]; });
@@ -155,7 +170,7 @@
       if (uOf[id] != null) a[uOf[id]] = 1;
       if (sOf[id] != null) a[sOf[id]] = 1;
       if (tVar >= 0 && maxItems.indexOf(id) >= 0) a[tVar] = -1;
-      rows.push({ a: a, op: '>=', b: fixed[id] || 0 });
+      rows.push({ a: a, op: '>=', b: (fixed[id] || 0) * norm });
     });
     capped.forEach(function (id) {
       var a = {};
@@ -230,7 +245,7 @@
     rids.forEach(function (rid, j) { biggest = Math.max(biggest, r3.x[xOf[j]]); });
     rids.forEach(function (rid, j) {
       // Slivers are rounding, not recipes.
-      if (r3.x[xOf[j]] > Math.max(1e-6, biggest * 1e-6)) counts[rid] = r3.x[xOf[j]];
+      if (r3.x[xOf[j]] > Math.max(1e-6, biggest * 1e-6)) counts[rid] = r3.x[xOf[j]] / norm;
     });
     // The rate actually reached, which the plan then asks for exactly.
     if (tVar >= 0 && !unbounded) maxRate = r3.x[tVar];
@@ -258,7 +273,7 @@
     Object.keys(res.fixed).forEach(function (id) { targets[id] = res.fixed[id]; });
     res.maxItems.forEach(function (id) { targets[id] = (targets[id] || 0) + res.maxRate; });
     var caps = plan.caps || {};
-    var result = S.assemble(data, res.counts, {}, targets, caps);
+    var result = S.assemble(data, res.counts, {}, targets, caps, plan.outMult);
     result.maxRate = res.maxItems.length ? res.maxRate : null;
     if (res.unbounded) result.error = S.unboundedMessage(res.maxItems.length);
     // The limit is whichever capped resource runs right up to its cap.

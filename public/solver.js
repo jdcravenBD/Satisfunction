@@ -213,6 +213,9 @@
     var overrides = plan.recipes || {};
     var imports = plan.imports || {};
     var caps = plan.caps || {};
+    // Recipes whose output is multiplied (machines with Somersloops).
+    var outMult = plan.outMult || {};
+    function mult(rid) { return outMult[rid] || 1; }
     var suppressed = {};  // items left to byproducts after an overshoot
 
     /** How an item is made: [{ rid, share }], shares summing to 1, or null. */
@@ -278,10 +281,14 @@
             rids.push(m.rid);
           }
           if (!owner[m.rid] || r.out[0][0] === it) owner[m.rid] = it;
-          return { j: ridIndex[m.rid], per: m.share / (out[1] * 60 / r.time) };
+          return { j: ridIndex[m.rid], per: m.share / (out[1] * 60 / r.time * mult(m.rid)) };
         });
       });
-      var nets = rids.map(function (rid) { return perMinute(data.recipes[rid]); });
+      var nets = rids.map(function (rid) {
+        var net = perMinute(data.recipes[rid]);
+        Object.keys(net).forEach(function (id) { if (net[id] > 0) net[id] *= mult(rid); });
+        return net;
+      });
       var cols = use.map(function (list) {
         var col = {};
         list.forEach(function (u) {
@@ -326,7 +333,7 @@
           var r = data.recipes[rid];
           var k = x[i] * 60 / r.time;
           r.in.forEach(function (p) { g[p[0]] = (g[p[0]] || 0) + p[1] * k; });
-          r.out.forEach(function (p) { g[p[0]] = (g[p[0]] || 0) - p[1] * k; });
+          r.out.forEach(function (p) { g[p[0]] = (g[p[0]] || 0) - p[1] * k * mult(rid); });
         });
         return g;
       }
@@ -369,7 +376,7 @@
 
       var counts = {};
       rids.forEach(function (rid, j) { counts[rid] = x[j]; });
-      var result = assemble(data, counts, owner, targets, caps);
+      var result = assemble(data, counts, owner, targets, caps, outMult);
       result.maxRate = maxItems.length ? t : null;
       result.limitedBy = limitedBy;
       if (unbounded) result.error = unboundedMessage(maxItems.length);
@@ -437,9 +444,9 @@
     Object.keys(items).forEach(function (id) {
       var e = items[id];
       var gap = e.consumed + e.target - e.produced;
-      // Rounding (a few thousandths a minute, or a few parts per million of
-      // what moves) isn't real supply or surplus.
-      var tol = Math.max(5e-3, 1e-6 * (e.consumed + e.target + e.produced));
+      // Rounding (a few parts per million of what moves) isn't real supply
+      // or surplus; a small plan's few thousandths a minute can be.
+      var tol = Math.max(1e-9, 1e-6 * (e.consumed + e.target + e.produced));
       if (gap > tol) {
         e.supplied = gap;
         e.producers.push({ node: 'raw:' + id, rate: gap });

@@ -380,11 +380,17 @@
     var info = supplyInfo(id);
     if (!info) return null;
     if (!info.purity) {
-      // Water Extractors go anywhere, so the plan simply uses enough of them.
+      // Water Extractors go anywhere: as many as the model's cards have,
+      // sharing the work, or else just enough.
+      var have = state.custom.nodes.reduce(function (sum, n) {
+        return sum + (n.type === 'resource' && n.item === id ? n.count || 1 : 0);
+      }, 0);
+      var clocks = [];
+      for (var w = 0; w < have; w++) clocks.push(used / info.baseRate / have);
+      if (!have) clocks = SOLVER.clocks(used / info.baseRate, state.clock, DATA.logistics.pipes[state.pipe - 1] / info.baseRate);
       return {
         info: info,
-        list: SOLVER.clocks(used / info.baseRate, state.clock,
-          DATA.logistics.pipes[state.pipe - 1] / info.baseRate).map(function (c) {
+        list: clocks.map(function (c) {
           return { purity: null, clock: c, extractor: info.extractor, rate: info.baseRate };
         })
       };
@@ -530,6 +536,12 @@
    * need, and lines between slots that exist. (Builds from before Custom
    * placed items, rather than buildings, are left behind.)
    */
+  // Past any real factory; beyond these a typo (1e9 machines) would hang the
+  // page working out every machine.
+  var MAX_SET = 10000;      // machines on one Set card
+  var MAX_NODES = 1000;     // resource nodes on one card
+  var MAX_RATE = 1000000;   // per minute, brought in or asked for
+
   function readCustom(c) {
     var out = { nodes: [], links: [], notes: [], strokes: [] };
     if (!c || !Array.isArray(c.nodes)) return out;
@@ -551,7 +563,7 @@
         if (!DATA.recipes[n.recipe]) return;
         q.recipe = n.recipe;
         q.item = DATA.items[n.item] ? n.item : DATA.recipes[n.recipe].out[0][0];
-        if (n.set) { q.set = true; q.count = Math.max(0, Number(n.count) || 0); }
+        if (n.set) { q.set = true; q.count = clamp(Number(n.count) || 0, 0, MAX_SET); }
         if (Number(n.clock) > 0) q.clock = clamp(Number(n.clock), 0.01, SOLVER.MAX_CLOCK);
         var slots = DATA.machines[DATA.recipes[n.recipe].machine].sloops || 0;
         if (Number(n.sloops) > 0 && slots) q.sloops = clamp(Math.round(Number(n.sloops)), 1, slots);
@@ -560,12 +572,12 @@
         q.item = n.item;
         q.purity = SOLVER.PURITIES.indexOf(n.purity) >= 0 ? n.purity : 'normal';
         if (DATA.extractors[n.miner]) q.miner = n.miner;
-        q.count = Math.max(1, Math.round(Number(n.count) || 1));
+        q.count = clamp(Math.round(Number(n.count) || 1), 1, MAX_NODES);
         q.clock = clamp(Number(n.clock) || 1, 0.01, SOLVER.MAX_CLOCK);
       } else if (n.type === 'import') {
         if (!DATA.items[n.item]) return;
         q.item = n.item;
-        q.rate = Math.max(0, Number(n.rate) || 0);
+        q.rate = clamp(Number(n.rate) || 0, 0, MAX_RATE);
         if (typeof n.from === 'string' && n.from) q.from = n.from;  // another factory in the save
       } else if (n.type === 'splitter' || n.type === 'merger') {
         if (n.priority) q.priority = true;  // Smart Splitter (overflow), Priority Merger
@@ -592,7 +604,7 @@
     state.targets = (Array.isArray(data.targets) ? data.targets : [])
       .filter(function (t) { return t && DATA.items[t.item]; })
       .map(function (t) {
-        var out = { item: t.item, rate: Number(t.rate) || 0 };
+        var out = { item: t.item, rate: clamp(Number(t.rate) || 0, 0, MAX_RATE) };
         if (t.max) out.max = true;
         return out;
       });
@@ -721,7 +733,7 @@
   var MAX_HISTORY = 80;
 
   var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe',
-    'picker', 'goal', 'unlocked', 'unavailable', 'pins', 'custom'];
+    'picker', 'goal', 'unlocked', 'unavailable', 'pins', 'custom', 'optKey'];
 
   function snapshot() {
     var snap = {};
@@ -898,6 +910,7 @@
     // to be.
     flow = modelFlow();
     syncPlan(flow);
+    noteBuilt();
     buildablePlan(true);
     var counts = {}, owner = {}, outs = {};
     state.custom.nodes.forEach(function (n) {
@@ -1148,19 +1161,31 @@
       return list.reduce(function (sum, v) { return sum + v; }, 0) / list.length;
     }
 
-    /** Crossings between a column and the next one. */
+    /**
+     * Crossings between a column and the next one: the lines in order of
+     * where they leave, counting each pair whose ends come the other way
+     * round (a merge sort, so a big factory doesn't take forever).
+     */
     function crossingsAfter(c3) {
       if (c3 < 0 || c3 >= maxC) return 0;
       var pairs = [];
       layers[c3].forEach(function (u) {
         u.lo.forEach(function (l) { pairs.push([u.idx, l.b.idx]); });
       });
+      pairs.sort(function (p, q) { return p[0] - q[0] || p[1] - q[1]; });
+      var ends = pairs.map(function (p) { return p[1]; });
       var count = 0;
-      for (var p = 0; p < pairs.length; p++) {
-        for (var r = p + 1; r < pairs.length; r++) {
-          if ((pairs[p][0] - pairs[r][0]) * (pairs[p][1] - pairs[r][1]) < 0) count++;
+      (function sortCount(list) {
+        if (list.length < 2) return list;
+        var half = list.length >> 1;
+        var a = sortCount(list.slice(0, half)), b = sortCount(list.slice(half));
+        var out = [], i = 0, j = 0;
+        while (i < a.length || j < b.length) {
+          if (j >= b.length || (i < a.length && a[i] <= b[j])) out.push(a[i++]);
+          else { count += a.length - i; out.push(b[j++]); }
         }
-      }
+        return out;
+      })(ends);
       return count;
     }
     function totalCrossings() {
@@ -1175,6 +1200,15 @@
       reindex(layer);
     }
 
+    // Crossings among two neighbours' own lines, u above v. Swapping them
+    // changes nothing else, so that's all a swap needs to compare.
+    function pairCrossings(u, v) {
+      var c = 0;
+      u.lo.forEach(function (x) { v.lo.forEach(function (y) { if (x.b.idx > y.b.idx) c++; }); });
+      u.li.forEach(function (x) { v.li.forEach(function (y) { if (x.a.idx > y.a.idx) c++; }); });
+      return c;
+    }
+
     function transpose() {
       var improved = true;
       var rounds = 0;
@@ -1183,17 +1217,13 @@
         for (var c5 = 0; c5 <= maxC; c5++) {
           var layer = layers[c5];
           for (var j = 0; j + 1 < layer.length; j++) {
-            var before = crossingsAfter(c5 - 1) + crossingsAfter(c5);
-            var a = layer[j];
-            layer[j] = layer[j + 1];
-            layer[j + 1] = a;
-            reindex(layer);
-            if (crossingsAfter(c5 - 1) + crossingsAfter(c5) < before) {
+            var u = layer[j], v = layer[j + 1];
+            if (pairCrossings(v, u) < pairCrossings(u, v)) {
+              layer[j] = v;
+              layer[j + 1] = u;
+              v.idx = j;
+              u.idx = j + 1;
               improved = true;
-            } else {
-              layer[j + 1] = layer[j];
-              layer[j] = a;
-              reindex(layer);
             }
           }
         }
@@ -4711,31 +4741,16 @@
         node: 'r:' + rid
       });
     });
-    // Extractors count too, wherever the plan knows what they are.
-    Object.keys(solved.items).forEach(function (id) {
-      var e = solved.items[id];
-      if (solved.custom) return;
-      if (!(e.supplied > EPS) || !DATA.items[id].raw) return;
-      var ex = extractorsFor(id, e.supplied);
-      if (!ex) return;
-      var byMark = {};
-      ex.list.forEach(function (m) { (byMark[m.extractor] = byMark[m.extractor] || []).push(m.clock); });
-      Object.keys(byMark).forEach(function (mid) {
-        var clocksList = byMark[mid];
-        clocksList.forEach(function (c) { shards += shardsFor(c); });
-        var p = SOLVER.extractorPower(DATA, mid, clocksList, state.clock);
-        tally(mid, DATA.extractors[mid].name,
-          clocksList.reduce(function (s, c) { return s + c; }, 0),
-          clocksList.length, p);
-        draws.push({
-          label: itemName(id),
-          note: clocksList.length + ' × ' + DATA.extractors[mid].name,
-          power: p,
-          extraction: true,
-          node: 'raw:' + id
-        });
+    // Extractors in the views: the model's resource cards, as they run there.
+    if (!solved.custom && flow) {
+      flow.tally.forEach(function (t) {
+        if (!t.extraction) return;
+        var card = nodeById(t.id);
+        shards += t.shards;
+        tally(t.mid, t.name, t.exact, t.built, t.power);
+        draws.push({ label: t.label, note: t.note, power: t.power, extraction: true, node: 'raw:' + (card ? card.item : '') });
       });
-    });
+    }
 
     // In Custom, every placed building counts, running as the flow found.
     if (solved.custom) {
@@ -5375,10 +5390,20 @@
       writeNow();
       var sv = clone(data.save);
       sv.id = uid();
-      sv.progress = sv.progress || {};
-      var activeAt = Math.max(0, sv.factories.findIndex(function (f) { return f.id === sv.active; }));
-      sv.factories = sv.factories.filter(function (f) { return f && typeof f === 'object'; }).map(function (f) {
-        return { id: uid(), name: typeof f.name === 'string' ? f.name : '', plan: f.plan || {} };
+      sv.name = typeof sv.name === 'string' ? sv.name : '';
+      sv.progress = sv.progress && typeof sv.progress === 'object' ? sv.progress : {};
+      var isObj = function (v) { return v && typeof v === 'object' && !Array.isArray(v); };
+      var kept = sv.factories.filter(isObj);
+      var activeAt = Math.max(0, kept.findIndex(function (f) { return f.id === sv.active; }));
+      // Fresh ids, with Imports from one factory to another following them.
+      var newId = {};
+      kept.forEach(function (f) { if (typeof f.id === 'string') newId[f.id] = uid(); });
+      sv.factories = kept.map(function (f) {
+        var plan = isObj(f.plan) ? f.plan : {};
+        ((plan.custom && Array.isArray(plan.custom.nodes)) ? plan.custom.nodes : []).forEach(function (n) {
+          if (n && n.type === 'import' && newId[n.from]) n.from = newId[n.from];
+        });
+        return { id: newId[f.id] || uid(), name: typeof f.name === 'string' ? f.name : '', plan: plan };
       });
       if (!sv.factories.length) sv.factories.push(newFactoryRecord());
       sv.active = sv.factories[Math.min(activeAt, sv.factories.length - 1)].id;
@@ -6078,11 +6103,14 @@
     function outLink(n, k) { return (outL[n.id] || []).filter(function (l) { return l.fk === k; })[0] || null; }
     function inLink(n, k) { return (inL[n.id] || []).filter(function (l) { return l.tk === k; })[0] || null; }
 
-    // 1. Demand, passed upstream from Set steps.
+    // 1. Demand, passed upstream from Set steps. What a splitter or merger
+    // passes on is worked out once; a line looping back into one already
+    // being asked asks for nothing more (or a loop of them would be asked
+    // round and round).
     var wantMemo = {};
     var asking = {};
+    var askedMemo = {}, askedBusy = {};
     function request(l, depth) {
-      if (depth > 60) return 0;
       var n = byId[l.to];
       if (!n) return 0;
       if (n.type === 'recipe') {
@@ -6090,18 +6118,25 @@
         var c = n.set ? (n.count || 0) : wanted(n, depth + 1);
         return c * need(n, itemOf[l.id]);
       }
-      if (n.type === 'splitter') {
-        return (outL[n.id] || []).reduce(function (s, o) { return s + request(o, depth + 1); }, 0);
-      }
+      if (n.type === 'splitter') return askedOf(n, depth);
       if (n.type === 'merger') {
-        var o1 = (outL[n.id] || [])[0];
-        if (!o1) return 0;
         // A Priority Merger asks its top input for everything.
-        if (n.priority && inLink(n, 0)) return l.tk === 0 ? request(o1, depth + 1) : 0;
+        if (n.priority && inLink(n, 0)) return l.tk === 0 ? askedOf(n, depth) : 0;
         var ins = (inL[n.id] || []).length || 1;
-        return request(o1, depth + 1) / ins;
+        return askedOf(n, depth) / ins;
       }
       return 0;
+    }
+    function askedOf(n, depth) {
+      if (askedMemo[n.id] != null) return askedMemo[n.id];
+      if (askedBusy[n.id]) return 0;
+      askedBusy[n.id] = true;
+      var v = n.type === 'splitter'
+        ? (outL[n.id] || []).reduce(function (s, o) { return s + request(o, depth + 1); }, 0)
+        : ((outL[n.id] || [])[0] ? request(outL[n.id][0], depth + 1) : 0);
+      askedBusy[n.id] = false;
+      askedMemo[n.id] = v;
+      return v;
     }
     function wanted(n, depth) {
       if (wantMemo[n.id] != null) return wantMemo[n.id];
@@ -6125,9 +6160,17 @@
       else { var w = wanted(n, 0); aim[n.id] = w > 1e-9 ? w : null; }
     });
 
-    // How much a link's far end will take.
-    function accept(l, depth) {
-      if ((depth || 0) > 60) return Infinity;
+    // How much a link's far end will take. Firm: leaving out Storage, which
+    // only takes what's left over. The room past each splitter or merger is
+    // worked out once per question, and a line looping back into one
+    // already counted adds no room.
+    var roomMemo = {}, roomBusy = {};
+    function accept(l, depth, firm) {
+      roomMemo = {};
+      roomBusy = {};
+      return takes(l, !!firm);
+    }
+    function takes(l, firm) {
       var n = byId[l.to];
       if (!n) return 0;
       if (n.type === 'recipe') {
@@ -6136,14 +6179,10 @@
         if (!nd) return 0;
         return aim[n.id] == null ? Infinity : nd * aim[n.id];
       }
-      if (n.type === 'sink') return Infinity;
-      if (n.type === 'splitter') {
-        return (outL[n.id] || []).reduce(function (s, o) { return s + accept(o, (depth || 0) + 1); }, 0);
-      }
+      if (n.type === 'sink') return firm ? 0 : Infinity;
+      if (n.type === 'splitter') return roomOf(n, firm);
       if (n.type === 'merger') {
-        var o1 = (outL[n.id] || [])[0];
-        if (!o1) return 0;
-        var room = accept(o1, (depth || 0) + 1);
+        var room = roomOf(n, firm);
         // A Priority Merger's top input comes first; any other input gets
         // what the line out has left after the rest.
         if (n.priority && l.tk === 0) return room;
@@ -6151,6 +6190,28 @@
         return Math.max(0, room - others);
       }
       return 0;
+    }
+    function roomOf(n, firm) {
+      if (roomMemo[n.id] != null) return roomMemo[n.id];
+      if (roomBusy[n.id]) return 0;
+      roomBusy[n.id] = true;
+      var v = n.type === 'splitter'
+        ? (outL[n.id] || []).reduce(function (s, o) { return s + takes(o, firm); }, 0)
+        : ((outL[n.id] || [])[0] ? takes(outL[n.id][0], firm) : 0);
+      roomBusy[n.id] = false;
+      roomMemo[n.id] = v;
+      return v;
+    }
+
+    // Whether a line ends in Storage, straight away or past more splitters.
+    function spills(l, seen) {
+      var n = byId[l.to];
+      seen = seen || {};
+      if (!n || seen[n.id]) return false;
+      if (n.type === 'sink') return true;
+      if (n.type !== 'splitter') return false;
+      seen[n.id] = true;
+      return (outL[n.id] || []).some(function (o) { return spills(o, seen); });
     }
 
     // 2. Items pushed forward, sources first. The order is a depth-first
@@ -6213,13 +6274,16 @@
           // A Smart Splitter fills its top output first; the rest overflow.
           if (n.priority && main.length && main[0].fk === 0) {
             var first = main.shift();
-            outs[0] = Math.min(F, accept(first));
+            outs[0] = Math.min(F, accept(first, 0, true));
             left -= outs[0];
           }
-          var shares = evenShare(left, main.map(function (l) { return accept(l); }));
+          var shares = evenShare(left, main.map(function (l) { return accept(l, 0, true); }));
           main.forEach(function (l, i) { outs[l.fk] = shares[i]; left -= shares[i]; });
-          var spillShares = evenShare(Math.max(0, left), spill.map(function () { return Infinity; }));
-          spill.forEach(function (l, i) { outs[l.fk] = spillShares[i]; });
+          // What's left goes to Storage, here or further down the line.
+          var over = spill.concat(main.filter(function (l) { return spills(l); }));
+          if (n.priority && first && spills(first)) over.push(first);
+          var spillShares = evenShare(Math.max(0, left), over.map(function () { return Infinity; }));
+          over.forEach(function (l, i) { outs[l.fk] = (outs[l.fk] || 0) + spillShares[i]; });
         } else if (n.type === 'merger') {
           outs[0] = ins.reduce(function (s, l) { return s + flowOf[l.id]; }, 0);
         }
@@ -7772,6 +7836,7 @@
           var inp = document.createElement('input');
           inp.type = 'number';
           inp.min = 0;
+          inp.max = Number((i ? MAX_SET * per : MAX_SET).toPrecision(6));
           inp.step = c.step;
           inp.value = Number(c.value.toFixed(4));
           cell.appendChild(inp);
@@ -7788,13 +7853,13 @@
           pair.appendChild(cell);
           inputs.push(inp);
           inp.addEventListener('input', function () {
-            var count = Math.max(0, c.toCount(Number(inp.value) || 0));
+            var count = clamp(c.toCount(Number(inp.value) || 0), 0, MAX_SET);
             var other = inputs[1 - i];
             other.value = Number((i ? count : count * per).toFixed(4));
             pair.classList.add('live');
           });
           inp.addEventListener('change', function () {
-            n.count = Math.max(0, c.toCount(Number(inp.value) || 0));
+            n.count = clamp(c.toCount(Number(inp.value) || 0), 0, MAX_SET);
             changed();
           });
         });
@@ -7867,7 +7932,7 @@
           n.purity || 'normal', function (v) { n.purity = v; changed(); }));
       }
       field(n.item === 'Desc_Water_C' ? 'Extractors' : 'Nodes', number(n.count || 1, 1, 1, function (v) {
-        n.count = Math.max(1, Math.round(v || 1));
+        n.count = clamp(Math.round(v || 1), 1, MAX_NODES);
         changed();
       }));
       field('Clock speed', document.createElement('span'));
@@ -7887,7 +7952,7 @@
         if (v) n.from = v; else delete n.from;
         changed();
       }));
-      field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = Math.max(0, v || 0); changed(); }));
+      field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = clamp(v || 0, 0, MAX_RATE); changed(); }));
     } else {
       note(n.type === 'splitter' && n.priority ? 'Its top output takes all it can; what it can’t take is shared by the others, as the game’s Overflow setting does.'
         : n.type === 'splitter' ? 'Shares what comes in evenly across its outputs; anything a branch can’t take goes to the others.'
@@ -8030,7 +8095,12 @@
     // Resources aren't capped: the new model gets the nodes it needs.
     state.supply = {};
     var built = buildablePlan(state.picker !== 'optimise');
-    var plan = { targets: targets, recipes: built.recipes, imports: built.imports, caps: {} };
+    // Somersloops stay with their recipes, and the plan counts on them.
+    var outMult = {};
+    Object.keys(sloopsWas).forEach(function (rid) {
+      outMult[rid] = 1 + sloopsOf({ type: 'recipe', recipe: rid, sloops: sloopsWas[rid] }).boost;
+    });
+    var plan = { targets: targets, recipes: built.recipes, imports: built.imports, caps: {}, outMult: outMult };
     solved = null;
     if (state.picker === 'optimise') {
       plan.pins = {};
@@ -8040,7 +8110,9 @@
       plan.recipes = buildablePlan(true).recipes;
       solved = SOLVER.solve(DATA, plan);
     }
+    layoutSloops = sloopsWas;
     autoToCustom();
+    layoutSloops = {};
     // Each resource's card mines the way the model did, with as many nodes
     // as the new plan takes.
     state.custom.nodes.forEach(function (n) {
@@ -8056,15 +8128,22 @@
     });
     state.custom.nodes.forEach(function (n) {
       if (nodeRecipe(n) && clockWas[n.recipe]) n.clock = clockWas[n.recipe];
-      if (nodeRecipe(n) && sloopsWas[n.recipe]) n.sloops = sloopsWas[n.recipe];
     });
     state.pins = {};
     keyAfterRender = true;
     return true;
   }
 
-  // Set by buildModel: the next Model redraw records the new planKey.
+  // Set by buildModel: the next redraw (Model or a view) records the new planKey.
   var keyAfterRender = false;
+  // Somersloops for the cards autoToCustom lays out: recipe -> how many.
+  var layoutSloops = {};
+
+  function noteBuilt() {
+    if (!keyAfterRender) return;
+    keyAfterRender = false;
+    state.optKey = state.targets.length ? planKey() : null;
+  }
 
   var runBtn = document.getElementById('opt-run');
   var runNeed = document.getElementById('opt-need');
@@ -8185,9 +8264,8 @@
         place(0, im);
       }
     });
-    // Steps, by how far they are from the raw resources. The optimiser can
-    // leave recipes in at a thousandth of a machine or less; they aren't steps.
-    var used = Object.keys(solved.recipes).filter(function (rid) { return solved.recipes[rid].count > 1e-3; });
+    // Steps, by how far they are from the raw resources.
+    var used = Object.keys(solved.recipes).filter(function (rid) { return solved.recipes[rid].count > 1e-9; });
     var madeBy = {};
     used.forEach(function (rid) {
       DATA.recipes[rid].out.forEach(function (o) { (madeBy[o[0]] = madeBy[o[0]] || []).push(rid); });
@@ -8214,13 +8292,15 @@
       var n = node(solved.targets[item] > EPS
         ? { type: 'recipe', recipe: rid, item: item, set: true, count: count }
         : { type: 'recipe', recipe: rid, item: item });
+      if (layoutSloops[rid]) n.sloops = layoutSloops[rid];
       planned[n.id] = count;
       var col = stepDepth(rid, {});
       last = Math.max(last, col);
       place(col, n);
       var per = SOLVER.perMinute(r);
+      var boost = 1 + sloopsOf(n).boost;
       r.in.forEach(function (q, k) { take(q[0], n, k, -per[q[0]] * count); });
-      r.out.forEach(function (q, k) { if (per[q[0]] > 0) give(q[0], n, k, per[q[0]] * count); });
+      r.out.forEach(function (q, k) { if (per[q[0]] > 0) give(q[0], n, k, per[q[0]] * count * boost); });
     });
     // Outputs and spares into Storage.
     var end = last + 1;
@@ -8259,6 +8339,27 @@
       // Anything still wanting some takes it from the last producer.
       for (; ci < C.length; ci++) if (!paired[ci]) pairs.push({ p: P[P.length - 1], c: C[ci] });
       plans.push({ item: item, pairs: pairs });
+    });
+
+    // Where an item's makers and users cross (one maker feeding several
+    // steps, one of which also takes from another maker), separate lines
+    // would be split evenly and leave a step short. Those items get one line
+    // instead: everything making it merges in (made ones first, mined or
+    // brought-in ones topping up), then it's split out to every step.
+    plans.forEach(function (pl) {
+      var np = new Map(), nc = new Map();
+      pl.pairs.forEach(function (pr) {
+        np.set(pr.p, (np.get(pr.p) || 0) + 1);
+        nc.set(pr.c, (nc.get(pr.c) || 0) + 1);
+      });
+      var split = false, merge = false;
+      np.forEach(function (k) { if (k > 1) split = true; });
+      nc.forEach(function (k) { if (k > 1) merge = true; });
+      if (!split || !merge) return;
+      var bus = { made: [], src: [], to: [] };
+      np.forEach(function (k, e) { (e.n.type === 'resource' || e.n.type === 'import' ? bus.src : bus.made).push(e); });
+      nc.forEach(function (k, e) { bus.to.push(e); });
+      pl.bus = bus;
     });
 
     // Who feeds whom, card to card.
@@ -8312,7 +8413,20 @@
     // Room between columns for the splitters and mergers each gap holds.
     function chainLength(k) { return k <= 1 ? 0 : 1 + Math.ceil(Math.max(0, k - 3) / 2); }
     var splitOut = new Map(), mergeIn = new Map();  // "card|slot" -> how many lines
+    function busLength(b) {
+      var n = chainLength(b.made.length) + chainLength(b.to.length);
+      if (b.made.length && b.src.length) n += 1 + (b.src.length > 2 ? chainLength(b.src.length) : 0);
+      else n += chainLength(b.src.length);
+      return n;
+    }
+    var busAfter = new Map();  // column -> lanes its shared lines take
     plans.forEach(function (pl) {
+      if (!pl.bus) return;
+      var c = Math.max.apply(null, pl.bus.made.concat(pl.bus.src).map(function (e) { return colOf.get(e.n); }));
+      busAfter.set(c, Math.max(busAfter.get(c) || 0, busLength(pl.bus)));
+    });
+    plans.forEach(function (pl) {
+      if (pl.bus) return;
       pl.pairs.forEach(function (pr) {
         var a = pr.p.n.id + '|' + pr.p.k, b = pr.c.n.id + '|' + pr.c.k;
         splitOut.set(a, (splitOut.get(a) || 0) + 1);
@@ -8329,6 +8443,7 @@
       var n = nodes.filter(function (m) { return m.id === key.split('|')[0]; })[0];
       lanesBefore[colOf.get(n)] = Math.max(lanesBefore[colOf.get(n)], chainLength(k));
     });
+    busAfter.forEach(function (k, c) { lanesAfter[c] = Math.max(lanesAfter[c], k); });
     var LANE = 100, GAP_X = 150, GAP_Y = 70;
     var x = 0;
     columns.forEach(function (list, c) {
@@ -8375,7 +8490,68 @@
     // before the consumer, each branch in the order its far end sits.
     var LOGI_H = nodeSize({ type: 'splitter' }).h;
     var LOGI_W = nodeSize({ type: 'splitter' }).w;
+    function busLines(b) {
+      function outY(e) { return slotAt(e.n, 'out', e.k).y; }
+      function inY(e) { return slotAt(e.n, 'in', e.k).y; }
+      // In a row just past the rightmost maker, starting level with it, each
+      // part placed so the line runs level into it from the one before.
+      var all = b.made.concat(b.src);
+      var anchor = all.reduce(function (a, e) { return slotAt(e.n, 'out', e.k).x > slotAt(a.n, 'out', a.k).x ? e : a; });
+      var x0 = slotAt(anchor.n, 'out', anchor.k).x + 48;
+      var lineY = outY(anchor);
+      var lane = 0;
+      function part(obj, inK) {
+        var p = node(obj);
+        p.x = Math.round(x0 + lane * LANE);
+        p.y = 0;
+        p.y = Math.round(lineY - slotAt(p, 'in', inK).y);
+        lane++;
+        return p;
+      }
+      function join(a, p, k) { links.push({ id: 'l' + uid(), from: a.n.id, fk: a.k, to: p.id, tk: k }); }
+      function mergeAll(list) {
+        list = list.slice().sort(function (a, c) { return outY(a) - outY(c); });
+        if (list.length === 1) { lineY = outY(list[0]); return list[0]; }
+        var stream = null;
+        while (list.length) {
+          var mg = part({ type: 'merger' }, stream ? 0 : 1);
+          var k = 0;
+          if (stream) join(stream, mg, k++);
+          while (k < 3 && list.length) join(list.shift(), mg, k++);
+          stream = { n: mg, k: 0 };
+          lineY = slotAt(mg, 'out', 0).y;
+        }
+        return stream;
+      }
+      var stream;
+      var made = b.made.length ? mergeAll(b.made) : null;
+      if (made && b.src.length) {
+        var madeY = lineY;
+        var src = b.src.length > 2 ? [mergeAll(b.src)] : b.src;
+        lineY = madeY;
+        var pm = part({ type: 'merger', priority: true }, 0);
+        join(made, pm, 0);
+        src.forEach(function (e, i) { join(e, pm, i + 1); });
+        stream = { n: pm, k: 0 };
+        lineY = slotAt(pm, 'out', 0).y;
+      } else {
+        stream = made || mergeAll(b.src);
+      }
+      var to = b.to.slice().sort(function (a, c) { return inY(a) - inY(c); });
+      while (to.length) {
+        var sp = part({ type: 'splitter' }, 0);
+        lineY = slotAt(sp, 'out', 2).y;
+        join(stream, sp, 0);
+        var room = to.length <= 3 ? to.length : 2;
+        for (var t = 0; t < room; t++) {
+          var e = to.shift();
+          links.push({ id: 'l' + uid(), from: sp.id, fk: t, to: e.n.id, tk: e.k });
+        }
+        stream = { n: sp, k: 2 };
+      }
+    }
     plans.forEach(function (pl) {
+      if (pl.bus) { busLines(pl.bus); return; }
       var pairs = pl.pairs;
       var from = [], to = [];
       var byP = new Map(), byC = new Map();
@@ -8462,7 +8638,7 @@
       var off = nodes.filter(function (n) {
         if (n.type !== 'recipe' || n.set) return false;
         var got = (f.nodes[n.id] && f.nodes[n.id].count) || 0;
-        return Math.abs(got - planned[n.id]) > Math.max(1e-4, planned[n.id] * 1e-3);
+        return Math.abs(got - planned[n.id]) > Math.max(1e-9, planned[n.id] * 1e-4);
       });
       if (!off.length) break;
       off.forEach(function (n) { n.set = true; n.count = planned[n.id]; });
@@ -8475,10 +8651,7 @@
   function renderCustomView() {
     flow = modelFlow();
     syncPlan(flow);
-    if (keyAfterRender) {
-      keyAfterRender = false;
-      state.optKey = state.targets.length ? planKey() : null;
-    }
+    noteBuilt();
     solved = { recipes: {}, items: flow.items, targets: flow.outputs, flows: [], custom: true };
     graph = { nodes: [], edges: [], byKey: {} };
     errorEl.hidden = true;
