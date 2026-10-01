@@ -58,8 +58,118 @@
   --frame: 13px;
   --inner-radius: 12px;
 
+  /* Theme tokens: what was written in place, so light mode can swap it. */
+  --tint: 255, 255, 255;       /* soft overlays: lighten on dark, darken on light */
+  --halo: 0, 0, 0;             /* the glow behind text over lines */
+  --shade: 1;                  /* how strong drop shadows are */
+  --white: #fff;               /* the brightest ink: selections, hovers */
+  --thumb-hi: #fff;
+  --btn-hover: #2c2c2c;
+  --badge-bg: #2a2a2a; --badge-ink: #f2f2f2;
+  --head-ink: #fff3e6; --head-ink-2: #ffd3b0; --head-ink-hi: #fff; --head-tint: 255, 226, 199;
+  --out-ink: #bff0d2; --out-ink-2: #93e5b3; --out-ink-3: #7fc79c; --out-badge: #1d3627; --out-bg: rgb(22, 42, 31);
+  --belt: #cdcdcd; --belt-machine: #adadad; --belt-pipe: #a9a9a9; --pipe-wire: #6a6a6a;
+  --m-name: #f6cfa4; --m-product: #e3b98c; --m-sub: #c49468; --m-sub-dim: #a27e5c;
+  --mach-bg: #221810; --mach-edge: #422d1a; --mach-over-edge: #684628; --mach-under-bg: #1c140d; --mach-under-edge: #37261a;
+  --step-bg: #38261a; --step-edge: #6b482b; --step-edge-hi: #95653b;
+  --step-ink-2: #c49a72; --step-ink-2h: #e3bb93; --step-ink-b: #e8c7a4; --step-ink-3: #a88262;
+  --logi-bg: #2b2b2b; --logi-edge: #a0a0a0;
+  --fl-ink: #c4c4c4; --fl-dim: #a8a8a8;
+  --spare-bg: #242424;
+  --ext-bg: #262626; --ext-edge: #7a7a7a; --ext-under-bg: #212121; --ext-under-edge: #5c5c5c; --ext-over-edge: #9a9a9a;
+  --accent-ink: #ffc08a;
+  --port-out: #f2c79d; --port-in: #d9d9d9; --port-fluid: #9fc6ff;
+  --pipe-sel: #d8e8ff; --pipe-preview: #8fb6ea; --cpipe: #6f98d0; --cpipe-core: #16202c;
+  --warn-ink: #f0b27a; --warn-ink-2: #e8a060;
+  --card: #2e2e2e; --card-edge: #4a4a4a; --card-edge-hi: #6c6c6c; --card-dash: #5a5a5a;
+  --pen: #f4f4f4;
+  --tool-select: 236, 236, 236;
+  --flag-bg: #1e1e1e;
+
   --font: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
 }
+
+/* Light mode: the same tokens, for a light canvas. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ecebe8;
+  --plus: #d9d8d4;
+  --panel: #fbfbfa;
+  --panel-2: #f2f2f0;
+  --well: #e4e4e1;
+  --label: #a3a3a0;
+  --warn: #c96a1a;
+  --output: 40, 158, 92;
+  --tab-line: #d2d2cf;
+  --header: #f4d2ae;
+  --header-edge: #e3b385;
+  --edge: #dcdcd8;
+  --edge-hi: #c3c3bf;
+  --edge-focus: #8a8a87;
+  --ink: #1f1f1e;
+  --ink-dim: #575755;
+  --ink-faint: #85857f;
+  --ink-ghost: #afafaa;
+  --bright: #1f1f1e;
+  --bright-ink: #fbfbfa;
+  --port: #e0e0dc;
+  --port-live: #2a2a2a;
+  --wire: #8d8d89;
+
+  --tint: 0, 0, 0;
+  --halo: 255, 255, 255;
+  --shade: .32;
+  --white: #000;
+  --thumb-hi: #fff;
+  --btn-hover: #e7e7e4;
+  --badge-bg: #fff; --badge-ink: #2a2a2a;
+  --head-ink: #3a1d07; --head-ink-2: #7a4317; --head-ink-hi: #1c0d02; --head-tint: 74, 38, 10;
+  --out-ink: #17663a; --out-ink-2: #1f8048; --out-ink-3: #3c9663; --out-badge: #dcf2e4; --out-bg: #e2f4e9;
+  --belt: #8f8f8b; --belt-machine: #7d7d79; --belt-pipe: #9c9c98; --pipe-wire: #a5a5a1;
+  --m-name: #5e3312; --m-product: #84552a; --m-sub: #976839; --m-sub-dim: #b08c6a;
+  --mach-bg: #fae6d1; --mach-edge: #e2b387; --mach-over-edge: #c7854b; --mach-under-bg: #fcf1e5; --mach-under-edge: #ecccab;
+  --step-bg: #fae6d1; --step-edge: #e2b387; --step-edge-hi: #c7854b;
+  --step-ink-2: #8a5a2c; --step-ink-2h: #63380f; --step-ink-b: #79461b; --step-ink-3: #9c7653;
+  --logi-bg: #f6f6f4; --logi-edge: #8e8e8a;
+  --fl-ink: #3d3d3b; --fl-dim: #6b6b67;
+  --spare-bg: #f1f1ef;
+  --ext-bg: #f5f5f3; --ext-edge: #9f9f9b; --ext-under-bg: #f9f9f8; --ext-under-edge: #c6c6c2; --ext-over-edge: #6b6b67;
+  --accent-ink: #a5520f;
+  --port-out: #c47530; --port-in: #6e6e6a; --port-fluid: #3b7bd3;
+  --pipe-sel: #1d4f94; --pipe-preview: #4a86d4; --cpipe: #5b8fd6; --cpipe-core: #eef4fc;
+  --warn-ink: #b45c12; --warn-ink-2: #c0661a;
+  --card: #ffffff; --card-edge: #cfcfcb; --card-edge-hi: #a5a5a1; --card-dash: #b6b6b2;
+  --pen: #1c1c1c;
+  --tool-select: 40, 40, 40;
+  --flag-bg: #ffffff;
+}
+:root[data-theme="light"] #stage {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M22 18.5v7M18.5 22h7' stroke='%23d9d8d4' stroke-width='1.75' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+/* Switching themes: everything eases across rather than snapping. (Where the
+   browser can, the whole page crossfades instead; see setTheme.) */
+:root.theme-fade, :root.theme-fade *, :root.theme-fade *::before, :root.theme-fade *::after {
+  transition: background-color .35s ease, color .35s ease, border-color .35s ease,
+              fill .35s ease, stroke .35s ease, box-shadow .35s ease, outline-color .35s ease !important;
+}
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .38s; animation-timing-function: ease; }
+
+/* Pictures with their colours baked in, redrawn for light mode. */
+:root[data-theme="light"] .sum-row.check-row.on::before,
+:root[data-theme="light"] .vo-row.on::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.6 6.3l2.2 2.2 4.6-4.9' fill='none' stroke='%231f1f1e' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+:root[data-theme="light"] .tabs .tab.on::before,
+:root[data-theme="light"] .tabs .tab.on::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 9 9'%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5L9 0.5L9 9L0.5 9Z' fill='%23f2f2f0'/%3E%3Cpath d='M0.5 8.5A8 8 0 0 0 8.5 0.5' fill='none' stroke='%23d2d2cf' stroke-width='1'/%3E%3C/svg%3E");
+}
+:root[data-theme="light"] #stage.tool-eraser, :root[data-theme="light"] #stage.tool-eraser * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Crect x='1.5' y='1.5' width='9' height='9' fill='none' stroke='%23fff' stroke-opacity='.8' stroke-width='1'/%3E%3Crect x='2.5' y='2.5' width='7' height='7' fill='none' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E") 6 6, cell;
+}
+
+/* Machine view belts a shade darker than lines elsewhere. */
+#world.machines .belt:not(.pipe):not(.pipe-core) { stroke: var(--belt-machine); }
 
 * { box-sizing: border-box; }
 
@@ -146,8 +256,8 @@ html, body {
   transition: background-color .16s ease;
 }
 #board-name::placeholder { color: var(--ink-ghost); }
-#board-name:hover { background: rgba(255, 255, 255, .034); }
-#board-name:focus { outline: none; background: rgba(255, 255, 255, .075); }
+#board-name:hover { background: rgba(var(--tint), .034); }
+#board-name:focus { outline: none; background: rgba(var(--tint), .075); }
 
 .bar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .group { display: flex; gap: 4px; }
@@ -163,7 +273,7 @@ html, body {
   cursor: pointer;
   white-space: nowrap;
 }
-.btn:hover { border-color: var(--edge-hi); background: #2c2c2c; }
+.btn:hover { border-color: var(--edge-hi); background: var(--btn-hover); }
 .btn:active { transform: translateY(1px); }
 .btn.primary {
   background: var(--bright);
@@ -171,8 +281,8 @@ html, body {
   border-color: var(--bright);
   font-weight: 600;
 }
-.btn.primary:hover { background: #fff; border-color: #fff; }
-.btn.danger:hover { border-color: var(--edge-focus); color: #fff; }
+.btn.primary:hover { background: var(--white); border-color: var(--white); }
+.btn.danger:hover { border-color: var(--edge-focus); color: var(--white); }
 .btn.icon { width: 30px; padding: 6px 0; text-align: center; }
 
 /* ---------- factory tabs ---------- */
@@ -210,7 +320,7 @@ html, body {
   user-select: none;
   transition: background-color .14s ease, color .14s ease;
 }
-.tab:hover { color: var(--ink-dim); background: rgba(255, 255, 255, .03); }
+.tab:hover { color: var(--ink-dim); background: rgba(var(--tint), .03); }
 .tab.on {
   color: var(--ink);
   font-weight: 600;
@@ -226,7 +336,7 @@ html, body {
   padding: 2px 5px;
   border: 1px solid var(--edge-hi);
   border-radius: 4px;
-  background: rgba(255, 255, 255, .06);
+  background: rgba(var(--tint), .06);
   color: var(--ink);
   font: inherit;
   outline: none;
@@ -246,7 +356,7 @@ html, body {
   opacity: 0;
 }
 .tab:hover .tab-x, .tab.on .tab-x { opacity: 1; }
-.tab-x:hover { background: rgba(255, 255, 255, .08); color: var(--ink); }
+.tab-x:hover { background: rgba(var(--tint), .08); color: var(--ink); }
 .tab-add {
   flex: 0 0 auto;
   align-self: center;
@@ -261,7 +371,7 @@ html, body {
   line-height: 1;
   cursor: pointer;
 }
-.tab-add:hover { background: rgba(255, 255, 255, .06); color: var(--ink); }
+.tab-add:hover { background: rgba(var(--tint), .06); color: var(--ink); }
 
 /* ---------- toolbar ---------- */
 
@@ -292,7 +402,7 @@ html, body {
   white-space: nowrap;
   transition: background-color .14s ease, color .14s ease;
 }
-.tb-btn:hover { background: rgba(255, 255, 255, .06); color: var(--ink); }
+.tb-btn:hover { background: rgba(var(--tint), .06); color: var(--ink); }
 .tb-btn:active { transform: translateY(1px); }
 .tb-btn.icon { width: 28px; padding: 3px 0; text-align: center; }
 .tb-btn.danger:hover { color: var(--warn); }
@@ -374,14 +484,14 @@ html, body {
   justify-content: center;
   border: 1px solid var(--edge);
   border-radius: 9px;
-  background: rgba(255, 255, 255, .022);
+  background: rgba(var(--tint), .022);
   color: var(--ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
   transition: background-color .16s ease, border-color .16s ease;
 }
-.tpl:hover { background: rgba(255, 255, 255, .06); border-color: var(--edge-hi); }
+.tpl:hover { background: rgba(var(--tint), .06); border-color: var(--edge-hi); }
 .tpl-name { font-size: 13px; font-weight: 600; }
 .tpl-note {
   font-size: 11.5px;
@@ -412,8 +522,8 @@ html, body {
   position: absolute;
   display: none;
   z-index: 40;
-  border: 1px solid rgba(255, 255, 255, .5);
-  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(var(--tint), .5);
+  background: rgba(var(--tint), .06);
   border-radius: 2px;
   pointer-events: none;
 }
@@ -431,7 +541,7 @@ html, body {
   background: var(--panel-2);
   border: 1px solid var(--edge);
   border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .68);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, calc(.68 * var(--shade)));
   opacity: 0;
   visibility: hidden;
   transform: translateY(-5px) scale(.98);
@@ -462,7 +572,7 @@ html, body {
   white-space: nowrap;
   transition: background-color .12s ease, color .12s ease;
 }
-.ctx button:hover { background: rgba(255, 255, 255, .07); color: var(--ink); }
+.ctx button:hover { background: rgba(var(--tint), .07); color: var(--ink); }
 /* Picker menus get a marker column showing the current value. Scoped to
    .picker so ordinary command menus aren't indented by the empty slot. */
 .ctx.picker button::before {
@@ -474,7 +584,7 @@ html, body {
 }
 .ctx.picker button.on { color: var(--ink); font-weight: 600; }
 .ctx.picker button.on::before { background: currentColor; }
-.ctx button.danger:hover { color: #fff; }
+.ctx button.danger:hover { color: var(--white); }
 .ctx .sep { height: 1px; background: var(--edge); margin: 4px 3px; }
 
 /* ---------- connectors and wires ---------- */
@@ -518,7 +628,7 @@ html, body {
   border: 1px solid var(--edge);
   border-radius: 6px;
   padding: 1px 5px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .65);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, calc(.65 * var(--shade)));
   font-size: 11.5px;
   opacity: 0;
   visibility: hidden;
@@ -541,7 +651,7 @@ html, body {
 
 /* Outside any toolbar, so it needs its own hit padding. */
 .confirm .link-btn { padding: 6px 6px; line-height: 1; }
-.confirm .confirm-yes:hover { color: #fff; }
+.confirm .confirm-yes:hover { color: var(--white); }
 
 /* #stage no longer needs a hard-coded top here: --bar-h tracks the real
    header height, however many rows it has wrapped onto. */
@@ -595,7 +705,7 @@ html, body {
   gap: 2px;
   padding: 8px 10px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, .034);
+  background: rgba(var(--tint), .034);
 }
 .sum-k {
   font-size: 10px;
@@ -618,7 +728,7 @@ html, body {
   margin: 0 14px 10px;
   padding: 3px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, .034);
+  background: rgba(var(--tint), .034);
 }
 .seg-btn {
   flex: 1 1 0;
@@ -633,7 +743,7 @@ html, body {
   transition: background-color .16s ease, color .16s ease;
 }
 .seg-btn:hover { color: var(--ink-dim); }
-.seg-btn.on { background: rgba(255, 255, 255, .1); color: var(--ink); font-weight: 600; }
+.seg-btn.on { background: rgba(var(--tint), .1); color: var(--ink); font-weight: 600; }
 
 .sum-list {
   flex: 1 1 auto;
@@ -691,7 +801,7 @@ html, body {
   cursor: pointer;
   transition: background-color .14s ease;
 }
-.sum-row:hover { background: rgba(255, 255, 255, .05); }
+.sum-row:hover { background: rgba(var(--tint), .05); }
 .sum-row-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -734,12 +844,12 @@ html, body {
   border-radius: 5px;
   transition: background-color .14s ease, color .16s ease;
 }
-.sum-exports .link-btn:hover { background: rgba(255, 255, 255, .06); }
+.sum-exports .link-btn:hover { background: rgba(var(--tint), .06); }
 
 /* Brief pulse when a panel row sends you to its node. */
 .node.flash {
   border-color: var(--edge-focus);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, .13), 0 16px 40px rgba(0, 0, 0, .7);
+  box-shadow: 0 0 0 3px rgba(var(--tint), .13), 0 16px 40px rgba(0, 0, 0, calc(.7 * var(--shade)));
 }
 
 @media (max-width: 560px) {
@@ -759,7 +869,7 @@ html, body {
 
 /* Pipes read as a hollow double line, belts as a solid one, so fluids are
    told apart without spending a colour on them. */
-.wire.pipe { stroke-width: 6; stroke: #6a6a6a; }
+.wire.pipe { stroke-width: 6; stroke: var(--pipe-wire); }
 .wire.pipe-core { stroke-width: 2.4; stroke: var(--bg); }
 .wire-end { fill: var(--port-live); }
 
@@ -797,7 +907,7 @@ html, body {
   border-color: transparent;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+  text-shadow: 0 1px 3px rgba(var(--halo), .9);
 }
 .flow-label.cn-end { left: calc(100% + 8px); transform: translateY(-50%); z-index: 3; pointer-events: none; }
 .flow-label .fl-icon { width: 15px; height: 15px; object-fit: contain; margin: -2px 4px -3px -3px; vertical-align: middle; }
@@ -815,7 +925,7 @@ html, body {
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: var(--radius);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, calc(.5 * var(--shade)));
   touch-action: none;
   cursor: grab;
   user-select: none;
@@ -824,7 +934,7 @@ html, body {
 .node.dragging {
   z-index: 5;
   cursor: grabbing;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .7);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, calc(.7 * var(--shade)));
   border-color: var(--edge-focus);
 }
 /* A node you've moved by hand keeps its place through re-solves; the corner
@@ -890,7 +1000,7 @@ html, body {
   border-top: 4px solid currentColor;
   opacity: .75;
 }
-.n-recipe:hover { background: rgba(255, 255, 255, .034); color: var(--ink-dim); }
+.n-recipe:hover { background: rgba(var(--tint), .034); color: var(--ink-dim); }
 .n-recipe:disabled { cursor: inherit; }
 .n-recipe:disabled::after { display: none; }
 .n-recipe:disabled:hover { background: none; color: var(--label); }
@@ -934,9 +1044,9 @@ html, body {
   top: -9px; left: 10px;
   padding: 1px 8px;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, .22);
-  background: #2a2a2a;
-  color: #f2f2f2;
+  border: 1px solid rgba(var(--tint), .22);
+  background: var(--badge-bg);
+  color: var(--badge-ink);
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: .08em;
@@ -962,7 +1072,7 @@ html, body {
   background: var(--panel);
   color: var(--warn);
   font-size: 12.5px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .55);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, calc(.55 * var(--shade)));
 }
 
 /* ---------- context menu extras ---------- */
@@ -1014,7 +1124,7 @@ html, body {
 
 .item-pop { width: 280px; padding: 6px; gap: 4px; overflow: hidden; }
 .item-pop .ip-input, .alt-search {
-  background: rgba(255, 255, 255, .055);
+  background: rgba(var(--tint), .055);
   border: 1px solid var(--edge);
   border-radius: 5px;
   color: var(--ink);
@@ -1027,7 +1137,7 @@ html, body {
 .item-pop .ip-input::placeholder, .alt-search::placeholder { color: var(--ink-ghost); }
 .item-pop .ip-input:focus, .alt-search:focus { border-color: var(--edge-hi); }
 .ip-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; }
-.ip-list button.sel { background: rgba(255, 255, 255, .07); color: var(--ink); }
+.ip-list button.sel { background: rgba(var(--tint), .07); color: var(--ink); }
 .ip-empty { padding: 8px 9px; font-size: 12px; color: var(--ink-ghost); }
 
 /* ---------- plan panel ---------- */
@@ -1065,11 +1175,11 @@ html, body {
   border-right: 3.5px solid transparent;
   border-top: 4px solid var(--ink-faint);
 }
-.t-item:hover { background: rgba(255, 255, 255, .05); }
+.t-item:hover { background: rgba(var(--tint), .05); }
 .t-rate {
   flex: 0 0 64px;
   width: 64px;
-  background: rgba(255, 255, 255, .034);
+  background: rgba(var(--tint), .034);
   border: 1px solid transparent;
   border-radius: 5px;
   color: var(--bright);
@@ -1081,8 +1191,8 @@ html, body {
   padding: 4px 6px;
   transition: background-color .16s ease;
 }
-.t-rate:hover { background: rgba(255, 255, 255, .06); }
-.t-rate:focus { outline: none; background: rgba(255, 255, 255, .085); }
+.t-rate:hover { background: rgba(var(--tint), .06); }
+.t-rate:focus { outline: none; background: rgba(var(--tint), .085); }
 .t-rate.bad { border-color: var(--warn); }
 /* A max output's figure is the solver's answer, not something to type. */
 .t-rate:disabled { background: none; color: var(--ink-dim); cursor: default; }
@@ -1102,7 +1212,7 @@ html, body {
   cursor: pointer;
   transition: background-color .14s ease, color .14s ease, border-color .14s ease;
 }
-.t-unit:hover { background: rgba(255, 255, 255, .05); color: var(--ink); }
+.t-unit:hover { background: rgba(var(--tint), .05); color: var(--ink); }
 .t-unit.on {
   border-color: var(--edge-hi);
   color: var(--ink);
@@ -1124,7 +1234,7 @@ html, body {
   cursor: pointer;
   transition: background-color .14s ease, color .14s ease;
 }
-.t-del:hover { background: rgba(255, 255, 255, .06); color: var(--ink); }
+.t-del:hover { background: rgba(var(--tint), .06); color: var(--ink); }
 
 .add-target {
   margin: 4px 0 0;
@@ -1166,12 +1276,12 @@ html, body {
 }
 .node.output:hover { border-color: rgba(var(--output), .8); }
 .node.output .n-head { margin-top: 2px; }
-.node.output .n-title { color: #bff0d2; }
-.node.output .n-rate { color: #93e5b3; }
+.node.output .n-title { color: var(--out-ink); }
+.node.output .n-rate { color: var(--out-ink-2); }
 .node.output .n-badge {
-  background: #1d3627;
+  background: var(--out-badge);
   border-color: rgba(var(--output), .6);
-  color: #93e5b3;
+  color: var(--out-ink-2);
 }
 
 /* Machine view: an unused byproduct's belt ends here. */
@@ -1202,11 +1312,11 @@ html, body {
 }
 .belt {
   fill: none;
-  stroke: #cdcdcd;
+  stroke: var(--belt);
   stroke-width: 6;
   stroke-linejoin: round;
 }
-.belt.pipe { stroke: #a9a9a9; stroke-width: 8; }
+.belt.pipe { stroke: var(--belt-pipe); stroke-width: 8; }
 .belt.pipe-core { stroke: var(--bg); stroke-width: 3.5; }
 
 /* One building, top-down at its in-game footprint, tinted orange. Belts run
@@ -1218,19 +1328,19 @@ html, body {
   flex-direction: column;
   justify-content: center;
   padding: 2px 5px;
-  background: rgb(47, 35, 24);
+  background: var(--mach-bg);
   border: 1px solid rgba(var(--machine), .7);
   border-radius: 3px;
   overflow: hidden;
   line-height: 1.15;
 }
 .machine span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.m-name { font-size: 10px; font-weight: 600; color: #f6cfa4; }
-.m-product { font-size: 9.5px; color: #e3b98c; }
-.m-sub { font-size: 9.5px; color: #c49468; font-variant-numeric: tabular-nums; }
+.m-name { font-size: 10px; font-weight: 600; color: var(--m-name); }
+.m-product { font-size: 9.5px; color: var(--m-product); }
+.m-sub { font-size: 9.5px; color: var(--m-sub); font-variant-numeric: tabular-nums; }
 /* Underclocked buildings read quieter than ones at full speed. */
-.machine.under { background: rgb(38, 30, 23); border-color: rgba(var(--machine), .45); }
-.machine.under .m-sub { color: #a27e5c; }
+.machine.under { background: var(--mach-under-bg); border-color: rgba(var(--machine), .45); }
+.machine.under .m-sub { color: var(--m-sub-dim); }
 
 /* Conveyor and pipe ports on the building's ends. */
 .m-port {
@@ -1238,13 +1348,13 @@ html, body {
   width: 6px; height: 6px;
   margin-top: -3px;
   border-radius: 1px;
-  background: #f6cfa4;
+  background: var(--m-name);
 }
 .m-port.in { left: -1px; }
 .m-port.out { right: -1px; }
 .m-port.fluid {
   background: var(--bg);
-  border: 1.5px solid #f6cfa4;
+  border: 1.5px solid var(--m-name);
   border-radius: 50%;
 }
 
@@ -1257,8 +1367,8 @@ html, body {
   align-items: center;
   justify-content: center;
   border-radius: 3px;
-  background: #2b2b2b;
-  border: 1px solid #a0a0a0;
+  background: var(--logi-bg);
+  border: 1px solid var(--logi-edge);
   color: var(--bright);
   font-size: 15px;
   font-weight: 700;
@@ -1275,10 +1385,10 @@ html, body {
   color: var(--ink-faint);
 }
 .flow-label .fl-tier.warn { color: var(--warn); }
-#world.machines .flow-label { z-index: 4; font-size: 10.5px; padding: 0 6px 1px; color: #c4c4c4; }
-#world.machines .flow-label .fl-tier { color: #a8a8a8; }
+#world.machines .flow-label { z-index: 4; font-size: 10.5px; padding: 0 6px 1px; color: var(--fl-ink); }
+#world.machines .flow-label .fl-tier { color: var(--fl-dim); }
 #world.machines .flow-label .fl-tier.warn { color: var(--warn); }
-#world.machines .flow-label .fl-item { color: #a8a8a8; }
+#world.machines .flow-label .fl-item { color: var(--fl-dim); }
 #world.machines #labels { z-index: 4; }
 
 /* ---------- storage ---------- */
@@ -1286,17 +1396,17 @@ html, body {
 /* Outputs end in real storage, tinted green like outputs elsewhere; spare
    byproducts go to an AWESOME Sink, left grey. */
 .machine.storage.output {
-  background: rgb(22, 42, 31);
+  background: var(--out-bg);
   border-color: rgba(var(--output), .7);
 }
-.machine.storage.output .m-name { color: #bff0d2; }
-.machine.storage.output .m-product { color: #93e5b3; }
-.machine.storage.output .m-sub { color: #7fc79c; }
-.machine.storage.output .m-port { background: #bff0d2; }
-.machine.storage.output .m-port.fluid { background: var(--bg); border-color: #bff0d2; }
+.machine.storage.output .m-name { color: var(--out-ink); }
+.machine.storage.output .m-product { color: var(--out-ink-2); }
+.machine.storage.output .m-sub { color: var(--out-ink-3); }
+.machine.storage.output .m-port { background: var(--out-ink); }
+.machine.storage.output .m-port.fluid { background: var(--bg); border-color: var(--out-ink); }
 .machine.storage.spare {
-  background: #242424;
-  border-color: #6a6a6a;
+  background: var(--spare-bg);
+  border-color: var(--pipe-wire);
   border-style: dashed;
 }
 .machine.storage.spare .m-name { color: var(--ink-dim); }
@@ -1325,7 +1435,7 @@ html, body {
   padding: 8px 10px 10px;
   border: 1px solid var(--edge);
   border-radius: 10px;
-  background: rgba(255, 255, 255, .02);
+  background: rgba(var(--tint), .02);
 }
 .panel-box .sum-group-head {
   border-bottom: none;
@@ -1363,8 +1473,8 @@ html, body {
 .folded > .fold-head { margin-bottom: 0; }
 
 /* Miners and extractors: inputs, so grey like inputs elsewhere, not orange. */
-.machine.extractor { background: #262626; border-color: #7a7a7a; }
-.machine.extractor.under { background: #212121; border-color: #5c5c5c; }
+.machine.extractor { background: var(--ext-bg); border-color: var(--ext-edge); }
+.machine.extractor.under { background: var(--ext-under-bg); border-color: var(--ext-under-edge); }
 .machine.extractor .m-name { color: var(--ink); }
 .machine.extractor .m-product { color: var(--ink-dim); }
 .machine.extractor .m-sub { color: var(--ink-faint); }
@@ -1425,7 +1535,7 @@ html, body {
   background: var(--panel-2);
   border: 1px solid var(--edge);
   border-radius: 8px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, calc(.45 * var(--shade)));
 }
 .vo-float[hidden] { display: none; }
 .vo-float .seg-btn { flex: 0 0 auto; padding: 4px 11px; font-size: 12.5px; }
@@ -1435,7 +1545,7 @@ html, body {
   justify-content: center;
   width: 32px; height: 32px;
   padding: 0;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, calc(.45 * var(--shade)));
 }
 .vo-menu {
   position: absolute;
@@ -1445,7 +1555,7 @@ html, body {
   border: 1px solid var(--edge);
   border-radius: 9px;
   background: var(--panel);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .6);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, calc(.6 * var(--shade)));
 }
 .vo-row {
   display: grid;
@@ -1462,7 +1572,7 @@ html, body {
   text-align: left;
   cursor: pointer;
 }
-.vo-row:hover { background: rgba(255, 255, 255, .05); }
+.vo-row:hover { background: rgba(var(--tint), .05); }
 .vo-row::before {
   content: "";
   grid-row: 1 / span 2;
@@ -1557,11 +1667,11 @@ html, body {
 
 /* ---------- header on orange ---------- */
 
-.bar .brand strong { color: #fff3e6; }
-.bar .brand .sub { color: rgba(255, 226, 199, .55); }
+.bar .brand strong { color: var(--head-ink); }
+.bar .brand .sub { color: rgba(var(--head-tint), .55); }
 .bar .brand .mark { background: #f2a25c; }
-.bar .board-name { border-left-color: rgba(255, 220, 190, .18); }
-.bar .bn-label { color: rgba(255, 226, 199, .5); }
+.bar .board-name { border-left-color: rgba(var(--head-tint), .18); }
+.bar .bn-label { color: rgba(var(--head-tint), .5); }
 
 /* The save's name, set like the old plan name: big, borderless, a soft
    panel behind it on hover and while typing. */
@@ -1571,16 +1681,16 @@ html, body {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
-  color: #fff3e6;
+  color: var(--head-ink);
   font: inherit;
   font-size: 17px;
   font-weight: 600;
   padding: 5px 8px;
   transition: background-color .16s ease;
 }
-#save-name::placeholder { color: rgba(255, 226, 199, .35); }
-#save-name:hover { background: rgba(0, 0, 0, .14); }
-#save-name:focus { outline: none; background: rgba(0, 0, 0, .24); }
+#save-name::placeholder { color: rgba(var(--head-tint), .35); }
+#save-name:hover { background: rgba(0, 0, 0, calc(.14 * var(--shade))); }
+#save-name:focus { outline: none; background: rgba(0, 0, 0, calc(.24 * var(--shade))); }
 
 /* Save, browse, import, export: quiet icon buttons on the orange. */
 .save-tools { display: flex; align-items: center; gap: 2px; margin-left: 2px; }
@@ -1593,18 +1703,18 @@ html, body {
   border: none;
   border-radius: 7px;
   background: none;
-  color: rgba(255, 226, 199, .72);
+  color: rgba(var(--head-tint), .72);
   cursor: pointer;
   transition: background-color .14s ease, color .14s ease;
 }
-.hbtn:hover, .hbtn.open { background: rgba(0, 0, 0, .2); color: #fff3e6; }
+.hbtn:hover, .hbtn.open { background: rgba(0, 0, 0, calc(.2 * var(--shade))); color: var(--head-ink); }
 .hbtn:active { transform: translateY(1px); }
-#save-now { color: rgba(255, 226, 199, .38); }
+#save-now { color: rgba(var(--head-tint), .38); }
 #save-now .save-tick { opacity: 0; transition: opacity .16s ease; }
 #save-now.saved { color: rgb(var(--output)); }
 #save-now.saved .save-tick { opacity: 1; }
-#save-now:hover { color: rgba(255, 226, 199, .8); }
-#save-now.saved:hover { color: rgb(118, 216, 158); }
+#save-now:hover { color: rgba(var(--head-tint), .8); }
+#save-now.saved:hover { color: rgb(var(--output)); filter: brightness(1.15); }
 
 /* ---------- tabs strip stays grey ---------- */
 
@@ -1628,8 +1738,8 @@ html, body {
 .sp-head .link-btn { margin-left: auto; font-size: 12px; }
 .sp-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .sp-row { display: flex; align-items: center; border-radius: 6px; }
-.sp-row:hover { background: rgba(255, 255, 255, .05); }
-.sp-row.on { background: rgba(255, 255, 255, .07); }
+.sp-row:hover { background: rgba(var(--tint), .05); }
+.sp-row.on { background: rgba(var(--tint), .07); }
 .ctx .sp-open {
   flex: 1 1 auto;
   min-width: 0;
@@ -1654,7 +1764,7 @@ html, body {
   opacity: .45;
 }
 .sp-row:hover .sp-del, .sp-del:focus-visible { opacity: 1; }
-.ctx .sp-del:hover { color: var(--warn); background: rgba(255, 255, 255, .06); }
+.ctx .sp-del:hover { color: var(--warn); background: rgba(var(--tint), .06); }
 
 /* ---------- round 7 ---------- */
 
@@ -1680,8 +1790,8 @@ html, body {
   margin-left: 0;
   padding: 2px;
   border-radius: 9px;
-  background: rgba(0, 0, 0, .16);
-  box-shadow: inset 0 0 0 1px rgba(255, 220, 190, .08);
+  background: rgba(0, 0, 0, calc(.16 * var(--shade)));
+  box-shadow: inset 0 0 0 1px rgba(var(--head-tint), .08);
 }
 
 /* Chrome-style dividers between tabs, dropped beside the open tab and the
@@ -1771,7 +1881,7 @@ html, body {
 .n-add:hover {
   border-style: solid;
   border-color: var(--edge-focus);
-  background: rgba(255, 255, 255, .05);
+  background: rgba(var(--tint), .05);
   color: var(--ink);
 }
 
@@ -1904,9 +2014,9 @@ html, body {
 /* Selected nodes: a bright outline and a soft ring. */
 .node.selected {
   border-color: var(--bright);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, .14), 0 6px 20px rgba(0, 0, 0, .5);
+  box-shadow: 0 0 0 3px rgba(var(--tint), .14), 0 6px 20px rgba(0, 0, 0, calc(.5 * var(--shade)));
 }
-.node.output.selected { border-color: rgb(var(--output)); box-shadow: 0 0 0 3px rgba(var(--output), .22), 0 6px 20px rgba(0, 0, 0, .5); }
+.node.output.selected { border-color: rgb(var(--output)); box-shadow: 0 0 0 3px rgba(var(--output), .22), 0 6px 20px rgba(0, 0, 0, calc(.5 * var(--shade))); }
 
 /* A menu option that doesn't apply to what's selected. */
 .ctx button:disabled { opacity: .38; cursor: default; }
@@ -1918,15 +2028,15 @@ html, body {
 .node.selected,
 .node.output.selected {
   border-color: var(--edge);
-  outline: 2px solid #fff;
+  outline: 2px solid var(--white);
   outline-offset: 2px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, calc(.5 * var(--shade)));
 }
 
 /* The support button, top right of the header. */
 .bar-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-#support, #info { color: #ffd3b0; }
-#support:hover, #info:hover { color: #fff; }
+#support, #info, #settings { color: var(--head-ink-2); }
+#support:hover, #info:hover, #settings:hover { color: var(--head-ink-hi); }
 
 /* ---------- round 14 ---------- */
 
@@ -1955,7 +2065,7 @@ html, body {
 
 /* Straight lines' arrowheads, faded with their lines. */
 .wire-arrow { fill: var(--wire); transition: opacity .14s ease; }
-.wire-arrow.pipe { fill: #6a6a6a; }
+.wire-arrow.pipe { fill: var(--pipe-wire); }
 #world.focusing .wire-arrow:not(.hot) { opacity: .18; }
 
 /* Curved or straight, at the top of the display options. */
@@ -1994,7 +2104,7 @@ html, body {
   color: var(--ink-dim);
   font-size: 12.5px;
   line-height: 1.45;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+  text-shadow: 0 1px 3px rgba(var(--halo), .9);
 }
 .hi-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hi-title { color: var(--ink); font-size: 14px; font-weight: 600; margin-bottom: 1px; }
@@ -2004,15 +2114,15 @@ html, body {
 /* Steps in the Items view, and buildings in the Machines view: the same
    quiet weight as the grey cards, tinted orange. */
 .node:not(.raw):not(.output):not(.spare) {
-  background: #221810;
-  border-color: #422d1a;
+  background: var(--mach-bg);
+  border-color: var(--mach-edge);
 }
-.node:not(.raw):not(.output):not(.spare):hover { border-color: #684628; }
-.node.selected:not(.raw):not(.output):not(.spare) { border-color: #422d1a; }
+.node:not(.raw):not(.output):not(.spare):hover { border-color: var(--mach-over-edge); }
+.node.selected:not(.raw):not(.output):not(.spare) { border-color: var(--mach-edge); }
 
-.machine { background: #221810; border-color: #422d1a; }
-.machine.under { background: #1c140d; border-color: #37261a; }
-.machine.over { border-color: #684628; }
+.machine { background: var(--mach-bg); border-color: var(--mach-edge); }
+.machine.under { background: var(--mach-under-bg); border-color: var(--mach-under-edge); }
+.machine.over { border-color: var(--mach-over-edge); }
 
 /* Panel heading icons. */
 .sg-icon {
@@ -2023,13 +2133,13 @@ html, body {
   margin-right: -2px;
 }
 .fold-inline .sg-icon { margin-right: -2px; }
-.machine.extractor.over { border-color: #9a9a9a; }
+.machine.extractor.over { border-color: var(--ext-over-edge); }
 
 /* Steps in the Items view a shade lighter than the machines, so the cards
    read clearly on the canvas. */
-.node:not(.raw):not(.output):not(.spare) { background: #2c2015; border-color: #4f3721; }
-.node:not(.raw):not(.output):not(.spare):hover { border-color: #775333; }
-.node.selected:not(.raw):not(.output):not(.spare) { border-color: #4f3721; }
+.node:not(.raw):not(.output):not(.spare) { background: var(--step-bg); border-color: var(--step-edge); }
+.node:not(.raw):not(.output):not(.spare):hover { border-color: var(--step-edge-hi); }
+.node.selected:not(.raw):not(.output):not(.spare) { border-color: var(--step-edge); }
 
 /* ---------- round 19 ---------- */
 
@@ -2038,15 +2148,15 @@ html, body {
 
 /* Step cards: a clearer orange, and their secondary text warm to match
    rather than grey, which sank into the brown. */
-.node:not(.raw):not(.output):not(.spare) { background: #38261a; border-color: #6b482b; }
-.node:not(.raw):not(.output):not(.spare):hover { border-color: #95653b; }
-.node.selected:not(.raw):not(.output):not(.spare) { border-color: #6b482b; }
-.node:not(.raw):not(.output):not(.spare) .n-recipe { color: #c49a72; }
-.node:not(.raw):not(.output):not(.spare) .n-recipe:hover { color: #e3bb93; background: rgba(255, 190, 130, .06); }
-.node:not(.raw):not(.output):not(.spare) .n-machine b { color: #e8c7a4; }
+.node:not(.raw):not(.output):not(.spare) { background: var(--step-bg); border-color: var(--step-edge); }
+.node:not(.raw):not(.output):not(.spare):hover { border-color: var(--step-edge-hi); }
+.node.selected:not(.raw):not(.output):not(.spare) { border-color: var(--step-edge); }
+.node:not(.raw):not(.output):not(.spare) .n-recipe { color: var(--step-ink-2); }
+.node:not(.raw):not(.output):not(.spare) .n-recipe:hover { color: var(--step-ink-2h); background: rgba(255, 190, 130, .06); }
+.node:not(.raw):not(.output):not(.spare) .n-machine b { color: var(--step-ink-b); }
 .node:not(.raw):not(.output):not(.spare) .n-rate small,
 .node:not(.raw):not(.output):not(.spare) .n-alt,
-.node:not(.raw):not(.output):not(.spare) .n-notes { color: #a88262; }
+.node:not(.raw):not(.output):not(.spare) .n-notes { color: var(--step-ink-3); }
 
 /* ---------- custom build ---------- */
 
@@ -2058,7 +2168,7 @@ html, body {
 .view-seg .seg-btn { display: inline-flex; align-items: center; gap: 5px; }
 .view-seg .seg-btn svg { flex: none; opacity: .8; }
 .view-seg .vs-div { width: 1px; align-self: stretch; margin: 4px 3px; background: var(--edge-hi); }
-.view-seg .seg-btn.on.vs-model { background: rgba(var(--machine), .26); color: #ffc08a; }
+.view-seg .seg-btn.on.vs-model { background: rgba(var(--machine), .26); color: var(--accent-ink); }
 
 /* The parts panel, its own rounded column left of the canvas. */
 body.model-canvas #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
@@ -2097,18 +2207,18 @@ body.model-canvas #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   padding: 6px 4px 7px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(255, 255, 255, .03);
+  background: rgba(var(--tint), .03);
   color: var(--ink-dim);
   font: inherit;
   cursor: grab;
   touch-action: none;
   transition: background-color .14s ease, border-color .14s ease;
 }
-.pal-tile:hover { background: rgba(255, 255, 255, .07); border-color: var(--edge-hi); color: var(--ink); }
+.pal-tile:hover { background: rgba(var(--tint), .07); border-color: var(--edge-hi); color: var(--ink); }
 .pal-tile img { width: 46px; height: 46px; object-fit: contain; pointer-events: none; }
 .pal-name { font-size: 11px; line-height: 1.2; text-align: center; }
 .pal-tile:disabled { opacity: .3; cursor: default; }
-.pal-tile:disabled:hover { background: rgba(255, 255, 255, .03); border-color: transparent; color: var(--ink-dim); }
+.pal-tile:disabled:hover { background: rgba(var(--tint), .03); border-color: transparent; color: var(--ink-dim); }
 .pal-ghost {
   position: fixed;
   z-index: 90;
@@ -2117,7 +2227,7 @@ body.model-canvas #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
   transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: .85;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .6));
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, calc(.6 * var(--shade))));
 }
 
 /* Placed parts: the Machines view's look, with the game icon. */
@@ -2126,9 +2236,9 @@ body.model-canvas #stage { left: calc(var(--frame) * 2 + var(--pal-w)); }
 .cpart.machine { flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; padding: 3px 6px; }
 .cp-icon { height: 76%; max-height: 72px; aspect-ratio: 1; object-fit: contain; flex: none; pointer-events: none; }
 .cpart .m-name { min-width: 0; }
-.cpart.logistic { background: #262626; border-color: #7a7a7a; }
+.cpart.logistic { background: var(--ext-bg); border-color: var(--ext-edge); }
 .cpart.logistic .m-name { color: var(--ink); }
-.cpart.selected { outline: 2px solid #fff; outline-offset: 2px; }
+.cpart.selected { outline: 2px solid var(--white); outline-offset: 2px; }
 
 /* Before anything's placed. */
 .custom-hint {
@@ -2158,19 +2268,19 @@ body:not(.model-canvas) #add-target { display: none; }
   width: 9px;
   height: 9px;
   margin: -4.5px 0 0 -4.5px;
-  border: 1.5px solid #f2c79d;
+  border: 1.5px solid var(--port-out);
   border-radius: 2px;
   background: var(--bg);
   cursor: crosshair;
   touch-action: none;
 }
-.cport.fluid { border-radius: 50%; border-color: #9fc6ff; }
-.cport.in { border-color: #d9d9d9; }
+.cport.fluid { border-radius: 50%; border-color: var(--port-fluid); }
+.cport.in { border-color: var(--port-in); }
 .cport.linked { background: currentColor; }
-.cport.linked:not(.fluid) { background: #f2c79d; }
-.cport.linked.in:not(.fluid) { background: #d9d9d9; }
-.cport.linked.fluid { background: #9fc6ff; }
-.cport:hover { transform: scale(1.35); box-shadow: 0 0 0 3px rgba(255, 255, 255, .12); }
+.cport.linked:not(.fluid) { background: var(--port-out); }
+.cport.linked.in:not(.fluid) { background: var(--port-in); }
+.cport.linked.fluid { background: var(--port-fluid); }
+.cport:hover { transform: scale(1.35); box-shadow: 0 0 0 3px rgba(var(--tint), .12); }
 .cpart.part .cport { width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; }
 
 /* Custom belts can be clicked: a wide invisible stroke takes the press. */
@@ -2181,8 +2291,8 @@ body:not(.model-canvas) #add-target { display: none; }
   pointer-events: stroke;
   cursor: pointer;
 }
-#wires .belt.selected { stroke: #fff; }
-#wires .belt.pipe.selected { stroke: #d8e8ff; }
+#wires .belt.selected { stroke: var(--white); }
+#wires .belt.pipe.selected { stroke: var(--pipe-sel); }
 .belt-preview {
   fill: none;
   stroke: var(--ink-dim);
@@ -2190,8 +2300,8 @@ body:not(.model-canvas) #add-target { display: none; }
   stroke-dasharray: 6 5;
   stroke-linecap: round;
 }
-.belt-preview.ok { stroke: #fff; stroke-dasharray: none; }
-.belt-preview.pipe { stroke: #8fb6ea; }
+.belt-preview.ok { stroke: var(--white); stroke-dasharray: none; }
+.belt-preview.pipe { stroke: var(--pipe-preview); }
 
 /* Ports sit half outside a part's edge. */
 .cpart { overflow: visible; }
@@ -2226,7 +2336,7 @@ body:not(.model-canvas) #add-target { display: none; }
   padding: 5px 7px;
   border: 1px solid var(--edge);
   border-radius: 6px;
-  background: rgba(255, 255, 255, .05);
+  background: rgba(var(--tint), .05);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -2238,7 +2348,7 @@ body:not(.model-canvas) #add-target { display: none; }
 .insp-note { margin: 2px 2px 6px; font-size: 12px; color: var(--ink-dim); }
 
 /* Problems, each a link to its part. */
-.sum-row.problem-row .sum-row-name { color: #f0b27a; white-space: normal; }
+.sum-row.problem-row .sum-row-name { color: var(--warn-ink); white-space: normal; }
 .problem-box {
   display: flex;
   flex-direction: column;
@@ -2249,7 +2359,7 @@ body:not(.model-canvas) #add-target { display: none; }
   border: 1px solid rgba(var(--machine), .55);
   border-radius: 8px;
   background: rgba(var(--machine), .09);
-  color: #f0b27a;
+  color: var(--warn-ink);
   font: inherit;
   font-size: 12.5px;
   text-align: left;
@@ -2275,7 +2385,7 @@ body:not(.model-canvas) #add-target { display: none; }
   padding: 6px 8px;
   border: 1px solid var(--edge);
   border-radius: 6px;
-  background: rgba(255, 255, 255, .05);
+  background: rgba(var(--tint), .05);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -2292,18 +2402,18 @@ body:not(.model-canvas) #add-target { display: none; }
   position: absolute;
   z-index: 2;
   border-radius: 10px;
-  background: #2e2e2e;
-  border: 1px solid #4a4a4a;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, calc(.5 * var(--shade)));
   cursor: grab;
   touch-action: none;
   user-select: none;
 }
-.cnode:hover { border-color: #6c6c6c; }
+.cnode:hover { border-color: var(--card-edge-hi); }
 .cnode.dragging { cursor: grabbing; z-index: 6; }
-.cnode.cnode-resource, .cnode.cnode-import { background: var(--panel-2); border-color: #5a5a5a; border-style: dashed; }
+.cnode.cnode-resource, .cnode.cnode-import { background: var(--panel-2); border-color: var(--card-dash); border-style: dashed; }
 .cnode.cnode-sink { background: rgba(var(--output), .1); border-color: rgba(var(--output), .6); }
-.cnode.cnode-splitter, .cnode.cnode-merger { border-radius: 6px; background: #2b2b2b; border-color: #a0a0a0; }
+.cnode.cnode-splitter, .cnode.cnode-merger { border-radius: 6px; background: var(--logi-bg); border-color: var(--logi-edge); }
 .cn-body {
   position: absolute;
   top: 0;
@@ -2330,11 +2440,11 @@ body:not(.model-canvas) #add-target { display: none; }
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+  text-shadow: 0 1px 3px rgba(var(--halo), .9);
 }
 .cn-count.short { color: var(--warn); }
 .cn-caption { font-size: 10px; color: var(--ink-faint); margin-top: 1px; white-space: nowrap; }
-.cn-caption.alt { color: #e8c7a4; font-weight: 700; letter-spacing: .06em; }
+.cn-caption.alt { color: var(--step-ink-b); font-weight: 700; letter-spacing: .06em; }
 
 /* The inputs' strip down the left and the outputs' down the right, inside
    the card: a cell per item, each where its line joins. */
@@ -2344,7 +2454,7 @@ body:not(.model-canvas) #add-target { display: none; }
   bottom: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(0, 0, 0, .26);
+  background: rgba(0, 0, 0, calc(.26 * var(--shade)));
 }
 .cn-side.in { left: 0; border-radius: 9px 0 0 9px; }
 .cn-side.out { right: 0; border-radius: 0 9px 9px 0; }
@@ -2360,7 +2470,7 @@ body:not(.model-canvas) #add-target { display: none; }
   cursor: crosshair;
   transition: background-color .12s ease;
 }
-.cn-slot:hover { background-image: linear-gradient(rgba(255, 255, 255, .09), rgba(255, 255, 255, .09)); }
+.cn-slot:hover { background-image: linear-gradient(rgba(var(--tint), .09), rgba(var(--tint), .09)); }
 .cn-slot:first-child { border-top-left-radius: inherit; border-top-right-radius: inherit; }
 .cn-slot:last-child { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
 .cn-slot img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
@@ -2381,12 +2491,12 @@ body:not(.model-canvas) #add-target { display: none; }
   cursor: default;
 }
 .cn-flag svg { width: 24px; height: 24px; }
-.cnode.has-problem { box-shadow: 0 0 0 2px rgba(var(--machine), .75), 0 6px 20px rgba(0, 0, 0, .5); }
-.cnode.selected { outline: 1.5px solid #fff; outline-offset: 0; }
+.cnode.has-problem { box-shadow: 0 0 0 2px rgba(var(--machine), .75), 0 6px 20px rgba(0, 0, 0, calc(.5 * var(--shade))); }
+.cnode.selected { outline: 1.5px solid var(--white); outline-offset: 0; }
 
 /* Lines between cards. */
 #wires .cwire { stroke-width: 2.5; }
-#wires .cwire.selected { stroke: #fff; stroke-width: 3.5; }
+#wires .cwire.selected { stroke: var(--white); stroke-width: 3.5; }
 .belt-preview { stroke: var(--ink-dim); }
 
 /* Inspector extras. */
@@ -2396,7 +2506,7 @@ body:not(.model-canvas) #add-target { display: none; }
   padding: 5px 7px;
   border: 1px solid var(--edge);
   border-radius: 6px;
-  background: rgba(255, 255, 255, .05);
+  background: rgba(var(--tint), .05);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -2413,7 +2523,7 @@ body:not(.model-canvas) #add-target { display: none; }
   border: 1px solid rgba(var(--machine), .6);
   border-radius: 8px;
   background: rgba(var(--machine), .2);
-  color: #ffc08a;
+  color: var(--accent-ink);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -2422,8 +2532,8 @@ body:not(.model-canvas) #add-target { display: none; }
 }
 .opt-btn:hover { background: rgba(var(--machine), .3); }
 /* Already up to date: quiet, but it still runs again if pressed. */
-.opt-btn.done { background: rgba(255, 255, 255, .04); border-color: var(--edge); color: var(--ink-faint); font-weight: 500; }
-.opt-btn.done:hover { background: rgba(255, 255, 255, .08); color: var(--ink-dim); }
+.opt-btn.done { background: rgba(var(--tint), .04); border-color: var(--edge); color: var(--ink-faint); font-weight: 500; }
+.opt-btn.done:hover { background: rgba(var(--tint), .08); color: var(--ink-dim); }
 .opt-btn:disabled { opacity: .45; cursor: default; }
 .opt-btn:disabled:hover { background: rgba(var(--machine), .2); }
 .opt-need { margin: 6px 2px 0; font-size: 12px; color: var(--ink-faint); }
@@ -2450,7 +2560,7 @@ body:not(.model-canvas) #add-target { display: none; }
   padding: 5px 8px;
   border: 1px solid var(--edge);
   border-radius: 7px;
-  background: rgba(255, 255, 255, .05);
+  background: rgba(var(--tint), .05);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -2458,7 +2568,7 @@ body:not(.model-canvas) #add-target { display: none; }
   cursor: pointer;
   transition: border-color .12s ease, background-color .12s ease;
 }
-.insp-drop:hover { border-color: var(--edge-hi); background: rgba(255, 255, 255, .08); }
+.insp-drop:hover { border-color: var(--edge-hi); background: rgba(var(--tint), .08); }
 .insp-drop img { width: 20px; height: 20px; object-fit: contain; flex: none; }
 .insp-drop-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .insp-drop-tag {
@@ -2474,7 +2584,7 @@ body:not(.model-canvas) #add-target { display: none; }
 .insp-drop-chev { flex: none; display: flex; color: var(--ink-faint); }
 
 /* The current choice in a menu that isn't a picker. */
-.ctx button.on { background: rgba(255, 255, 255, .06); color: var(--ink); }
+.ctx button.on { background: rgba(var(--tint), .06); color: var(--ink); }
 
 /* A shortcut, at the far end of a menu row. */
 .ctx-kbd { margin-left: auto; padding-left: 22px; font-size: 11px; color: var(--ink-ghost); }
@@ -2487,7 +2597,7 @@ body:not(.model-canvas) #add-target { display: none; }
   margin: 4px 2px 8px;
   border: 1px solid var(--edge);
   border-radius: 8px;
-  background: rgba(255, 255, 255, .04);
+  background: rgba(var(--tint), .04);
   transition: border-color .12s ease;
 }
 .insp-pair:focus-within { border-color: rgba(var(--machine), .7); }
@@ -2540,10 +2650,10 @@ body:not(.model-canvas) #add-target { display: none; }
 
 /* Pipes in Model: a wide blue tube with a dark core, so they read apart
    from belts at any zoom. */
-#wires .cwire.pipe { stroke: #6f98d0; stroke-width: 7; }
-#wires .cwire.pipe.selected { stroke: #d8e8ff; stroke-width: 8; }
+#wires .cwire.pipe { stroke: var(--cpipe); stroke-width: 7; }
+#wires .cwire.pipe.selected { stroke: var(--pipe-sel); stroke-width: 8; }
 #wires .cwire.pipe.splice { stroke: #e08b3d; }
-#wires .cwire.pipe + .pipe-core { stroke: #16202c; stroke-width: 2.6; }
+#wires .cwire.pipe + .pipe-core { stroke: var(--cpipe-core); stroke-width: 2.6; }
 
 /* A clock speed, after the game's: the figure on the left, then a long
    rounded bar filled to it, a tall handle, and marks at 100/150/200/250%. */
@@ -2557,7 +2667,7 @@ body:not(.model-canvas) #add-target { display: none; }
   padding: 4px 6px;
   border: 1px solid var(--edge);
   border-radius: 7px;
-  background: rgba(255, 255, 255, .05);
+  background: rgba(var(--tint), .05);
   color: var(--ink-faint);
   font-size: 12px;
   cursor: text;
@@ -2595,12 +2705,12 @@ body:not(.model-canvas) #add-target { display: none; }
 .clk-range::-webkit-slider-runnable-track {
   height: 10px;
   border-radius: 3px;
-  background: var(--ticks, none), linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
+  background: var(--ticks, none), linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(var(--tint), .16) var(--fill), rgba(var(--tint), .16) 100%);
 }
 .clk-range::-moz-range-track {
   height: 10px;
   border-radius: 3px;
-  background: var(--ticks, none), linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(255, 255, 255, .16) var(--fill), rgba(255, 255, 255, .16) 100%);
+  background: var(--ticks, none), linear-gradient(to right, #e08b3d 0, #e08b3d var(--fill), rgba(var(--tint), .16) var(--fill), rgba(var(--tint), .16) 100%);
 }
 .clk-range::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -2610,7 +2720,7 @@ body:not(.model-canvas) #add-target { display: none; }
   border-radius: 2px;
   background: #f2f2f2;
   border: 2px solid #e08b3d;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, calc(.5 * var(--shade)));
 }
 .clk-range::-moz-range-thumb {
   width: 6px;
@@ -2618,9 +2728,9 @@ body:not(.model-canvas) #add-target { display: none; }
   border-radius: 2px;
   background: #f2f2f2;
   border: 2px solid #e08b3d;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, calc(.5 * var(--shade)));
 }
-.clk-range:hover::-webkit-slider-thumb { background: #fff; }
+.clk-range:hover::-webkit-slider-thumb { background: var(--thumb-hi); }
 .clk-scale { position: absolute; left: 0; right: 0; top: 26px; height: 14px; }
 .clk-scale button {
   padding: 0 1px;
@@ -2638,7 +2748,7 @@ body:not(.model-canvas) #add-target { display: none; }
 }
 .clk-scale button:first-child { transform: none; margin-left: -5px; }
 .clk-scale button:last-child { transform: translateX(-100%); margin-left: 5px; }
-.clk-scale button.on { color: #e8a060; }
+.clk-scale button.on { color: var(--warn-ink-2); }
 .clk-scale button:hover { color: var(--ink); }
 
 /* A quiet line under an inspector setting. */
@@ -2662,7 +2772,7 @@ body:not(.model-canvas) #add-target { display: none; }
   border: 1px solid var(--edge);
   border-radius: 9px;
   background: var(--panel-2);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, calc(.45 * var(--shade)));
 }
 .model-tools[hidden] { display: none; }
 .mt-btn {
@@ -2678,13 +2788,13 @@ body:not(.model-canvas) #add-target { display: none; }
   transition: background-color .12s ease, color .12s ease;
 }
 .mt-btn { position: relative; }
-.mt-btn:hover { background: rgba(255, 255, 255, .06); }
+.mt-btn:hover { background: rgba(var(--tint), .06); }
 /* Each tool its own colour: select white, pencil orange, eraser red, text blue. */
-.mt-btn[data-tool="select"] { --tool: 236, 236, 236; }
+.mt-btn[data-tool="select"] { --tool: var(--tool-select); }
 .mt-btn[data-tool="pencil"] { --tool: 240, 150, 70; }
 .mt-btn[data-tool="eraser"] { --tool: 232, 92, 84; }
 .mt-btn[data-tool="note"]   { --tool: 110, 165, 240; }
-.mt-btn { color: rgba(255, 255, 255, .82); }
+.mt-btn { color: rgba(var(--tint), .82); }
 .mt-btn:hover { color: rgb(var(--tool)); }
 .mt-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--edge-hi); }
 .mt-btn.on { color: rgb(var(--tool)); background: rgba(var(--tool), .2); }
@@ -2701,7 +2811,7 @@ body:not(.model-canvas) #add-target { display: none; }
   border: 1px solid var(--edge);
   border-radius: 6px;
   background: var(--panel);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, .5);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, calc(.5 * var(--shade)));
   color: var(--ink);
   font-size: 12px;
   white-space: nowrap;
@@ -2723,7 +2833,7 @@ body:not(.model-canvas) #add-target { display: none; }
   padding: 0 4px;
   border: 1px solid var(--edge-hi);
   border-radius: 4px;
-  background: rgba(255, 255, 255, .06);
+  background: rgba(var(--tint), .06);
   color: var(--ink-dim);
   font: inherit;
   font-size: 11px;
@@ -2751,7 +2861,7 @@ body:not(.model-canvas) #add-target { display: none; }
 }
 /* Drawn onto the canvas at one width (5 canvas px), so zooming makes it look
    bigger or smaller like everything else. */
-.ink-stroke { fill: none; stroke: #f4f4f4; stroke-width: 5px; stroke-linecap: round; stroke-linejoin: round; }
+.ink-stroke { fill: none; stroke: var(--pen); stroke-width: 5px; stroke-linecap: round; stroke-linejoin: round; }
 .ink-stroke.live { opacity: .85; }
 
 /* Text on the canvas: white, no background, a thin square outline that
@@ -2765,8 +2875,8 @@ body:not(.model-canvas) #add-target { display: none; }
   border: calc(1px / var(--zoom, 1)) solid transparent;
   contain: paint;
 }
-.cnote.moving { border-color: #fff; }
-.cnote:hover, .cnote:focus-within { border-color: #fff; }
+.cnote.moving { border-color: var(--white); }
+.cnote:hover, .cnote:focus-within { border-color: var(--white); }
 /* The arrow over text until it's being typed in; the closed hand while it's dragged. */
 #stage .cnote, #stage .cnote .cnote-text { cursor: default; }
 #stage .cnote .cnote-text:focus { cursor: text; }
@@ -2779,7 +2889,7 @@ body:not(.model-canvas) #add-target { display: none; }
   padding: 2px 4px;
   border: none;
   background: none;
-  color: #fff;
+  color: var(--white);
   font: inherit;
   font-size: 24px;
   font-weight: 500;
@@ -2789,7 +2899,7 @@ body:not(.model-canvas) #add-target { display: none; }
   outline: none;
   white-space: pre;
 }
-.cnote-text::placeholder { color: rgba(255, 255, 255, .35); }
+.cnote-text::placeholder { color: rgba(var(--tint), .35); }
 
 /* An item's icon at the start of a panel row (build cost). */
 .sum-row .row-icon { width: 20px; height: 20px; object-fit: contain; flex: none; margin-right: 8px; }
@@ -2826,9 +2936,44 @@ body:not(.model-canvas) #add-target { display: none; }
   line-height: 22px;
   cursor: pointer;
 }
-.pal-clear:hover { color: var(--ink); background: rgba(255, 255, 255, .08); }
+.pal-clear:hover { color: var(--ink); background: rgba(var(--tint), .08); }
 .pal-clear[hidden] { display: none; }
 
 /* The views are only looked at: no grab hand over their cards. */
 body:not(.model-canvas) #world .node,
 body:not(.model-canvas) #world .node * { cursor: default; }
+
+/* ---------- settings ---------- */
+
+/* A menu row with a switch on the right: pressing anywhere on it flips it. */
+.ctx button.ctx-toggle {
+  justify-content: space-between;
+  gap: 18px;
+  padding: 7px 9px;
+  white-space: normal;
+}
+.ctx-toggle-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ctx-toggle .ctx-main { color: var(--ink); }
+.ctx-switch {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: rgba(var(--tint), .16);
+  transition: background-color .18s ease;
+}
+.ctx-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  transition: transform .18s ease, background-color .18s ease;
+}
+.ctx-toggle:hover .ctx-switch::after { background: var(--ink); }
+.ctx-toggle.on .ctx-switch { background: var(--warn); }
+.ctx-toggle.on .ctx-switch::after { transform: translateX(13px); background: #fff; }

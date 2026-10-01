@@ -24,7 +24,8 @@ size.
   optimiser's pick of recipes (fewest machines, fewest resources or least
   power, from the alternates you've unlocked); Build does the same with the
   standard recipes and the ones you've picked. The button reads Reoptimize (or
-  Rebuild) once something it depends on has changed.
+  Rebuild) once something it depends on has changed. Anything no ticked building can
+  make is brought in instead, with a warning saying which building it needs.
 - **Item view:** the model as one card per recipe, with rates on every line.
 - **Machine view:** the model as it would be built, laid out on an 8 m
   foundation grid, fed by manifolds or load balancers, with belts and pipes
@@ -45,6 +46,7 @@ size.
   factories as tabs. Export and import either.
 - **Overview and Power pages:** resources, production, machine counts,
   alternates in use, and an itemised power breakdown.
+- **Settings:** the gear at the top right. Light mode, kept in your browser.
 
 ## Running it
 

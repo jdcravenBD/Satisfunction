@@ -579,6 +579,7 @@
         q.item = n.item;
         q.rate = clamp(Number(n.rate) || 0, 0, MAX_RATE);
         if (typeof n.from === 'string' && n.from) q.from = n.from;  // another factory in the save
+        else if (n.standIn) q.standIn = true;  // in place of something Build couldn't make
       } else if (n.type === 'splitter' || n.type === 'merger') {
         if (n.priority) q.priority = true;  // Smart Splitter (overflow), Priority Merger
       } else if (n.type !== 'sink') {
@@ -3997,7 +3998,9 @@
 
   /**
    * items: array of the string '-' for a separator, { head } for a small
-   * section heading, or { label, run, note, tag, on, danger, confirm }.
+   * section heading, { toggle, label, note, on, run(on) } for a switch that
+   * flips in place (the menu stays open), or { label, run, note, tag, on,
+   * danger, confirm }.
    * Placed at the point given, nudged back inside the window if it overflows.
    */
   function openCtx(clientX, clientY, items, asPicker, minWidth) {
@@ -4021,6 +4024,39 @@
       }
       var b = document.createElement('button');
       b.type = 'button';
+      if (item.toggle) {
+        b.className = 'ctx-toggle';
+        b.setAttribute('role', 'switch');
+        var text = document.createElement('span');
+        text.className = 'ctx-toggle-text';
+        var tl = document.createElement('span');
+        tl.className = 'ctx-main';
+        tl.textContent = item.label;
+        text.appendChild(tl);
+        if (item.note) {
+          var tn = document.createElement('span');
+          tn.className = 'ctx-note';
+          tn.textContent = item.note;
+          text.appendChild(tn);
+        }
+        var sw = document.createElement('span');
+        sw.className = 'ctx-switch';
+        b.appendChild(text);
+        b.appendChild(sw);
+        var on = !!item.on;
+        var paint = function () {
+          b.classList.toggle('on', on);
+          b.setAttribute('aria-checked', on ? 'true' : 'false');
+        };
+        paint();
+        b.addEventListener('click', function () {
+          on = !on;
+          paint();
+          item.run(on);
+        });
+        ctx.appendChild(b);
+        return;
+      }
       if (item.note) {
         b.classList.add('two-line');
         var main = document.createElement('span');
@@ -5928,7 +5964,7 @@
 
   // A rounded diamond with "!" in it, as on the Machines view's note.
   var PROBLEM_ICON = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
-    '<rect x="4.1" y="4.1" width="11.8" height="11.8" rx="2.6" transform="rotate(45 10 10)" fill="#1e1e1e" stroke="currentColor" stroke-width="1.6"/>' +
+    '<rect x="4.1" y="4.1" width="11.8" height="11.8" rx="2.6" transform="rotate(45 10 10)" style="fill: var(--flag-bg)" stroke="currentColor" stroke-width="1.6"/>' +
     '<path d="M10 6.7v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
     '<circle cx="10" cy="13.5" r="1.05" fill="currentColor"/></svg>';
   function isLogistic(n) { return n.type === 'splitter' || n.type === 'merger'; }
@@ -6449,9 +6485,10 @@
     var d = clamp(PEN * state.view.s, 2, 100);
     var size = Math.ceil(d + 4);
     var c = size / 2;
+    var light = document.documentElement.dataset.theme === 'light';
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '">' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + (d / 2 + 1) + '" fill="none" stroke="#000" stroke-opacity=".55" stroke-width="1"/>' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + (d / 2) + '" fill="none" stroke="#fff" stroke-width="1"/></svg>';
+      '<circle cx="' + c + '" cy="' + c + '" r="' + (d / 2 + 1) + '" fill="none" stroke="' + (light ? '#fff' : '#000') + '" stroke-opacity="' + (light ? '.8' : '.55') + '" stroke-width="1"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + (d / 2) + '" fill="none" stroke="' + (light ? '#000' : '#fff') + '" stroke-width="1"/></svg>';
     stage.style.setProperty('--pen-cursor', 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") ' + Math.round(c) + ' ' + Math.round(c));
   }
 
@@ -6713,7 +6750,29 @@
     outputsMemo = null;
     var f = customFlow();
     linkProblems(f);
+    standInProblems(f);
     return f;
+  }
+
+  /**
+   * Imports Build put in for things no ticked building can make: why, or,
+   * once that building is ticked, that a rebuild would make it here.
+   */
+  function standInProblems(f) {
+    state.custom.nodes.forEach(function (n) {
+      if (n.type !== 'import' || !n.standIn || n.from) return;
+      var rids = producersOf[n.item] || [];
+      if (!rids.length) return;
+      var def = DATA.defaults[n.item] || rids[0];
+      var building = buildingName(DATA.recipes[def].machine);
+      var text = rids.some(canBuild)
+        ? itemName(n.item) + ' is brought in, but the ' + building + ' is ticked now: ' +
+          (state.picker === 'optimise' ? 'Reoptimize' : 'Rebuild') + ' to make it here'
+        : itemName(n.item) + ' can’t be made here: it needs the ' + building +
+          ', which is unticked under Machines, so it’s brought in instead';
+      f.problems.push({ part: n.id, text: text });
+      f.bad[n.id] = true;
+    });
   }
 
   function factoryLabel(f) { return f.name || 'Untitled factory'; }
@@ -7950,6 +8009,7 @@
       if (n.from && !factoryById(n.from)) sources.push({ value: n.from, label: 'A deleted factory', note: '' });
       field('From', select(sources, n.from || '', function (v) {
         if (v) n.from = v; else delete n.from;
+        delete n.standIn;
         changed();
       }));
       field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = clamp(v || 0, 0, MAX_RATE); changed(); }));
@@ -7992,6 +8052,13 @@
     Object.keys(net).forEach(function (id) {
       if (mainOf[id] && net[id] > 1e-4) byItem[id] = net[id];
     });
+    // An output Build couldn't make here, brought in instead, is still one.
+    state.custom.nodes.forEach(function (n) {
+      if (n.type !== 'import' || !n.standIn || !(n.rate > 0)) return;
+      var l = state.custom.links.filter(function (x) { return x.from === n.id; })[0];
+      var to = l && nodeById(l.to);
+      if (to && to.type === 'sink') byItem[n.item] = (byItem[n.item] || 0) + n.rate;
+    });
     var supply = {}, imports = {}, mixes = {};
     state.custom.nodes.forEach(function (n) {
       if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
@@ -8002,7 +8069,7 @@
           sp.nodes.push(node);
         }
       }
-      if (n.type === 'import') imports[n.item] = true;
+      if (n.type === 'import' && !n.standIn) imports[n.item] = true;
       var r = nodeRecipe(n);
       if (r) {
         var main = r.out[0][0];
@@ -8260,6 +8327,9 @@
         });
       } else {
         var im = node({ type: 'import', item: id, rate: e.supplied });
+        // Brought in only because no ticked building can make it: marked, so
+        // it says why and a later rebuild tries to make it again.
+        if (blocked[id]) im.standIn = true;
         give(id, im, 0, e.supplied);
         place(0, im);
       }
@@ -8719,6 +8789,53 @@
         run: function () { window.open(REPO_URL + '/issues/new', '_blank', 'noopener'); }
       }
     ]);
+    ctx.style.left = Math.max(8, r.right - ctx.offsetWidth) + 'px';
+  });
+
+  /* ------------------------------------------------------------- settings */
+
+  // Kept in this browser, apart from the saves: how the app looks isn't part
+  // of any plan. index.html reads it before anything is drawn.
+  var THEME_KEY = 'satisfunction.theme';
+
+  function currentTheme() { return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'; }
+
+  /** Dark or light, crossfading the whole page where the browser can. */
+  function setTheme(theme) {
+    var root = document.documentElement;
+    if (theme === currentTheme()) return;
+    try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* kept for this visit only */ }
+    var apply = function () {
+      if (theme === 'light') root.dataset.theme = 'light';
+      else delete root.dataset.theme;
+      if (tool === 'pencil') penCursor();
+    };
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still) { apply(); return; }
+    if (document.startViewTransition) {
+      document.startViewTransition(apply);
+      return;
+    }
+    // Elsewhere, every colour eases across instead.
+    root.classList.add('theme-fade');
+    apply();
+    clearTimeout(setTheme.timer);
+    setTheme.timer = setTimeout(function () { root.classList.remove('theme-fade'); }, 420);
+  }
+
+  var settingsBtn = document.getElementById('settings');
+  settingsBtn.addEventListener('click', function () {
+    var r = settingsBtn.getBoundingClientRect();
+    openCtx(r.left, r.bottom + 6, [
+      { head: 'Settings' },
+      {
+        toggle: true,
+        label: 'Light mode',
+        note: 'A light canvas and panels',
+        on: currentTheme() === 'light',
+        run: function (on) { setTheme(on ? 'light' : 'dark'); }
+      }
+    ], false, 230);
     ctx.style.left = Math.max(8, r.right - ctx.offsetWidth) + 'px';
   });
 
