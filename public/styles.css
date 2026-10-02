@@ -2974,3 +2974,51 @@ body:not(.model-canvas) #world .node * { cursor: default; }
 .ctx-toggle:hover .ctx-switch::after { background: var(--ink); }
 .ctx-toggle.on .ctx-switch { background: var(--warn); }
 .ctx-toggle.on .ctx-switch::after { transform: translateX(13px); background: #fff; }
+
+/* ---------- mixed belts and splitter rules ---------- */
+
+/* A slot on a mixed belt: its first few items, small, two by two. */
+.cn-slot.mixed { display: grid; grid-template-columns: repeat(2, auto); place-content: center; gap: 1px; }
+.cn-slot.mixed img { width: 13px; height: 13px; }
+.cnode-splitter .cn-slot.mixed img, .cnode-merger .cn-slot.mixed img { width: 8px; height: 8px; }
+.flow-label.mixed .fl-icon { margin-right: 2px; }
+
+/* A Programmable Splitter output's rules, as chips. */
+.rule-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.rule-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 3px 2px 6px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: rgba(var(--tint), .05);
+  color: var(--ink);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.rule-chip.special { color: var(--ink-dim); font-weight: 600; }
+.rule-chip img { width: 15px; height: 15px; object-fit: contain; }
+.rule-x, .rule-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  cursor: pointer;
+}
+.rule-x { width: 16px; height: 16px; border-radius: 50%; font-size: 13px; line-height: 1; }
+.rule-x:hover { background: rgba(var(--tint), .1); color: var(--ink); }
+.rule-add {
+  width: 22px;
+  height: 22px;
+  border: 1px dashed var(--edge-hi);
+  border-radius: 999px;
+  font-size: 14px;
+}
+.rule-add:hover { border-style: solid; color: var(--ink); }
+.rule-none { font-size: 12px; color: var(--ink-faint); margin-right: 2px; }

@@ -581,7 +581,18 @@
         if (typeof n.from === 'string' && n.from) q.from = n.from;  // another factory in the save
         else if (n.standIn) q.standIn = true;  // in place of something Build couldn't make
       } else if (n.type === 'splitter' || n.type === 'merger') {
-        if (n.priority) q.priority = true;  // Smart Splitter (overflow), Priority Merger
+        if (n.type === 'splitter' && n.programmable) q.programmable = true;
+        else if (n.priority) q.priority = true;  // Smart Splitter, Priority Merger
+        // A Smart or Programmable Splitter's rules: per output, items or
+        // Any / None / Any Undefined / Overflow (a Smart Splitter's one each).
+        if (isRuled(q) && Array.isArray(n.rules) && n.rules.length === 3) {
+          q.rules = n.rules.map(function (list) {
+            var ok = (Array.isArray(list) ? list : []).filter(function (r, i, all) {
+              return typeof r === 'string' && (RULE_NAMES[r] || DATA.items[r]) && r !== 'none' && all.indexOf(r) === i;
+            });
+            return ok.slice(0, q.programmable ? 64 : 1);
+          });
+        }
       } else if (n.type !== 'sink') {
         return;
       }
@@ -896,6 +907,7 @@
    * survives any change that doesn't remove that step outright.
    */
   function recompute() {
+    lineCache = null;
     // An Auto plan from before the model: laid out as one, once.
     if (state.legacy) {
       state.legacy = false;
@@ -4893,7 +4905,7 @@
       var fluid = item && isFluid(item);
       if (n.type === 'sink') add(fluid ? 'Build_PipeStorageTank_C' : 'Build_StorageContainerMk1_C', 1);
       else if (fluid) add('Build_PipelineJunction_Cross_C', 1);
-      else if (n.type === 'splitter') add(n.priority ? 'Build_ConveyorAttachmentSplitterSmart_C' : 'Build_ConveyorAttachmentSplitter_C', 1);
+      else if (n.type === 'splitter') add(n.programmable ? 'Build_ConveyorAttachmentSplitterProgrammable_C' : n.priority ? 'Build_ConveyorAttachmentSplitterSmart_C' : 'Build_ConveyorAttachmentSplitter_C', 1);
       else add(n.priority ? 'Build_ConveyorAttachmentMergerPriority_C' : 'Build_ConveyorAttachmentMerger_C', 1);
     });
     var items = {}, count = 0;
@@ -5971,7 +5983,7 @@
 
   /** A card's building by its in-game name. */
   function partName(n) {
-    if (n.type === 'splitter') return n.priority ? 'Smart Splitter' : 'Splitter';
+    if (n.type === 'splitter') return n.programmable ? 'Programmable Splitter' : n.priority ? 'Smart Splitter' : 'Splitter';
     if (n.type === 'merger') return n.priority ? 'Priority Merger' : 'Merger';
     if (n.type === 'sink') return 'Storage Container';
     return titleCase(n.type);
@@ -6043,12 +6055,120 @@
     return state.custom.nodes.filter(function (n) { return n.id === id; })[0] || null;
   }
 
-  /** The item a slot carries: its own, or for splitters and mergers, their line's. */
-  function slotItem(n, side, k, guard) {
+  // Smart and Programmable Splitters send items where their outputs' rules
+  // say. Each output has a list of rules: item ids, or these.
+  var RULE_NAMES = { any: 'Any', none: 'None', undefined: 'Any Undefined', overflow: 'Overflow' };
+
+  function isRuled(n) { return n.type === 'splitter' && !!(n.priority || n.programmable); }
+
+  /** A Smart or Programmable Splitter's rules: a list for each of its three outputs. */
+  function rulesOf(n) {
+    if (Array.isArray(n.rules) && n.rules.length === 3) return n.rules;
+    // A Smart Splitter's top output fills first and the others overflow;
+    // a new Programmable Splitter sends anything anywhere.
+    return n.programmable ? [['any'], ['any'], ['any']] : [['any'], ['overflow'], ['overflow']];
+  }
+
+  /**
+   * Where a ruled splitter sends an item, among the outputs joined up (fks):
+   * the ones set to take it (by name, Any, or Any Undefined when no output
+   * names it), and failing those, the Overflow ones.
+   */
+  function routeOf(n, item, fks) {
+    var rules = rulesOf(n);
+    var named = fks.some(function (k) { return rules[k].indexOf(item) >= 0; });
+    var take = fks.filter(function (k) {
+      var r = rules[k];
+      return r.indexOf(item) >= 0 || r.indexOf('any') >= 0 || (!named && r.indexOf('undefined') >= 0);
+    });
+    var over = fks.filter(function (k) { return take.indexOf(k) < 0 && rules[k].indexOf('overflow') >= 0; });
+    return { take: take, over: over };
+  }
+
+  /**
+   * The items each line can carry: what its maker makes, passed on through
+   * mergers (all their inputs' items, so belts can mix) and splitters (what
+   * each output's rules let through). Worked out again whenever the cards or
+   * lines change.
+   */
+  var lineCache = null;
+  function lineSets() {
+    var nodes = state.custom.nodes, links = state.custom.links;
+    var c = lineCache;
+    if (c && c.nodes === nodes && c.links === links && c.nn === nodes.length && c.nl === links.length) return c.sets;
+    var byId = {};
+    nodes.forEach(function (n) { byId[n.id] = n; });
+    var inL = {}, outL = {};
+    links.forEach(function (l) {
+      (inL[l.to] = inL[l.to] || []).push(l);
+      (outL[l.from] = outL[l.from] || []).push(l);
+    });
+    var has = {};
+    links.forEach(function (l) {
+      has[l.id] = {};
+      var a = byId[l.from];
+      var it = a && !isLogistic(a) ? slotsOf(a).outs[l.fk] : null;
+      if (it) has[l.id][it] = true;
+    });
+    var logi = nodes.filter(isLogistic);
+    for (var round = 0; round < 200; round++) {
+      var grew = false;
+      logi.forEach(function (n) {
+        var mine = {};
+        (inL[n.id] || []).forEach(function (l) { Object.keys(has[l.id]).forEach(function (i) { mine[i] = true; }); });
+        var outs = outL[n.id] || [];
+        var fks = outs.map(function (o) { return o.fk; });
+        outs.forEach(function (o) {
+          Object.keys(mine).forEach(function (i) {
+            if (has[o.id][i]) return;
+            if (isRuled(n)) {
+              var rt = routeOf(n, i, fks);
+              if (rt.take.indexOf(o.fk) < 0 && rt.over.indexOf(o.fk) < 0) return;
+            }
+            has[o.id][i] = true;
+            grew = true;
+          });
+        });
+      });
+      if (!grew) break;
+    }
+    var sets = {};
+    links.forEach(function (l) { sets[l.id] = Object.keys(has[l.id]).sort(); });
+    lineCache = { nodes: nodes, links: links, nn: nodes.length, nl: links.length, sets: sets };
+    return sets;
+  }
+
+  /** The items a slot carries: its own, or for splitters, mergers and Storage, their lines'. */
+  function slotItems(n, side, k) {
     var s = slotsOf(n);
     var it = (side === 'in' ? s.ins : s.outs)[k];
-    if (it) return it;
+    if (it) return [it];
+    if (!isLogistic(n) && n.type !== 'sink') return [];
+    var sets = lineSets();
+    var l = linkOn(n, side, k);
+    if (l) return sets[l.id] || [];
+    // A free slot: whatever the part's other lines carry.
+    var mine = {};
+    state.custom.links.forEach(function (x) {
+      if (x.to === n.id || x.from === n.id) (sets[x.id] || []).forEach(function (i) { mine[i] = true; });
+    });
+    return Object.keys(mine).sort();
+  }
+
+  /** The one item a slot carries, or null when it carries a mix (or nothing known yet). */
+  function slotItem(n, side, k, guard) {
+    var list = slotItems(n, side, k);
+    if (list.length === 1) return list[0];
+    if (list.length > 1) return null;
     return isLogistic(n) || n.type === 'sink' ? lineItem(n, guard) : null;
+  }
+
+  /** Items that can share one line: any number of solids, or a single fluid. */
+  function mixable(list) {
+    var u = {};
+    list.forEach(function (i) { if (i) u[i] = true; });
+    var ks = Object.keys(u);
+    return !ks.some(isFluid) || ks.length <= 1;
   }
 
   function lineItem(n, guard) {
@@ -6083,45 +6203,39 @@
 
   /* ---- flow ---- */
 
-  /** Shares F out evenly; what one branch can't take goes to the others. */
-  function evenShare(F, caps) {
-    var got = caps.map(function () { return 0; });
-    var open = caps.map(function (_, i) { return i; });
-    var left = F;
-    for (var guard = 0; left > 1e-9 && open.length && guard < 20; guard++) {
-      var each = left / open.length;
-      var still = [];
-      open.forEach(function (i) {
-        var give = Math.min(each, caps[i] - got[i]);
-        got[i] += give;
-        left -= give;
-        if (caps[i] - got[i] > 1e-9) still.push(i);
-      });
-      if (still.length === open.length) break;
-      open = still;
-    }
-    return got;
+  function vsum(list) {
+    var o = {};
+    list.forEach(function (v) { for (var i in v) o[i] = (o[i] || 0) + v[i]; });
+    return o;
   }
+  function vtotal(v) { var t = 0; for (var i in v) t += v[i]; return t; }
+  function vscale(v, f) { var o = {}; for (var i in v) o[i] = v[i] * f; return o; }
 
   /**
    * The whole build's rates. First what each Set step asks for is passed up
    * through the Auto steps feeding it (their "wanted" counts). Then items are
    * pushed forward from the resources: every step takes what it needs, an
    * Auto step with nothing asked of it grows to use all it's given, splitters
-   * share evenly, and Storage takes what's left over.
+   * share evenly (or as their rules say), and Storage takes what's left over.
+   *
+   * A line can carry a mix of items (a sushi belt). Each line's flow is kept
+   * item by item, and a mixed belt moves as one: when the far end can't take
+   * more of one of its items, the whole belt slows, as it jams in the game.
    */
   function customFlow() {
     var nodes = state.custom.nodes;
     var links = state.custom.links;
-    var byId = {};
+    var byId = {}, linkById = {};
     nodes.forEach(function (n) { byId[n.id] = n; });
+    links.forEach(function (l) { linkById[l.id] = l; });
     var outL = {}, inL = {};
     links.forEach(function (l) {
       (outL[l.from] = outL[l.from] || []).push(l);
       (inL[l.to] = inL[l.to] || []).push(l);
     });
-    var itemOf = {};
-    links.forEach(function (l) { itemOf[l.id] = byId[l.from] ? slotItem(byId[l.from], 'out', l.fk) : null; });
+    var sets = lineSets();
+    function itemsOn(l) { return sets[l.id] || []; }
+    function carries(l, item) { return itemsOn(l).indexOf(item) >= 0; }
     var perOf = {};
     nodes.forEach(function (n) {
       var r = nodeRecipe(n);
@@ -6138,40 +6252,50 @@
     function make(n, item) { return Math.max(0, perOf[n.id][item] || 0); }
     function outLink(n, k) { return (outL[n.id] || []).filter(function (l) { return l.fk === k; })[0] || null; }
     function inLink(n, k) { return (inL[n.id] || []).filter(function (l) { return l.tk === k; })[0] || null; }
+    function isSink(l) { return !!(byId[l.to] && byId[l.to].type === 'sink'); }
 
-    // 1. Demand, passed upstream from Set steps. What a splitter or merger
-    // passes on is worked out once; a line looping back into one already
-    // being asked asks for nothing more (or a loop of them would be asked
-    // round and round).
+    // 1. Demand, item by item, passed upstream from Set steps. What a
+    // splitter or merger passes on is worked out once; a line looping back
+    // into one already being asked asks for nothing more.
     var wantMemo = {};
     var asking = {};
     var askedMemo = {}, askedBusy = {};
-    function request(l, depth) {
+    function request(l, item, depth) {
       var n = byId[l.to];
-      if (!n) return 0;
+      if (!n || !item) return 0;
       if (n.type === 'recipe') {
         if (!nodeRecipe(n)) return 0;
+        var nd = need(n, item);
+        if (!nd) return 0;
         var c = n.set ? (n.count || 0) : wanted(n, depth + 1);
-        return c * need(n, itemOf[l.id]);
+        // Shared between the lines bringing it in.
+        var k = (inL[n.id] || []).filter(function (x) { return carries(x, item); }).length || 1;
+        return c * nd / k;
       }
-      if (n.type === 'splitter') return askedOf(n, depth);
+      if (n.type === 'splitter') return askedOf(n, item, depth);
       if (n.type === 'merger') {
+        var with_ = (inL[n.id] || []).filter(function (x) { return x === l || carries(x, item); });
         // A Priority Merger asks its top input for everything.
-        if (n.priority && inLink(n, 0)) return l.tk === 0 ? askedOf(n, depth) : 0;
-        var ins = (inL[n.id] || []).length || 1;
-        return askedOf(n, depth) / ins;
+        var top = n.priority ? inLink(n, 0) : null;
+        if (top && with_.indexOf(top) >= 0) return l === top ? askedOf(n, item, depth) : 0;
+        return askedOf(n, item, depth) / (with_.length || 1);
       }
       return 0;
     }
-    function askedOf(n, depth) {
-      if (askedMemo[n.id] != null) return askedMemo[n.id];
-      if (askedBusy[n.id]) return 0;
-      askedBusy[n.id] = true;
-      var v = n.type === 'splitter'
-        ? (outL[n.id] || []).reduce(function (s, o) { return s + request(o, depth + 1); }, 0)
-        : ((outL[n.id] || [])[0] ? request(outL[n.id][0], depth + 1) : 0);
-      askedBusy[n.id] = false;
-      askedMemo[n.id] = v;
+    function askedOf(n, item, depth) {
+      var key = n.id + '|' + item;
+      if (askedMemo[key] != null) return askedMemo[key];
+      if (askedBusy[key]) return 0;
+      askedBusy[key] = true;
+      var v = 0;
+      var outs = outL[n.id] || [];
+      if (n.type === 'splitter') {
+        outs.forEach(function (o) { if (carries(o, item)) v += request(o, item, depth + 1); });
+      } else if (outs[0]) {
+        v = request(outs[0], item, depth + 1);
+      }
+      askedBusy[key] = false;
+      askedMemo[key] = v;
       return v;
     }
     function wanted(n, depth) {
@@ -6181,7 +6305,7 @@
       var w = 0;
       slotsOf(n).outs.forEach(function (item, k) {
         var l = outLink(n, k);
-        if (l && make(n, item) > 0) w = Math.max(w, request(l, depth) / make(n, item));
+        if (l && make(n, item) > 0) w = Math.max(w, request(l, item, depth) / make(n, item));
       });
       asking[n.id] = false;
       wantMemo[n.id] = w;
@@ -6196,46 +6320,65 @@
       else { var w = wanted(n, 0); aim[n.id] = w > 1e-9 ? w : null; }
     });
 
-    // How much a link's far end will take. Firm: leaving out Storage, which
-    // only takes what's left over. The room past each splitter or merger is
-    // worked out once per question, and a line looping back into one
-    // already counted adds no room.
+    var flowOf = {};
+    links.forEach(function (l) { flowOf[l.id] = {}; });
+    function flowIn(l, item) { return (flowOf[l.id] && flowOf[l.id][item]) || 0; }
+
+    // How much of an item a link's far end will take. Firm: leaving out
+    // Storage, which only takes what's left over. The room past each
+    // splitter or merger is worked out once per question, and a line looping
+    // back into one already counted adds no room.
     var roomMemo = {}, roomBusy = {};
-    function accept(l, depth, firm) {
+    function accept(l, item, firm) {
       roomMemo = {};
       roomBusy = {};
-      return takes(l, !!firm);
+      return takes(l, item, !!firm);
     }
-    function takes(l, firm) {
+    function takes(l, item, firm) {
       var n = byId[l.to];
       if (!n) return 0;
       if (n.type === 'recipe') {
         if (!nodeRecipe(n)) return 0;
-        var nd = need(n, itemOf[l.id]);
+        var nd = need(n, item);
         if (!nd) return 0;
-        return aim[n.id] == null ? Infinity : nd * aim[n.id];
+        if (aim[n.id] == null) return Infinity;
+        var others = (inL[n.id] || []).reduce(function (sum, x) { return x === l ? sum : sum + flowIn(x, item); }, 0);
+        // A mixed belt that's jammed stays jammed.
+        return Math.max(0, nd * aim[n.id] - others) * (slow[l.id] == null ? 1 : slow[l.id]);
       }
       if (n.type === 'sink') return firm ? 0 : Infinity;
-      if (n.type === 'splitter') return roomOf(n, firm);
+      if (n.type === 'splitter') return roomOf(n, item, firm);
       if (n.type === 'merger') {
-        var room = roomOf(n, firm);
+        // Making a mixed belt, a merger takes whatever comes: if one item is
+        // more than the far end uses, it's the whole belt that backs up.
+        var o1m = (outL[n.id] || [])[0];
+        if (o1m && itemsOn(o1m).length > 1) return Infinity;
+        var room = roomOf(n, item, firm);
         // A Priority Merger's top input comes first; any other input gets
         // what the line out has left after the rest.
         if (n.priority && l.tk === 0) return room;
-        var others = (inL[n.id] || []).reduce(function (sum, x) { return x === l || !flowOf ? sum : sum + (flowOf[x.id] || 0); }, 0);
-        return Math.max(0, room - others);
+        var rest = (inL[n.id] || []).reduce(function (sum, x) { return x === l ? sum : sum + flowIn(x, item); }, 0);
+        return Math.max(0, room - rest);
       }
       return 0;
     }
-    function roomOf(n, firm) {
-      if (roomMemo[n.id] != null) return roomMemo[n.id];
-      if (roomBusy[n.id]) return 0;
-      roomBusy[n.id] = true;
-      var v = n.type === 'splitter'
-        ? (outL[n.id] || []).reduce(function (s, o) { return s + takes(o, firm); }, 0)
-        : ((outL[n.id] || [])[0] ? takes(outL[n.id][0], firm) : 0);
-      roomBusy[n.id] = false;
-      roomMemo[n.id] = v;
+    function roomOf(n, item, firm) {
+      var key = n.id + '|' + item;
+      if (roomMemo[key] != null) return roomMemo[key];
+      if (roomBusy[key]) return 0;
+      roomBusy[key] = true;
+      var v = 0;
+      var outs = outL[n.id] || [];
+      if (n.type === 'splitter') {
+        var rt = isRuled(n) ? routeOf(n, item, outs.map(function (o) { return o.fk; })) : null;
+        outs.forEach(function (o) {
+          if (!rt || rt.take.indexOf(o.fk) >= 0 || rt.over.indexOf(o.fk) >= 0) v += takes(o, item, firm);
+        });
+      } else if (outs[0]) {
+        v = takes(outs[0], item, firm);
+      }
+      roomBusy[key] = false;
+      roomMemo[key] = v;
       return v;
     }
 
@@ -6266,104 +6409,215 @@
     nodes.forEach(visit);
     order.reverse();
 
-    var flowOf = {};
-    links.forEach(function (l) { flowOf[l.id] = 0; });
-    var count = {}, run = {}, avail = {};
+    // How far a belt carrying v can run before one of its items meets cap.
+    function fitTo(v, cap) {
+      var f = 1;
+      for (var i in v) if (v[i] > 1e-12) f = Math.min(f, (cap[i] != null ? cap[i] : Infinity) / v[i]);
+      return Math.max(0, f);
+    }
+
+    var count = {}, run = {}, avail = {}, throttled = {}, stuck = {};
+    var slow = {};   // a mixed belt's jam so far: how much of its flow still gets through
     for (var pass = 0; pass < 40; pass++) {
-      var before = links.map(function (l) { return flowOf[l.id]; });
+      var before = links.map(function (l) { return vtotal(flowOf[l.id]); });
       order.forEach(function (n) {
         var ins = inL[n.id] || [];
-        var outs = [];
+        var outs = [];   // what comes out of each output, item by item
         if (n.type === 'recipe') {
           var r = nodeRecipe(n);
           if (!r) { count[n.id] = 0; run[n.id] = 0; avail[n.id] = []; return; }
-          var got = {};
-          ins.forEach(function (l) { got[itemOf[l.id]] = (got[itemOf[l.id]] || 0) + flowOf[l.id]; });
-          var limit = Infinity;
-          r.in.forEach(function (q) { var nd = need(n, q[0]); if (nd > 0) limit = Math.min(limit, (got[q[0]] || 0) / nd); });
-          var c = aim[n.id] != null ? aim[n.id] : (limit === Infinity ? 0 : limit);
-          // The first pass runs every sized step at full, as if its loop
-          // (if it's in one) were already primed; later passes settle from
-          // there, and a loop that can't keep itself going runs down.
-          var a = pass === 0 && aim[n.id] != null ? c : Math.min(c, limit);
+          var needs = {};
+          r.in.forEach(function (q) { var nd = need(n, q[0]); if (nd > 0) needs[q[0]] = nd; });
+          // What it can't use backs up on its belts. A mixed belt holds up
+          // everything on it when one item backs up, so each line slows as a
+          // whole, as far as its most-oversupplied item needs it to.
+          var keep = ins.map(function () { return 1; });
+          var limit, c, a;
+          for (var it2 = 0; it2 < 30; it2++) {
+            var got = {};
+            ins.forEach(function (l, j) { var v = flowOf[l.id]; for (var i in v) if (needs[i]) got[i] = (got[i] || 0) + v[i] * keep[j]; });
+            limit = Infinity;
+            Object.keys(needs).forEach(function (i) { limit = Math.min(limit, (got[i] || 0) / needs[i]); });
+            c = aim[n.id] != null ? aim[n.id] : (limit === Infinity ? 0 : limit);
+            // The first pass runs every sized step at full, as if its loop
+            // (if it's in one) were already primed; later passes settle from
+            // there, and a loop that can't keep itself going runs down.
+            a = pass === 0 && aim[n.id] != null ? c : Math.min(c, limit);
+            var ratio = {}, over = false;
+            Object.keys(needs).forEach(function (i) {
+              var use = needs[i] * a;
+              if ((got[i] || 0) > use + 1e-9) { ratio[i] = use / got[i]; over = true; }
+            });
+            if (!over) break;
+            var moved = false;
+            ins.forEach(function (l, j) {
+              var v = flowOf[l.id], f = 1;
+              for (var i in v) if (v[i] > 1e-12 && ratio[i] != null) f = Math.min(f, ratio[i]);
+              // (A mixed belt only for a real excess, not a rounding speck.)
+              if (itemsOn(l).length > 1 && f > 1 - 1e-6) f = 1;
+              if (f < 1) moved = true;
+              keep[j] *= f;
+            });
+            if (!moved) break;
+          }
+          ins.forEach(function (l, j) {
+            if (keep[j] >= 1) return;
+            // A mixed belt slowed by one of its items holds up the rest.
+            if (itemsOn(l).length > 1 && keep[j] < 0.999) {
+              var v = flowOf[l.id], worst = null, least = Infinity;
+              for (var i in v) if (needs[i] && v[i] > 1e-9) { var share = needs[i] * a / v[i]; if (share < least) { least = share; worst = i; } }
+              throttled[l.id] = worst;
+            }
+            if (itemsOn(l).length > 1) slow[l.id] = (slow[l.id] == null ? 1 : slow[l.id]) * keep[j];
+            flowOf[l.id] = vscale(flowOf[l.id], keep[j]);
+          });
           count[n.id] = c;
           run[n.id] = a;
-          // What it can't use backs up on its belts.
-          r.in.forEach(function (q) {
-            var use = need(n, q[0]) * a;
-            var into = ins.filter(function (l) { return itemOf[l.id] === q[0]; });
-            var total = into.reduce(function (s, l) { return s + flowOf[l.id]; }, 0);
-            if (total > use + 1e-9) into.forEach(function (l) { flowOf[l.id] *= use / total; });
-          });
-          slotsOf(n).outs.forEach(function (item, k) { outs[k] = make(n, item) * a; });
+          slotsOf(n).outs.forEach(function (item, k) { var o = {}; o[item] = make(n, item) * a; outs[k] = o; });
         } else if (n.type === 'resource') {
-          outs[0] = resourceCap(n);
+          outs[0] = {};
+          outs[0][n.item] = resourceCap(n);
         } else if (n.type === 'import') {
-          outs[0] = n.rate || 0;
+          outs[0] = {};
+          outs[0][n.item] = n.rate || 0;
         } else if (n.type === 'splitter') {
-          var F = ins.reduce(function (s, l) { return s + flowOf[l.id]; }, 0);
-          var branches = (outL[n.id] || []).slice().sort(function (a2, b2) { return a2.fk - b2.fk; });
-          // Branches to Storage only take the overflow.
-          var main = branches.filter(function (l) { return !(byId[l.to] && byId[l.to].type === 'sink'); });
-          var spill = branches.filter(function (l) { return byId[l.to] && byId[l.to].type === 'sink'; });
-          var left = F;
-          // A Smart Splitter fills its top output first; the rest overflow.
-          if (n.priority && main.length && main[0].fk === 0) {
-            var first = main.shift();
-            outs[0] = Math.min(F, accept(first, 0, true));
-            left -= outs[0];
+          var F = vsum(ins.map(function (l) { return flowOf[l.id]; }));
+          var branches = (outL[n.id] || []).slice().sort(function (x, y) { return x.fk - y.fk; });
+          var fks = branches.map(function (o) { return o.fk; });
+          var ruled = isRuled(n);
+          // Where each item may go: a plain splitter, every output; a ruled
+          // one, the outputs its rules pick, then the Overflow ones.
+          var routes = {};
+          function routesFor(item) {
+            if (routes[item]) return routes[item];
+            if (!ruled) return (routes[item] = { take: branches, over: [] });
+            var rt = routeOf(n, item, fks);
+            return (routes[item] = {
+              take: branches.filter(function (o) { return rt.take.indexOf(o.fk) >= 0; }),
+              over: branches.filter(function (o) { return rt.over.indexOf(o.fk) >= 0; })
+            });
           }
-          var shares = evenShare(left, main.map(function (l) { return accept(l, 0, true); }));
-          main.forEach(function (l, i) { outs[l.fk] = shares[i]; left -= shares[i]; });
-          // What's left goes to Storage, here or further down the line.
-          var over = spill.concat(main.filter(function (l) { return spills(l); }));
-          if (n.priority && first && spills(first)) over.push(first);
-          var spillShares = evenShare(Math.max(0, left), over.map(function () { return Infinity; }));
-          over.forEach(function (l, i) { outs[l.fk] = (outs[l.fk] || 0) + spillShares[i]; });
+          var given = {};
+          branches.forEach(function (o) { given[o.id] = {}; });
+          var left = Object.assign({}, F);
+          // Hands out what's left among the outputs `pick` allows for each
+          // item, evenly; an output that can't take its share of every item
+          // on its belt takes what it can, and the rest goes round again.
+          var fill = function (pick, firm) {
+            var full = {};
+            for (var round = 0; round < 30; round++) {
+              var offer = {}, any = false;
+              Object.keys(left).forEach(function (i) {
+                if (!(left[i] > 1e-12)) return;
+                var open = pick(i).filter(function (o) { return !full[o.id]; });
+                if (!open.length) return;
+                var share = left[i] / open.length;
+                open.forEach(function (o) { (offer[o.id] = offer[o.id] || {})[i] = share; });
+                left[i] = 0;
+                any = true;
+              });
+              if (!any) break;
+              Object.keys(offer).forEach(function (oid) {
+                var o = linkById[oid];
+                var want = vsum([given[oid], offer[oid]]);
+                var cap = {};
+                Object.keys(want).forEach(function (i) { cap[i] = accept(o, i, firm); });
+                var f = fitTo(want, cap);
+                if (f < 1 - 1e-12) {
+                  full[oid] = true;
+                  var kept = vscale(want, f);
+                  Object.keys(want).forEach(function (i) { left[i] = (left[i] || 0) + want[i] - kept[i]; });
+                  given[oid] = kept;
+                } else {
+                  given[oid] = want;
+                }
+              });
+            }
+          };
+          fill(function (i) { return routesFor(i).take; }, true);
+          fill(function (i) { return routesFor(i).over; }, true);
+          // What's still left goes to Storage, here or further down the line.
+          fill(function (i) {
+            var rt = routesFor(i);
+            return rt.take.concat(rt.over).filter(function (o) { return spills(o); });
+          }, false);
+          branches.forEach(function (o) { outs[o.fk] = given[o.id]; flowOf[o.id] = given[o.id]; });
+          // Anything with nowhere to go stops the belt coming in.
+          stuck[n.id] = ruled ? Object.keys(F).filter(function (i) {
+            var rt = routesFor(i);
+            return F[i] > 1e-9 && !rt.take.length && !rt.over.length;
+          }) : [];
+          var passed = {};
+          Object.keys(F).forEach(function (i) { passed[i] = F[i] - (left[i] || 0); });
+          var back = fitTo(F, passed);
+          if (back < 1 - 1e-9) ins.forEach(function (l) { flowOf[l.id] = vscale(flowOf[l.id], back); });
         } else if (n.type === 'merger') {
-          outs[0] = ins.reduce(function (s, l) { return s + flowOf[l.id]; }, 0);
-        }
-        avail[n.id] = outs;
-        (outL[n.id] || []).forEach(function (l) {
-          flowOf[l.id] = Math.min(outs[l.fk] || 0, accept(l));
-        });
-        // A merger that can't pass everything on backs up evenly.
-        if (n.type === 'merger') {
           var o1 = (outL[n.id] || [])[0];
-          var sent = o1 ? flowOf[o1.id] : 0;
-          var total2 = outs[0] || 0;
-          if (total2 > sent + 1e-9) {
+          if (o1) {
+            var total = vsum(ins.map(function (l) { return flowOf[l.id]; }));
+            var room = {};
+            Object.keys(total).forEach(function (i) { room[i] = accept(o1, i); });
+            // A merger that can't pass everything on backs up: evenly, or
+            // a Priority Merger's other inputs before its top one.
             var top = n.priority ? inLink(n, 0) : null;
             if (top) {
-              var keep = Math.min(flowOf[top.id], sent);
-              var rest = total2 - flowOf[top.id];
-              flowOf[top.id] = keep;
-              ins.forEach(function (l) { if (l !== top) flowOf[l.id] *= rest > 0 ? (sent - keep) / rest : 0; });
+              var ft = fitTo(flowOf[top.id], room);
+              if (ft < 1) flowOf[top.id] = vscale(flowOf[top.id], ft);
+              var rest = vsum(ins.filter(function (l) { return l !== top; }).map(function (l) { return flowOf[l.id]; }));
+              var room2 = {};
+              Object.keys(room).forEach(function (i) { room2[i] = Math.max(0, room[i] - (flowOf[top.id][i] || 0)); });
+              var fo = fitTo(rest, room2);
+              if (fo < 1) ins.forEach(function (l) { if (l !== top) flowOf[l.id] = vscale(flowOf[l.id], fo); });
             } else {
-              ins.forEach(function (l) { flowOf[l.id] *= total2 > 0 ? sent / total2 : 0; });
+              var fa = fitTo(total, room);
+              if (fa < 1) ins.forEach(function (l) { flowOf[l.id] = vscale(flowOf[l.id], fa); });
             }
+            outs[0] = vsum(ins.map(function (l) { return flowOf[l.id]; }));
+            flowOf[o1.id] = outs[0];
+          } else {
+            outs[0] = vsum(ins.map(function (l) { return flowOf[l.id]; }));
           }
+        }
+        avail[n.id] = outs.map(function (v) { return v ? vtotal(v) : 0; });
+        if (!isLogistic(n)) {
+          (outL[n.id] || []).forEach(function (l) {
+            var v = outs[l.fk] || {};
+            var f = {};
+            Object.keys(v).forEach(function (i) { f[i] = Math.min(v[i], accept(l, i)); });
+            flowOf[l.id] = f;
+          });
         }
       });
       // Settled: another pass wouldn't change anything.
-      if (pass >= 3 && links.every(function (l, i) { return Math.abs(flowOf[l.id] - before[i]) <= 1e-9 + before[i] * 1e-9; })) break;
+      if (pass >= 3 && links.every(function (l, i) { var t = vtotal(flowOf[l.id]); return Math.abs(t - before[i]) <= 1e-9 + before[i] * 1e-9; })) break;
     }
 
     // 3. What it comes to.
     var res = { nodes: {}, links: {}, items: {}, outputs: {}, recipes: {}, problems: [], bad: {}, steps: 0, tally: [] };
     links.forEach(function (l) {
-      var it = itemOf[l.id];
-      res.links[l.id] = { total: flowOf[l.id], item: it, fluid: it ? isFluid(it) : false };
+      var list = itemsOn(l);
+      var one = list.length === 1 ? list[0] : list.length ? null : (byId[l.from] ? slotItem(byId[l.from], 'out', l.fk) : null);
+      var by = {};
+      Object.keys(flowOf[l.id]).forEach(function (i) { if (flowOf[l.id][i] > 1e-9) by[i] = flowOf[l.id][i]; });
+      res.links[l.id] = {
+        total: vtotal(flowOf[l.id]), items: by, item: one, mixed: list.length > 1,
+        fluid: one ? isFluid(one) : list.some(isFluid)
+      };
     });
     function problem(n, text) {
       res.problems.push({ part: n.id, text: text });
       res.bad[n.id] = true;
     }
+    function names(list) {
+      var ns = list.map(itemName);
+      return ns.length > 1 ? ns.slice(0, -1).join(', ') + ' and ' + ns[ns.length - 1] : ns[0];
+    }
     nodes.forEach(function (n) {
       var s = slotsOf(n);
-      var st = { count: 0, run: 0, ins: [], outs: [] };
-      s.ins.forEach(function (item, k) { var l = inLink(n, k); st.ins[k] = l ? flowOf[l.id] : 0; });
+      var st = { count: 0, run: 0, ins: [], outs: [], got: {} };
+      s.ins.forEach(function (item, k) { var l = inLink(n, k); st.ins[k] = l ? vtotal(flowOf[l.id]) : 0; });
       s.outs.forEach(function (item, k) { st.outs[k] = (avail[n.id] || [])[k] || 0; });
+      (inL[n.id] || []).forEach(function (l) { var v = flowOf[l.id]; for (var i in v) st.got[i] = (st.got[i] || 0) + v[i]; });
       if (n.type === 'recipe') {
         var r = nodeRecipe(n);
         if (!r) {
@@ -6387,27 +6641,40 @@
           res.recipes[n.recipe] = res.recipes[n.recipe] || { item: main, count: 0 };
           res.recipes[n.recipe].count += a;
           res.steps++;
-          r.in.forEach(function (q, k) {
+          var ins2 = inL[n.id] || [];
+          r.in.forEach(function (q) {
             var wantIn = need(n, q[0]) * c;
-            if (!inLink(n, k)) {
+            // Any line can bring it: its own input, or a mixed belt into another.
+            var brings = ins2.some(function (l) { return carries(l, q[0]) || (!itemsOn(l).length && s.ins[l.tk] === q[0]); });
+            if (!brings) {
               problem(n, label + ': nothing brings in ' + itemName(q[0]));
-            } else if (c > 1e-9 && st.ins[k] < wantIn * (1 - 1e-3) - 1e-6) {
-              problem(n, label + ': gets ' + fmtNum(st.ins[k]) + ' of the ' + fmtNum(wantIn) + '/min ' + itemName(q[0]) + ' it needs');
+            } else if (c > 1e-9 && (st.got[q[0]] || 0) < wantIn * (1 - 1e-3) - 1e-6) {
+              problem(n, label + ': gets ' + fmtNum(st.got[q[0]] || 0) + ' of the ' + fmtNum(wantIn) + '/min ' + itemName(q[0]) + ' it needs');
+            }
+          });
+          ins2.forEach(function (l) {
+            var extra = itemsOn(l).filter(function (i) { return !need(n, i); });
+            if (extra.length) {
+              problem(n, names(extra) + ' on a line into ' + label + (extra.length > 1 ? ' jam' : ' jams') +
+                ' it: the ' + m.name + ' doesn’t use ' + (extra.length > 1 ? 'them' : 'it'));
+            } else if (throttled[l.id] && slow[l.id] != null && slow[l.id] < 0.999) {
+              problem(n, 'The mixed belt into ' + label + ' jams: it brings more ' + itemName(throttled[l.id]) +
+                ' than the step uses, which holds up everything behind it. Sort the items onto their own belts with a Smart or Programmable Splitter first');
             }
           });
           s.outs.forEach(function (item, k) {
             var l = outLink(n, k);
             if (!l) {
               if (st.outs[k] > 1e-6) res.outputs[item] = (res.outputs[item] || 0) + st.outs[k];
-            } else if (st.outs[k] - flowOf[l.id] > Math.max(0.01, st.outs[k] * 1e-3)) {
-              problem(n, fmtNum(st.outs[k] - flowOf[l.id]) + '/min ' + itemName(item) + ' backs up');
+            } else if (st.outs[k] - flowIn(l, item) > Math.max(0.01, st.outs[k] * 1e-3)) {
+              problem(n, fmtNum(st.outs[k] - flowIn(l, item)) + '/min ' + itemName(item) + ' backs up');
             }
           });
         }
       } else if (n.type === 'resource') {
         var cap = resourceCap(n);
         var lo = outLink(n, 0);
-        var used = lo ? flowOf[lo.id] : 0;
+        var used = lo ? flowIn(lo, n.item) : 0;
         st.count = n.count || 1;
         st.run = used;
         var exId = extractorOf(n);
@@ -6431,12 +6698,12 @@
         else if (!(byId[lo.to] && byId[lo.to].type === 'merger' && byId[lo.to].priority)) {
           // (Into a Priority Merger, the other inputs make up any shortfall;
           // a step left short says so itself.)
-          var asked = request(lo, 0);
+          var asked = request(lo, n.item, 0);
           if (asked > cap * (1 + 1e-3) + 1e-6) problem(n, itemName(n.item) + ': the steps ask for ' + fmtNum(asked) + '/min, but its nodes give ' + fmtNum(cap));
         }
       } else if (n.type === 'import') {
         var li = outLink(n, 0);
-        var brought = li ? flowOf[li.id] : 0;
+        var brought = li ? flowIn(li, n.item) : 0;
         st.run = brought;
         if (brought > 1e-6) {
           var bi = res.items[n.item] || (res.items[n.item] = { supplied: 0, short: 0, surplus: 0, producers: [], imported: true });
@@ -6446,15 +6713,23 @@
         if (!li) problem(n, itemName(n.item) + ' (brought in) isn’t connected to anything');
       } else if (n.type === 'sink') {
         var ls = inLink(n, 0);
-        if (ls && flowOf[ls.id] > 1e-6) {
-          var si = itemOf[ls.id];
-          res.outputs[si] = (res.outputs[si] || 0) + flowOf[ls.id];
+        if (ls) {
+          var sv = flowOf[ls.id];
+          Object.keys(sv).forEach(function (i) { if (sv[i] > 1e-6) res.outputs[i] = (res.outputs[i] || 0) + sv[i]; });
         }
       } else if (isLogistic(n)) {
-        // One item per line: a splitter or merger can't mix them.
+        // Belts can carry a mix of items; pipes carry one fluid, never with
+        // anything else.
         var kinds = {};
-        (inL[n.id] || []).concat(outL[n.id] || []).forEach(function (l) { if (itemOf[l.id]) kinds[itemOf[l.id]] = true; });
-        if (Object.keys(kinds).length > 1) problem(n, 'A ' + partName(n) + ' mixes ' + Object.keys(kinds).map(itemName).join(' and '));
+        (inL[n.id] || []).concat(outL[n.id] || []).forEach(function (l) { itemsOn(l).forEach(function (i) { kinds[i] = true; }); });
+        var ks = Object.keys(kinds);
+        if (!mixable(ks)) {
+          problem(n, (ks.every(isFluid) ? 'Pipes can’t mix ' : 'Belts and pipes can’t mix: ') + names(ks));
+        }
+        if (stuck[n.id] && stuck[n.id].length) {
+          problem(n, names(stuck[n.id]) + (stuck[n.id].length > 1 ? ' have' : ' has') + ' nowhere to go at this ' + partName(n) +
+            ': no output takes ' + (stuck[n.id].length > 1 ? 'them' : 'it') + ', so the belt in stops');
+        }
       }
       res.nodes[n.id] = st;
     });
@@ -6879,13 +7154,13 @@
     // In the order the game brings them in (see order in tools/extract-data.mjs).
     function progression(a, b) { return (DATA.items[a].order || 0) - (DATA.items[b].order || 0); }
     var sections = [
-      { head: 'Logistics', kinds: ['splitter', 'smart', 'merger', 'priority', 'sink'] },
+      { head: 'Logistics', kinds: ['splitter', 'smart', 'programmable', 'merger', 'priority', 'sink'] },
       { head: 'Resources', kinds: RAW_ITEMS.slice().sort(progression) },
       { head: 'Parts', kinds: PICKABLE.slice().sort(progression) }
     ];
-    var NAMES = { splitter: 'Splitter', smart: 'Smart Splitter', merger: 'Merger',
+    var NAMES = { splitter: 'Splitter', smart: 'Smart Splitter', programmable: 'Programmable Splitter', merger: 'Merger',
       priority: 'Priority Merger', sink: 'Storage Container' };
-    var ICONS = { splitter: 'splitter', smart: 'splitter', merger: 'merger', priority: 'merger', sink: 'storage' };
+    var ICONS = { splitter: 'splitter', smart: 'splitter', programmable: 'splitter', merger: 'merger', priority: 'merger', sink: 'storage' };
     sections.forEach(function (sec) {
       var wrap = document.createElement('div');
       wrap.className = 'pal-section';
@@ -6991,6 +7266,8 @@
       n = { type: kind };
     } else if (kind === 'smart') {
       n = { type: 'splitter', priority: true };
+    } else if (kind === 'programmable') {
+      n = { type: 'splitter', programmable: true };
     } else if (kind === 'priority') {
       n = { type: 'merger', priority: true };
     } else if (DATA.items[kind].raw) {
@@ -7017,7 +7294,7 @@
 
   /* ---- splitters and mergers dropped onto a line ---- */
 
-  var SPLICERS = { splitter: true, smart: true, merger: true, priority: true };
+  var SPLICERS = { splitter: true, smart: true, programmable: true, merger: true, priority: true };
 
   /** The line under a screen point, if any. */
   function linkAt(x, y) {
@@ -7171,8 +7448,8 @@
     el.appendChild(body);
     if (isLogistic(n)) {
       var letter = document.createElement('span');
-      letter.className = 'cn-letter' + (n.priority ? ' small' : '');
-      letter.textContent = n.type === 'splitter' ? (n.priority ? 'SS' : 'S') : (n.priority ? 'PM' : 'M');
+      letter.className = 'cn-letter' + (n.priority || n.programmable ? ' small' : '');
+      letter.textContent = n.type === 'splitter' ? (n.programmable ? 'PS' : n.priority ? 'SS' : 'S') : (n.priority ? 'PM' : 'M');
       body.appendChild(letter);
     } else {
       var badge = document.createElement('span');
@@ -7226,9 +7503,16 @@
       col.style.width = strip + 'px';
       side[1].forEach(function (item, k) {
         var shown = item || slotItem(n, side[0], k);
+        var mix = !shown ? slotItems(n, side[0], k) : [];
+        // A step's input is fed too when its item comes on a mixed belt
+        // into another of its inputs.
+        var fed = linkOn(n, side[0], k) || (item && side[0] === 'in' && state.custom.links.some(function (l) {
+          return l.to === n.id && slotItems(nodeById(l.from), 'out', l.fk).indexOf(item) >= 0;
+        }));
         var slot = document.createElement('div');
-        slot.className = 'cn-slot ' + side[0] + (shown && isFluid(shown) ? ' fluid' : '') + (linkOn(n, side[0], k) ? ' linked' : '') +
-          (n.priority && k === 0 && side[0] === (n.type === 'splitter' ? 'out' : 'in') ? ' prio' : '');
+        slot.className = 'cn-slot ' + side[0] + (shown && isFluid(shown) ? ' fluid' : '') + (fed ? ' linked' : '') +
+          (mix.length > 1 ? ' mixed' : '') +
+          (n.priority && !n.rules && k === 0 && side[0] === (n.type === 'splitter' ? 'out' : 'in') ? ' prio' : '');
         slot.dataset.node = n.id;
         slot.dataset.side = side[0];
         slot.dataset.k = k;
@@ -7238,8 +7522,18 @@
           img.alt = '';
           img.draggable = false;
           slot.appendChild(img);
+        } else if (mix.length > 1) {
+          // A mixed belt: its first few items, small.
+          mix.slice(0, 4).forEach(function (i) {
+            var mi = document.createElement('img');
+            mi.src = iconOf(i);
+            mi.alt = '';
+            mi.draggable = false;
+            slot.appendChild(mi);
+          });
         }
-        slot.setAttribute('aria-label', (shown ? itemName(shown) : 'Any item') + (side[0] === 'in' ? ' in' : ' out'));
+        slot.setAttribute('aria-label', (shown ? itemName(shown) : mix.length > 1 ? 'Mixed: ' + mix.map(itemName).join(', ') : 'Any item') +
+          (side[0] === 'in' ? ' in' : ' out'));
         slot.addEventListener('pointerdown', function (e) { dragFromSlot(n, side[0], k, e); });
         col.appendChild(slot);
         // Where the chain ends, what comes out, just past the card's edge
@@ -7387,17 +7681,37 @@
         label.className = 'flow-label cflow';
         label.style.left = path.mid.x + 'px';
         label.style.top = path.mid.y + 'px';
-        if (f.item) {
-          var icon = document.createElement('img');
-          icon.className = 'fl-icon';
-          icon.src = iconOf(f.item);
-          icon.alt = '';
-          label.appendChild(icon);
+        var on = Object.keys(f.items).sort(function (x, y) { return f.items[y] - f.items[x]; });
+        if (f.mixed && on.length > 1) {
+          // A mixed belt: each item and its rate.
+          label.classList.add('mixed');
+          on.slice(0, 5).forEach(function (i, j) {
+            var mi = document.createElement('img');
+            mi.className = 'fl-icon';
+            mi.src = iconOf(i);
+            mi.alt = itemName(i);
+            if (j) label.appendChild(document.createTextNode('  '));
+            label.appendChild(mi);
+            var mb = document.createElement('b');
+            mb.textContent = fmtNum(f.items[i]);
+            label.appendChild(mb);
+          });
+          if (on.length > 5) label.appendChild(document.createTextNode('  +' + (on.length - 5)));
+          label.appendChild(document.createTextNode('/min'));
+        } else {
+          var one = f.item || on[0];
+          if (one) {
+            var icon = document.createElement('img');
+            icon.className = 'fl-icon';
+            icon.src = iconOf(one);
+            icon.alt = '';
+            label.appendChild(icon);
+          }
+          var bold = document.createElement('b');
+          bold.textContent = fmtNum(f.total);
+          label.appendChild(bold);
+          label.appendChild(document.createTextNode((fluid ? ' m³' : '') + '/min'));
         }
-        var bold = document.createElement('b');
-        bold.textContent = fmtNum(f.total);
-        label.appendChild(bold);
-        label.appendChild(document.createTextNode((fluid ? ' m³' : '') + '/min'));
         labelsEl.appendChild(label);
       }
       var hit = svg('path', { d: path.d, 'class': 'belt-hit', 'data-hit': l.id });
@@ -7428,12 +7742,29 @@
     applySelection();
   }
 
-  /** Whether two slots can be joined: one in and one out, both free, the same item. */
+  /**
+   * Whether two slots can be joined: one in and one out, the far one free.
+   * Belts can mix items (a sushi belt), and a machine takes any of its solid
+   * ingredients through any input, as in the game; a pipe carries one fluid.
+   */
   function fits(f, t) {
     if (!f || !t || f.node === t.node || f.side === t.side) return false;
     if (linkOn(t.node, t.side, t.k)) return false;
-    var a = slotItem(f.node, f.side, f.k), b = slotItem(t.node, t.side, t.k);
-    return !a || !b || a === b;
+    var out = f.side === 'out' ? f : t, inn = f.side === 'out' ? t : f;
+    var a = slotItems(out.node, 'out', out.k);
+    if (!a.length) { var a1 = slotItem(out.node, 'out', out.k); if (a1) a = [a1]; }
+    var fixed = slotsOf(inn.node).ins[inn.k];
+    if (fixed) {
+      if (!a.length) return true;
+      if (isFluid(fixed)) return a.length === 1 && a[0] === fixed;
+      var r = nodeRecipe(inn.node);
+      var uses = r ? r.in.map(function (q) { return q[0]; }) : [fixed];
+      return a.every(function (i) { return !isFluid(i); }) && a.some(function (i) { return uses.indexOf(i) >= 0; });
+    }
+    // Into a splitter, merger or Storage: anything that can share its line.
+    var b = slotItems(inn.node, 'in', inn.k);
+    if (!b.length) { var b1 = slotItem(inn.node, 'in', inn.k); if (b1) b = [b1]; }
+    return mixable(a.concat(b));
   }
 
   function join(f, t) {
@@ -7472,9 +7803,13 @@
         var m = nodeById(card.dataset.id);
         var s = slotsOf(m);
         var list = from.side === 'out' ? s.ins : s.outs;
-        for (var j = 0; j < list.length; j++) {
-          var t = { node: m, side: from.side === 'out' ? 'in' : 'out', k: j };
-          if (fits(from, t)) return t;
+        var mine = slotItems(from.node, from.side, from.k);
+        for (var pass = 0; pass < 2; pass++) {
+          for (var j = 0; j < list.length; j++) {
+            if (!pass && list[j] && mine.indexOf(list[j]) < 0) continue;
+            var t = { node: m, side: from.side === 'out' ? 'in' : 'out', k: j };
+            if (fits(from, t)) return t;
+          }
         }
       }
       return null;
@@ -7516,7 +7851,9 @@
   /** The menu for a line dropped on empty canvas: what could take (or give) its item. */
   function quickAdd(from, w, cx, cy, dropped) {
     var item = slotItem(from.node, from.side, from.k);
-    var items = [{ head: item ? itemName(item) : 'Connect' }];
+    var mixed = !item ? slotItems(from.node, from.side, from.k) : [];
+    if (mixed.length < 2) mixed = [];
+    var items = [{ head: item ? itemName(item) : mixed.length ? 'Mixed belt' : 'Connect' }];
     function make(kind, recipe, extra) {
       return function () {
         var n = newNode(kind, w.x, w.y);
@@ -7537,12 +7874,14 @@
         changed();
       };
     }
-    if (item) {
+    // A mixed belt can feed any step that uses something on it.
+    var takesFrom = item ? [item] : from.side === 'out' ? mixed : [];
+    if (takesFrom.length) {
       var rids = Object.keys(DATA.recipes).filter(function (rid) {
         var r = DATA.recipes[rid];
         if (!canBuild(rid) || !recipeAllowed(rid)) return false;
         var list = from.side === 'out' ? r.in : r.out;
-        return list.some(function (q) { return q[0] === item; });
+        return list.some(function (q) { return takesFrom.indexOf(q[0]) >= 0; });
       }).sort(function (a, b) {
         var ra = DATA.recipes[a], rb = DATA.recipes[b];
         return (ra.alt ? 1 : 0) - (rb.alt ? 1 : 0) || ra.name.localeCompare(rb.name);
@@ -7577,7 +7916,8 @@
     }
     if (from.side === 'out') {
       items.push({ label: 'Splitter', note: 'Shares evenly', icon: iconOf('splitter'), run: make('splitter') });
-      items.push({ label: 'Smart Splitter', note: 'Top output first, the rest overflow', icon: iconOf('splitter'), run: make('smart') });
+      items.push({ label: 'Smart Splitter', note: 'One item, or Any or Overflow, per output', icon: iconOf('splitter'), run: make('smart') });
+      items.push({ label: 'Programmable Splitter', note: 'Several items per output', icon: iconOf('splitter'), run: make('programmable') });
     } else {
       items.push({ label: 'Merger', note: 'Joins evenly', icon: iconOf('merger'), run: make('merger') });
       items.push({ label: 'Priority Merger', note: 'Top input first', icon: iconOf('merger'), run: make('priority') });
@@ -7850,7 +8190,13 @@
         n.recipe = v;
         var s = slotsOf(n);
         state.custom.links = state.custom.links.filter(function (l) {
-          if (l.to === n.id) return l.tk < s.ins.length && s.ins[l.tk] === slotItem(nodeById(l.from), 'out', l.fk);
+          if (l.to === n.id) {
+            if (l.tk >= s.ins.length) return false;
+            var brings = slotItems(nodeById(l.from), 'out', l.fk);
+            if (!brings.length) return true;
+            if (isFluid(s.ins[l.tk])) return brings.length === 1 && brings[0] === s.ins[l.tk];
+            return brings.some(function (i) { return s.ins.indexOf(i) >= 0 && !isFluid(i); });
+          }
           if (l.from === n.id) return l.fk < s.outs.length;
           return true;
         });
@@ -8013,11 +8359,114 @@
         changed();
       }));
       field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = clamp(v || 0, 0, MAX_RATE); changed(); }));
+    } else if (n.type === 'splitter') {
+      // One card, three splitters: switching keeps the lines.
+      var kind = n.programmable ? 'programmable' : n.priority ? 'smart' : 'splitter';
+      field('Type', select([
+        { value: 'splitter', label: 'Splitter', note: 'Shares evenly', icon: iconOf('splitter') },
+        { value: 'smart', label: 'Smart Splitter', note: 'One rule per output', icon: iconOf('splitter') },
+        { value: 'programmable', label: 'Programmable Splitter', note: 'Several rules per output', icon: iconOf('splitter') }
+      ], kind, function (v) {
+        if (v === kind) return;
+        delete n.priority;
+        delete n.programmable;
+        // A Smart Splitter keeps one rule per output.
+        if (n.rules && v === 'smart') n.rules = n.rules.map(function (list) { return list.slice(0, 1); });
+        if (v === 'smart') n.priority = true;
+        if (v === 'programmable') n.programmable = true;
+        if (v === 'splitter') delete n.rules;
+        changed();
+      }));
+      if (!isRuled(n)) {
+        note('Shares what comes in evenly across its outputs; anything a branch can’t take goes to the others.');
+      } else {
+        note(n.programmable
+          ? 'Each output takes what its rules name: items, Any, Any Undefined (anything no output names) or Overflow (what the others can’t take). An output with no rules takes nothing.'
+          : 'Each output takes one thing: an item, Any, Any Undefined (anything no output names), Overflow (what the others can’t take) or None.');
+        var onLine = slotItems(n, 'in', 0);
+        var setRules = function (k, list) {
+          n.rules = rulesOf(n).map(function (x) { return x.slice(); });
+          n.rules[k] = list;
+          changed();
+        };
+        // The choices for a rule: the special ones, then what's on the belt
+        // in, then any item at all.
+        var choices = function (skip) {
+          var list = ['any', 'undefined', 'overflow'].map(function (r) { return { value: r, label: RULE_NAMES[r] }; });
+          if (!n.programmable) list.splice(1, 0, { value: 'none', label: 'None' });
+          onLine.forEach(function (i) { list.push({ value: i, label: itemName(i), icon: iconOf(i), note: 'On the belt in' }); });
+          list.push({ value: '__pick', label: 'Another item…' });
+          return list.filter(function (o) { return skip.indexOf(o.value) < 0; });
+        };
+        var ruleText = function (r) { return RULE_NAMES[r] || itemName(r); };
+        ['Top', 'Middle', 'Bottom'].forEach(function (where, k) {
+          var mine = rulesOf(n)[k];
+          if (!n.programmable) {
+            var cur = mine[0] || 'none';
+            var opts = choices([]);
+            if (opts.every(function (o) { return o.value !== cur; })) opts.splice(4, 0, { value: cur, label: ruleText(cur), icon: iconOf(cur) });
+            var b = select(opts, cur, function (v) {
+              if (v === '__pick') {
+                openItemPicker(b, function (id) { setRules(k, [id]); });
+                return;
+              }
+              setRules(k, v === 'none' ? [] : [v]);
+            });
+            field(where + ' output', b);
+            return;
+          }
+          // Programmable: a chip per rule, and a + to add one.
+          var row = document.createElement('div');
+          row.className = 'rule-chips';
+          if (!mine.length) {
+            var none = document.createElement('span');
+            none.className = 'rule-none';
+            none.textContent = 'None';
+            row.appendChild(none);
+          }
+          mine.forEach(function (r) {
+            var chip = document.createElement('span');
+            chip.className = 'rule-chip' + (RULE_NAMES[r] ? ' special' : '');
+            if (!RULE_NAMES[r]) {
+              var ci = document.createElement('img');
+              ci.src = iconOf(r);
+              ci.alt = '';
+              chip.appendChild(ci);
+            }
+            chip.appendChild(document.createTextNode(ruleText(r)));
+            var x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'rule-x';
+            x.setAttribute('aria-label', 'Remove ' + ruleText(r));
+            x.textContent = '×';
+            x.addEventListener('click', function () { setRules(k, mine.filter(function (q) { return q !== r; })); });
+            chip.appendChild(x);
+            row.appendChild(chip);
+          });
+          var add = document.createElement('button');
+          add.type = 'button';
+          add.className = 'rule-add';
+          add.setAttribute('aria-label', 'Add a rule');
+          add.textContent = '+';
+          add.addEventListener('click', function () {
+            var rr = add.getBoundingClientRect();
+            openCtx(rr.left, rr.bottom + 4, choices(mine).map(function (o) {
+              return {
+                label: o.label, icon: o.icon, note: o.note,
+                run: function () {
+                  if (o.value === '__pick') openItemPicker(add, function (id) { if (mine.indexOf(id) < 0) setRules(k, mine.concat([id])); });
+                  else setRules(k, mine.concat([o.value]));
+                }
+              };
+            }));
+          });
+          row.appendChild(add);
+          field(where + ' output', row);
+        });
+      }
     } else {
-      note(n.type === 'splitter' && n.priority ? 'Its top output takes all it can; what it can’t take is shared by the others, as the game’s Overflow setting does.'
-        : n.type === 'splitter' ? 'Shares what comes in evenly across its outputs; anything a branch can’t take goes to the others.'
-        : n.type === 'merger' && n.priority ? 'Joins up to three lines into one, its top input first: when the line out is full, the others back up.'
-        : n.type === 'merger' ? 'Joins up to three lines into one.'
+      note(n.type === 'merger' && n.priority ? 'Joins up to three lines into one, its top input first: when the line out is full, the others back up.'
+        : n.type === 'merger' ? 'Joins up to three lines into one. Different items make a mixed belt.'
         : 'Collects whatever reaches it. From a splitter, it only takes what the other branches leave.');
     }
     inspectorEl.appendChild(box);
