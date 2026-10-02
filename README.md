@@ -24,6 +24,7 @@ size.
   it brings more of one item than the machine uses. Smart and Programmable
   Splitters sort items with the game's rules per output: an item, Any, Any
   Undefined, Overflow or None (a Programmable Splitter takes several).
+- **Hover hints:** point at any item's icon for its name and rate.
 - **Build and Optimize:** add an output and the model's chain is built for it.
   Optimize rebuilds the machines between your outputs and inputs with the
   optimiser's pick of recipes (fewest machines, fewest resources or least
@@ -34,7 +35,15 @@ size.
 - **Item view:** the model as one card per recipe, with rates on every line.
 - **Machine view:** the model as it would be built, laid out on an 8 m
   foundation grid, fed by manifolds or load balancers, with belts and pipes
-  split to fit the fastest tier you've unlocked.
+  split to fit the fastest tier you've unlocked. Long manifolds fold into
+  compact blocks, and belts that skip several steps run on a bus above or
+  below the factory.
+- **Inputs from elsewhere:** "+ Add input" under Inputs, or right-click a
+  machine and "Bring in instead", swaps what made an item for an Import.
+- **Resources per factory:** switch off any resource under Recipes and
+  Optimize does without it.
+- **Byproducts:** spare solids go to an AWESOME Sink (with its points), and
+  Optimize and Build use up fluid byproducts, which the game can't sink.
 - **Resource nodes:** each has its own purity and miner.
 - **Clock speeds:** everything at 100%, spread evenly, underclock the last
   machine, or overclock with Power Shards.
