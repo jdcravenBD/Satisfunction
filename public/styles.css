@@ -2033,16 +2033,13 @@ html, body {
   box-shadow: 0 6px 20px rgba(0, 0, 0, calc(.5 * var(--shade)));
 }
 
-/* The support button, top right of the header. */
+/* About and Settings, top right of the header. */
 .bar-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-#support, #info, #settings { color: var(--head-ink-2); }
-#support:hover, #info:hover, #settings:hover { color: var(--head-ink-hi); }
+#info, #settings { color: var(--head-ink-2); }
+#info:hover, #settings:hover { color: var(--head-ink-hi); }
 
 /* ---------- round 14 ---------- */
 
-/* "Support me" and its icon, one button. */
-.hbtn.support-btn { width: auto; gap: 7px; padding: 0 8px 0 10px; }
-.support-text { font-size: 13px; font-weight: 600; }
 
 /* The version picker, last in the save's pill. */
 .hbtn.version-btn { width: auto; gap: 4px; padding: 0 8px; font: inherit; font-size: 12.5px; font-weight: 600; }

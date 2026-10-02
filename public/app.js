@@ -8753,23 +8753,6 @@
     if (a && a !== document.body && (a.tagName === 'BUTTON' || a.tagName === 'A') && !a.contains(e.target)) a.blur();
   }, true);
 
-  /* -------------------------------------------------------------- support */
-
-  var SUPPORT_URL = 'https://www.paypal.com/donate/?business=D67ZNGBK6W99W&no_recurring=1&item_name=Your+support+is+enough%2C+but+if+you+have+an+abnormally+sized+heart%2C+then+I%27ll+be+more+than+grateful%21&currency_code=USD';
-  var supportBtn = document.getElementById('support');
-  supportBtn.addEventListener('click', function () {
-    var r = supportBtn.getBoundingClientRect();
-    openCtx(r.left, r.bottom + 6, [
-      {
-        label: 'Donate with PayPal',
-        note: 'Opens PayPal in a new tab',
-        run: function () { window.open(SUPPORT_URL, '_blank', 'noopener'); }
-      }
-    ]);
-    // Right edge under the button's right edge.
-    ctx.style.left = Math.max(8, r.right - ctx.offsetWidth) + 'px';
-  });
-
   /* ----------------------------------------------------------------- info */
 
   var REPO_URL = 'https://github.com/jdcravenBD/Satisfunction';
