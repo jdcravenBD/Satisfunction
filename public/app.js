@@ -17,7 +17,7 @@
   var NODE_W = 224;
   var COL_GAP = 150;   // room between columns for the rate labels
   var ROW_GAP = 34;
-  var MIN_ZOOM = 0.1;
+  var MIN_ZOOM = 0.015;  // far enough out to see the biggest factory whole
   var MAX_ZOOM = 2.5;
   var NEW_TARGET_RATE = 10;
 
@@ -912,6 +912,7 @@
    */
   function recompute() {
     lineCache = null;
+    if (tipEl) hideTip();  // what it was pointing at is redrawn
     // An Auto plan from before the model: laid out as one, once.
     if (state.legacy) {
       state.legacy = false;
@@ -1156,6 +1157,10 @@
     fwd.forEach(function (e) {
       var a = byKey[e.from];
       var b = byKey[e.to];
+      // In the machine view a belt skipping several columns runs on a bus
+      // above the factory instead of through every column in between.
+      e.bus = machines && b.col - a.col >= 3;
+      if (e.bus) return;
       var prev = a;
       var prevOff = portOffset(a, 'out', e.item);
       for (var c2 = a.col + 1; c2 < b.col; c2++) {
@@ -2166,6 +2171,13 @@
     var half = SPLIT_M / 2;
     var pitch = Math.ceil(w + GAP_M);
     var last = N - 1;
+    // A long manifold folds into rows side by side, so a step makes a block
+    // about as wide as it's tall instead of one very long line.
+    if (state.balance !== 'balancer' || !nIn) {
+      var colW = (nIn ? half + (nIn - 1) * LANE_M + half + BRANCH_M : 0) + l + (nOut ? BRANCH_M + half + (nOut - 1) * LANE_M + half : 0);
+      var perCol = Math.max(3, Math.ceil(Math.sqrt(N * (colW + SUB_GAP_M) / pitch)));
+      if (perCol < N) return wrappedGeometry(n, perCol, colW);
+    }
     // Input belts arrive above everything, the innermost highest, so an
     // arriving belt never crosses one that's already running.
     function entry(i) { return 1 + i * 2; }
@@ -2238,6 +2250,87 @@
 
     g.w = width;
     g.h = Math.max(nOut ? exit(0) + 1 : outBottom, bottom);
+    return g;
+  }
+
+  /**
+   * A manifold folded into columns of `perCol` machines, side by side. Each
+   * input arrives on a belt along the top, which splits off down each
+   * column's manifold; each output's column manifolds come down and merge
+   * into a belt along the bottom, leaving at the right.
+   */
+  var SUB_GAP_M = 4;   // between the columns of a folded line
+  function wrappedGeometry(n, perCol, colW) {
+    var N = n.machines.length;
+    var nIn = n.ins.length;
+    var nOut = n.outs.length;
+    var l = n.size ? n.size.l : 10;
+    var w = n.size ? n.size.w : 8;
+    var half = SPLIT_M / 2;
+    var pitch = Math.ceil(w + GAP_M);
+    var g = { machines: [], belts: [], parts: [], ports: { in: {}, out: {} }, l: l, w: w };
+    var cols = Math.ceil(N / perCol);
+    function inAt(top, i) { return top + w * (i + 1) / (nIn + 1); }
+    function outAt(top, j) { return top + w * (j + 1) / (nOut + 1); }
+    function entry(i) { return 1 + i * 2; }
+    var entryFloor = nIn ? entry(nIn - 1) + 1 : 0;
+    var y1 = 0;
+    n.ins.forEach(function (_, i) { y1 = Math.max(y1, entry(i) + 1 + half - w * (i + 1) / (nIn + 1)); });
+    y1 = Math.max(Math.ceil(y1), nIn ? Math.ceil(entryFloor + half) : 0);
+    var tops = [];
+    for (var r = 0; r < perCol; r++) tops.push(y1 + r * pitch);
+    var span = colW + SUB_GAP_M;
+    var mxOf = function (c) { return c * span + (nIn ? half + (nIn - 1) * LANE_M + half + BRANCH_M : 0); };
+    var inX = function (c, i) { return c * span + half + (nIn - 1 - i) * LANE_M; };
+    var outX = function (c, j) { return mxOf(c) + l + BRANCH_M + half + j * LANE_M; };
+    var rowsIn = function (c) { return Math.min(perCol, N - c * perCol); };
+    var width = (cols - 1) * span + colW;
+
+    for (var c = 0; c < cols; c++) {
+      for (var r2 = 0; r2 < rowsIn(c); r2++) g.machines.push({ x: mxOf(c), y: tops[r2], m: n.machines[c * perCol + r2] });
+    }
+
+    // Inputs: along the top, then down each column.
+    n.ins.forEach(function (id, i) {
+      var fluid = isFluid(id);
+      var lastC = cols - 1;
+      g.belts.push({ item: id, pts: [[0, entry(i)], [inX(lastC, i), entry(i)]] });
+      for (var c2 = 0; c2 < cols; c2++) {
+        var x = inX(c2, i);
+        var rows = rowsIn(c2);
+        var ys = tops.slice(0, rows).map(function (t) { return inAt(t, i); });
+        if (c2 < lastC) g.parts.push({ role: 'splitter', fluid: fluid, item: id, x: x, y: entry(i) });
+        g.belts.push({ item: id, pts: [[x, entry(i)], [x, ys[rows - 1]], [mxOf(c2), ys[rows - 1]]], branch: c2 < lastC });
+        for (var k = 0; k < rows - 1; k++) {
+          g.belts.push({ item: id, pts: [[x, ys[k]], [mxOf(c2), ys[k]]], branch: true });
+          g.parts.push({ role: 'splitter', fluid: fluid, item: id, x: x, y: ys[k] });
+        }
+      }
+      g.ports.in[id] = { x: 0, y: entry(i) };
+    });
+
+    // Outputs: down each column, then along the bottom.
+    var outBottom = tops[perCol - 1] + w;
+    n.outs.forEach(function (_, j) { outBottom = Math.max(outBottom, outAt(tops[perCol - 1], j) + half); });
+    function exit(j) { return Math.ceil(outBottom) + 1 + half + (nOut - 1 - j) * (SPLIT_M + 1); }
+    n.outs.forEach(function (id, j) {
+      var fluid = isFluid(id);
+      for (var c3 = 0; c3 < cols; c3++) {
+        var x = outX(c3, j);
+        var rows = rowsIn(c3);
+        var ys = tops.slice(0, rows).map(function (t) { return outAt(t, j); });
+        g.belts.push({ item: id, pts: [[mxOf(c3) + l, ys[0]], [x, ys[0]], [x, exit(j)]].concat(c3 === 0 ? [[width, exit(j)]] : []), branch: c3 > 0 });
+        for (var k2 = 1; k2 < rows; k2++) {
+          g.belts.push({ item: id, pts: [[mxOf(c3) + l, ys[k2]], [x, ys[k2]]], branch: true });
+          g.parts.push({ role: 'merger', fluid: fluid, item: id, x: x, y: ys[k2] });
+        }
+        if (c3 > 0) g.parts.push({ role: 'merger', fluid: fluid, item: id, x: x, y: exit(j) });
+      }
+      g.ports.out[id] = { x: width, y: exit(j) };
+    });
+
+    g.w = width;
+    g.h = nOut ? exit(0) + half + 1 : outBottom;
     return g;
   }
 
@@ -2579,6 +2672,20 @@
     layers.forEach(function (layer) {
       layer.forEach(function (d) { if (d.dummy) d.y = snap(d.cy); });
     });
+    // Every column starts at the same height, under the bus, rather than
+    // each sitting a little lower than the last.
+    // Packed down from there in their order, a little room between, so
+    // no column is mostly empty space.
+    layers.forEach(function (layer) {
+      var list = layer.slice().sort(function (p, q) { return p.y - q.y; });
+      var at = 0;
+      list.forEach(function (n) {
+        if (n.dummy) { n.y = snap(at + px(2)); n.cy = n.y; at = n.y + px(2); return; }
+        n.y = snap(at);
+        n.cy = n.y + n.h / 2;
+        at = n.y + n.h + px(6);
+      });
+    });
 
     assignPorts();
     assignSides();
@@ -2640,9 +2747,39 @@
     // Every hop between neighbouring columns that changes height needs a
     // vertical track in the gap between them.
     var gaps = layers.map(function () { return []; });
+    // The bus: lanes above everything for belts skipping several columns,
+    // each lane shared by belts whose stretches don't overlap; the longest
+    // belts take the outermost lanes.
+    // A belt whose ends sit low in the factory takes a lane underneath
+    // instead, below any loops back.
+    var top = graph.nodes.reduce(function (m, n) { return Math.min(m, n.y); }, Infinity);
+    var bottom = graph.nodes.reduce(function (m, n) { return Math.max(m, n.y + n.h); }, -Infinity);
+    var backs = graph.edges.filter(function (e) { return e.back; }).length;
+    var lanes = { high: [], low: [] };
+    graph.edges.filter(function (e) { return e.bus && !e.back; })
+      .sort(function (x, y) { return byKey[x.from].col - byKey[y.from].col || byKey[y.to].col - byKey[x.to].col; })
+      .forEach(function (e) {
+        var from = byKey[e.from].col, to = byKey[e.to].col;
+        e.side = (startY(e) + endY(e)) / 2 > (top + bottom) / 2 ? 'low' : 'high';
+        var list = lanes[e.side];
+        var k = 0;
+        while (list[k] != null && list[k] > from) k++;
+        list[k] = to;
+        e.lane = k;
+      });
     graph.edges.forEach(function (e) {
       if (e.back) return;
       var a = byKey[e.from];
+      if (e.bus) {
+        var busY = e.side === 'low'
+          ? snap(bottom + px(6 + backs * 2 + e.lane * TRACK_M * 1.5))
+          : snap(top - px(6 + e.lane * TRACK_M * 1.5));
+        e.ys = [startY(e), busY, endY(e)];
+        e.tracks = [{ e: e, k: 0, ya: e.ys[0], yb: busY }, { e: e, k: 1, ya: busY, yb: e.ys[2] }];
+        gaps[a.col].push(e.tracks[0]);
+        gaps[byKey[e.to].col - 1].push(e.tracks[1]);
+        return;
+      }
       e.ys = [startY(e)].concat(e.via.map(function (d) { return d.y; }), [endY(e)]);
       e.tracks = [];
       for (var k = 0; k + 1 < e.ys.length; k++) {
@@ -2800,7 +2937,11 @@
         var k = loops++;
         var y0 = startY(e);
         var y1 = endY(e);
-        var low = lowest + px(4 + 2 * k);
+        // Under just the columns it spans, not the whole factory.
+        var under = nodes.reduce(function (m, n) {
+          return n.col >= b.col && n.col <= a.col ? Math.max(m, n.y + n.h) : m;
+        }, Math.max(y0, y1));
+        var low = under + px(4 + 2 * k);
         var back = [];
         if (e.outSide === 'top') back.push([acx, partTop(a)], [acx, y0]);
         else if (e.outSide === 'bottom') back.push([acx, partBottom(a)], [acx, y0]);
