@@ -6,12 +6,12 @@
 <title>Satisfunction</title>
 <!-- The theme picked in Settings, applied before anything is drawn. -->
 <script>try { if (localStorage.getItem('satisfunction.theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}</script>
-<link rel="icon" href="favicon.svg?v=55" type="image/svg+xml">
-<link rel="icon" href="favicon-32.png?v=55" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon.svg?v=56" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=56" type="image/png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=55">
+<link rel="stylesheet" href="styles.css?v=56">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
   <header class="bar">
     <div class="bar-left">
       <div class="brand">
-        <img class="mark-img" src="favicon.svg?v=55" alt="" width="20" height="20">
+        <img class="mark-img" src="favicon.svg?v=56" alt="" width="20" height="20">
         <strong>SATISFUNCTION</strong>
         <span class="sub">Production Planner</span>
       </div>
@@ -320,6 +320,19 @@
         </div>
         <p class="opt-note" id="opt-note"></p>
       </div>
+      <!-- Resources this factory may use: Optimize does without the unticked. -->
+      <div class="alt-fold" id="res-fold" data-fold="resources">
+        <div class="sum-group-head sub-head">
+          <button type="button" class="fold-head fold-inline">
+            <span class="sum-group-name" data-icon="ore">Resources</span>
+            <span class="sum-group-count" id="res-count"></span>
+          </button>
+          <button type="button" class="link-btn" data-res-all="1">All</button>
+        </div>
+        <div class="fold-body">
+          <div class="alt-list res-list" id="res-list"></div>
+        </div>
+      </div>
       <!-- Rebuilds the model's machines for its outputs: Optimize, or Build
            with the recipes you've picked. -->
       <div class="opt-run">
@@ -421,11 +434,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=55"></script>
-<script src="solver.js?v=55"></script>
-<script src="lp.js?v=55"></script>
-<script src="optimise.js?v=55"></script>
-<script src="examples.js?v=55"></script>
-<script src="app.js?v=55"></script>
+<script src="data.js?v=56"></script>
+<script src="solver.js?v=56"></script>
+<script src="lp.js?v=56"></script>
+<script src="optimise.js?v=56"></script>
+<script src="examples.js?v=56"></script>
+<script src="app.js?v=56"></script>
 </body>
 </html>

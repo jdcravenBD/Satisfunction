@@ -59,6 +59,7 @@
     balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
     build: 'custom', // 'custom': the Model canvas; 'auto': one of its views (Item or Machine)
     optKey: null,  // planKey() when the model was last optimized or built
+    noUse: [],     // resources this factory doesn't use (Optimize does without them)
     clockOf: {},   // recipe -> the clock its model steps are set to (from syncPlan)
     boostOf: {},   // recipe -> { out, power }: its steps' Somersloop boost (from syncPlan)
     modelled: true, // saved from a version where the model is the main thing
@@ -464,7 +465,7 @@
   var STORE_KEY = 'satisfunction.saves.v1';
   var PROGRESS = ['unlocked', 'altsSet', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
   var FACTORY = ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal',
-    'pins', 'view', 'mode', 'balance', 'build', 'custom', 'optKey', 'modelled'];
+    'pins', 'view', 'mode', 'balance', 'build', 'custom', 'optKey', 'modelled', 'noUse'];
   var store = null;  // { active, saves: [{ id, name, active, progress, factories: [{ id, name, plan }] }], prefs }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -660,6 +661,9 @@
     state.clock = ['none', 'even', 'fill', 'max'].indexOf(data.clock) >= 0 ? data.clock : 'none';
     state.custom = readCustom(data.custom);
     state.optKey = typeof data.optKey === 'string' ? data.optKey : null;
+    state.noUse = (Array.isArray(data.noUse) ? data.noUse : []).filter(function (id, i, all) {
+      return DATA.items[id] && DATA.items[id].raw && all.indexOf(id) === i;
+    });
     // Plans from before the model was the main thing: an Auto plan becomes
     // a model on the first redraw (see recompute), and shows in Model.
     if (data.modelled) {
@@ -745,7 +749,7 @@
   var MAX_HISTORY = 80;
 
   var UNDOABLE = ['name', 'targets', 'recipes', 'imports', 'supply', 'clock', 'belt', 'pipe',
-    'picker', 'goal', 'unlocked', 'unavailable', 'pins', 'custom', 'optKey'];
+    'picker', 'goal', 'unlocked', 'unavailable', 'pins', 'custom', 'optKey', 'noUse'];
 
   function snapshot() {
     var snap = {};
@@ -5862,6 +5866,8 @@
     document.getElementById('picker-sub').textContent = optimising ? 'picked for you' : 'on each machine';
     if (flow) refreshRunButton();
     altCount.textContent = state.unlocked.length + ' of ' + UNLOCKABLE.length + ' ticked';
+    document.getElementById('res-count').textContent = state.noUse.length ? state.noUse.length + ' switched off' : 'all in use';
+    renderResList();
   }
 
   /** After a solve: what the optimiser ended up using. */
@@ -5945,6 +5951,42 @@
   }
 
   altInput.addEventListener('input', renderAltList);
+
+  // The resources this factory may use: a ticked list, all ticked to start.
+  var resList = document.getElementById('res-list');
+  function renderResList() {
+    resList.innerHTML = '';
+    RAW_ITEMS.slice().sort(function (a, b) { return (DATA.items[a].order || 0) - (DATA.items[b].order || 0); }).forEach(function (id) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sum-row check-row alt-check res-check' + (state.noUse.indexOf(id) < 0 ? ' on' : '');
+      var img = document.createElement('img');
+      img.className = 'row-icon';
+      img.src = iconOf(id);
+      img.alt = '';
+      b.appendChild(img);
+      var text = document.createElement('span');
+      text.className = 'sum-row-name';
+      var main = document.createElement('span');
+      main.className = 'ac-main';
+      main.textContent = itemName(id);
+      text.appendChild(main);
+      b.appendChild(text);
+      b.addEventListener('click', function () {
+        var at = state.noUse.indexOf(id);
+        state.noUse = at >= 0 ? state.noUse.filter(function (x) { return x !== id; }) : state.noUse.concat([id]);
+        b.classList.toggle('on', at >= 0);
+        refreshRecipeControls();
+        changed();
+      });
+      resList.appendChild(b);
+    });
+  }
+  document.querySelector('[data-res-all]').addEventListener('click', function () {
+    state.noUse = [];
+    refreshRecipeControls();
+    changed();
+  });
   altFold.querySelectorAll('[data-all]').forEach(function (b) {
     b.addEventListener('click', function () {
       state.unlocked = b.dataset.all === '1' ? UNLOCKABLE.slice() : [];
@@ -6706,6 +6748,10 @@
           var it = res.items[n.item] || (res.items[n.item] = { supplied: 0, cap: 0, short: 0, surplus: 0, producers: [] });
           it.supplied += used;
           it.cap += cap;
+        }
+        if (state.noUse.indexOf(n.item) >= 0) {
+          problem(n, itemName(n.item) + ' is switched off for this factory, under Resources' +
+            (state.picker === 'optimise' ? ': nothing else can make what needs it' : ': Optimize can choose recipes that do without it'));
         }
         if (!lo) problem(n, itemName(n.item) + ' isn’t connected to anything');
         else if (!(byId[lo.to] && byId[lo.to].type === 'merger' && byId[lo.to].priority)) {
@@ -8617,7 +8663,8 @@
       p: state.picker,
       g: optimising ? state.goal : null,
       a: optimising ? state.unlocked.slice().sort() : null,
-      u: state.unavailable.slice().sort()
+      u: state.unavailable.slice().sort(),
+      n: state.noUse.slice().sort()
     });
   }
 
@@ -8656,7 +8703,9 @@
     Object.keys(sloopsWas).forEach(function (rid) {
       outMult[rid] = 1 + sloopsOf({ type: 'recipe', recipe: rid, sloops: sloopsWas[rid] }).boost;
     });
-    var plan = { targets: targets, recipes: built.recipes, imports: built.imports, caps: {}, outMult: outMult };
+    var off = {};
+    state.noUse.forEach(function (id) { off[id] = 0; });
+    var plan = { targets: targets, recipes: built.recipes, imports: built.imports, caps: off, outMult: outMult };
     solved = null;
     if (state.picker === 'optimise') {
       plan.pins = {};
@@ -8675,7 +8724,7 @@
           var it = solved.recipes[rid].item;
           (pins[it] = pins[it] || {})[rid] = 1;
         });
-        var tidy = OPTIMISE.solveOptimised(DATA, { targets: targets, imports: plan.imports, caps: {}, pins: pins, outMult: outMult },
+        var tidy = OPTIMISE.solveOptimised(DATA, { targets: targets, imports: plan.imports, caps: off, pins: pins, outMult: outMult },
           { goal: 'resources', allowed: function () { return false; }, built: canBuild, useFluids: true });
         if (tidy && !tidy.error && !Object.keys(tidy.items).some(function (id) { return tidy.items[id].surplus > 1e-6 && isFluid(id); })) solved = tidy;
       }

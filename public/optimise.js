@@ -91,7 +91,8 @@
     // precision as one for 500/min.
     var caps0 = plan.caps || {};
     var norm = 1;
-    if (!maxItems.length && !Object.keys(caps0).length) {
+    // (Caps of nothing at all, resources switched off, scale too.)
+    if (!maxItems.length && Object.keys(caps0).every(function (id) { return !caps0[id]; })) {
       var top = Math.max.apply(null, Object.keys(fixed).map(function (id) { return fixed[id]; }));
       if (top > 0) norm = 100 / top;
     }

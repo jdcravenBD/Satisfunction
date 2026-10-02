@@ -3026,3 +3026,7 @@ body:not(.model-canvas) #world .node * { cursor: default; }
 /* An AWESOME Sink: an end for spares, quieter than Storage's green. */
 .cnode.cnode-awesome { background: var(--panel-2); border-color: var(--card-dash); border-style: dashed; }
 .cnode-awesome .cn-count { font-size: 11px; }
+
+/* Resources a factory may use: a ticked list with each resource's icon. */
+.res-list .row-icon { width: 18px; height: 18px; margin-right: 8px; }
+.res-check:not(.on) .row-icon { opacity: .4; }
