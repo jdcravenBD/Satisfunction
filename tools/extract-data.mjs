@@ -358,7 +358,7 @@ const costed = new Set(Object.keys(machines).concat(Object.keys(extractors), [
   'Build_ConveyorAttachmentSplitter_C', 'Build_ConveyorAttachmentSplitterSmart_C', 'Build_ConveyorAttachmentSplitterProgrammable_C',
   'Build_ConveyorAttachmentMerger_C', 'Build_ConveyorAttachmentMergerPriority_C',
   'Build_StorageContainerMk1_C', 'Build_PipeStorageTank_C', 'Build_PipelineJunction_Cross_C',
-  'Build_FrackingSmasher_C'
+  'Build_FrackingSmasher_C', 'Build_ResourceSink_C'
 ]));
 for (const c of classesOf(/FGRecipe'/)) {
   if (!/BuildGun/.test(c.mProducedIn || '')) continue;

@@ -593,7 +593,7 @@
             return ok.slice(0, q.programmable ? 64 : 1);
           });
         }
-      } else if (n.type !== 'sink') {
+      } else if (n.type !== 'sink' && n.type !== 'awesome') {
         return;
       }
       out.nodes.push(q);
@@ -4900,6 +4900,7 @@
     if (flow) flow.tally.forEach(function (t) { add(t.mid, t.built); });
     state.custom.nodes.forEach(function (n) {
       if (n.type === 'resource' && extractorOf(n) === 'Build_FrackingExtractor_C') add('Build_FrackingSmasher_C', 1);
+      if (n.type === 'awesome') { add('Build_ResourceSink_C', 1); return; }
       if (n.type !== 'splitter' && n.type !== 'merger' && n.type !== 'sink') return;
       var item = slotItem(n, 'in', 0) || slotItem(n, 'out', 0);
       var fluid = item && isFluid(item);
@@ -5966,7 +5967,7 @@
   var customHint = document.getElementById('custom-hint');
   var flow = null;   // the last Custom flow: see customFlow()
 
-  var CNODE_W = { recipe: 170, resource: 156, import: 132, sink: 120, splitter: 64, merger: 64 };
+  var CNODE_W = { recipe: 170, resource: 156, import: 132, sink: 120, awesome: 120, splitter: 64, merger: 64 };
   var SLOT = 38;       // room for each input or output
   var CARD_TOP = 28;   // room above the slots for the count
   var STRIP = 36;      // the inputs' and outputs' strips down the card's sides
@@ -5980,12 +5981,17 @@
     '<path d="M10 6.7v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
     '<circle cx="10" cy="13.5" r="1.05" fill="currentColor"/></svg>';
   function isLogistic(n) { return n.type === 'splitter' || n.type === 'merger'; }
+  /** Where a line can end: Storage, or an AWESOME Sink. */
+  function isEnd(n) { return n.type === 'sink' || n.type === 'awesome'; }
+  /** AWESOME Sink points for an item a minute: what it's worth, solids only. */
+  function sinkPoints(id, rate) { return isFluid(id) ? 0 : (DATA.items[id].sink || 0) * rate; }
 
   /** A card's building by its in-game name. */
   function partName(n) {
     if (n.type === 'splitter') return n.programmable ? 'Programmable Splitter' : n.priority ? 'Smart Splitter' : 'Splitter';
     if (n.type === 'merger') return n.priority ? 'Priority Merger' : 'Merger';
     if (n.type === 'sink') return 'Storage Container';
+    if (n.type === 'awesome') return 'AWESOME Sink';
     return titleCase(n.type);
   }
 
@@ -5998,7 +6004,7 @@
     var r = nodeRecipe(n);
     if (r) return { ins: r.in.map(function (q) { return q[0]; }), outs: r.out.map(function (q) { return q[0]; }) };
     if (n.type === 'resource' || n.type === 'import') return { ins: [], outs: [n.item] };
-    if (n.type === 'sink') return { ins: [null], outs: [] };
+    if (n.type === 'sink' || n.type === 'awesome') return { ins: [null], outs: [] };
     if (n.type === 'splitter') return { ins: [null], outs: [null, null, null] };
     if (n.type === 'merger') return { ins: [null, null, null], outs: [null] };
     return { ins: [], outs: [] };
@@ -6143,7 +6149,7 @@
     var s = slotsOf(n);
     var it = (side === 'in' ? s.ins : s.outs)[k];
     if (it) return [it];
-    if (!isLogistic(n) && n.type !== 'sink') return [];
+    if (!isLogistic(n) && !isEnd(n)) return [];
     var sets = lineSets();
     var l = linkOn(n, side, k);
     if (l) return sets[l.id] || [];
@@ -6160,7 +6166,7 @@
     var list = slotItems(n, side, k);
     if (list.length === 1) return list[0];
     if (list.length > 1) return null;
-    return isLogistic(n) || n.type === 'sink' ? lineItem(n, guard) : null;
+    return isLogistic(n) || isEnd(n) ? lineItem(n, guard) : null;
   }
 
   /** Items that can share one line: any number of solids, or a single fluid. */
@@ -6347,6 +6353,7 @@
         return Math.max(0, nd * aim[n.id] - others) * (slow[l.id] == null ? 1 : slow[l.id]);
       }
       if (n.type === 'sink') return firm ? 0 : Infinity;
+      if (n.type === 'awesome') return firm || isFluid(item) ? 0 : Infinity;
       if (n.type === 'splitter') return roomOf(n, item, firm);
       if (n.type === 'merger') {
         // Making a mixed belt, a merger takes whatever comes: if one item is
@@ -6387,7 +6394,7 @@
       var n = byId[l.to];
       seen = seen || {};
       if (!n || seen[n.id]) return false;
-      if (n.type === 'sink') return true;
+      if (isEnd(n)) return true;
       if (n.type !== 'splitter') return false;
       seen[n.id] = true;
       return (outL[n.id] || []).some(function (o) { return spills(o, seen); });
@@ -6593,7 +6600,7 @@
     }
 
     // 3. What it comes to.
-    var res = { nodes: {}, links: {}, items: {}, outputs: {}, recipes: {}, problems: [], bad: {}, steps: 0, tally: [] };
+    var res = { nodes: {}, links: {}, items: {}, outputs: {}, sunk: {}, points: 0, recipes: {}, problems: [], bad: {}, steps: 0, tally: [] };
     links.forEach(function (l) {
       var list = itemsOn(l);
       var one = list.length === 1 ? list[0] : list.length ? null : (byId[l.from] ? slotItem(byId[l.from], 'out', l.fk) : null);
@@ -6664,6 +6671,12 @@
           });
           s.outs.forEach(function (item, k) {
             var l = outLink(n, k);
+            // A byproduct with nowhere to go fills the machine and stops it.
+            if (!l && item !== (n.item || main) && st.outs[k] > 1e-6) {
+              problem(n, fmtNum(st.outs[k]) + '/min ' + itemName(item) + ' has nowhere to go, so it would back up ' + label +
+                (isFluid(item) ? ': fluids can’t be sunk, so use it up (Optimize finds a way) or package it'
+                  : ': send it to an AWESOME Sink'));
+            }
             if (!l) {
               if (st.outs[k] > 1e-6) res.outputs[item] = (res.outputs[item] || 0) + st.outs[k];
             } else if (st.outs[k] - flowIn(l, item) > Math.max(0.01, st.outs[k] * 1e-3)) {
@@ -6716,6 +6729,19 @@
         if (ls) {
           var sv = flowOf[ls.id];
           Object.keys(sv).forEach(function (i) { if (sv[i] > 1e-6) res.outputs[i] = (res.outputs[i] || 0) + sv[i]; });
+        }
+      } else if (n.type === 'awesome') {
+        var la = inLink(n, 0);
+        if (la) {
+          var av = flowOf[la.id];
+          Object.keys(av).forEach(function (i) {
+            if (!(av[i] > 1e-6)) return;
+            res.sunk[i] = (res.sunk[i] || 0) + av[i];
+            st.points = (st.points || 0) + sinkPoints(i, av[i]);
+          });
+          res.points += st.points || 0;
+          var wet = itemsOn(la).filter(isFluid);
+          if (wet.length) problem(n, 'An AWESOME Sink only takes solids: ' + names(wet) + ' backs up');
         }
       } else if (isLogistic(n)) {
         // Belts can carry a mix of items; pipes carry one fluid, never with
@@ -7154,13 +7180,13 @@
     // In the order the game brings them in (see order in tools/extract-data.mjs).
     function progression(a, b) { return (DATA.items[a].order || 0) - (DATA.items[b].order || 0); }
     var sections = [
-      { head: 'Logistics', kinds: ['splitter', 'smart', 'programmable', 'merger', 'priority', 'sink'] },
+      { head: 'Logistics', kinds: ['splitter', 'smart', 'programmable', 'merger', 'priority', 'sink', 'awesome'] },
       { head: 'Resources', kinds: RAW_ITEMS.slice().sort(progression) },
       { head: 'Parts', kinds: PICKABLE.slice().sort(progression) }
     ];
     var NAMES = { splitter: 'Splitter', smart: 'Smart Splitter', programmable: 'Programmable Splitter', merger: 'Merger',
-      priority: 'Priority Merger', sink: 'Storage Container' };
-    var ICONS = { splitter: 'splitter', smart: 'splitter', programmable: 'splitter', merger: 'merger', priority: 'merger', sink: 'storage' };
+      priority: 'Priority Merger', sink: 'Storage Container', awesome: 'AWESOME Sink' };
+    var ICONS = { splitter: 'splitter', smart: 'splitter', programmable: 'splitter', merger: 'merger', priority: 'merger', sink: 'storage', awesome: 'sink' };
     sections.forEach(function (sec) {
       var wrap = document.createElement('div');
       wrap.className = 'pal-section';
@@ -7262,7 +7288,7 @@
   /** A new node for an item (a step, a resource, or something brought in), centred on a point. */
   function newNode(kind, wx, wy) {
     var n;
-    if (kind === 'splitter' || kind === 'merger' || kind === 'sink') {
+    if (kind === 'splitter' || kind === 'merger' || kind === 'sink' || kind === 'awesome') {
       n = { type: kind };
     } else if (kind === 'smart') {
       n = { type: 'splitter', priority: true };
@@ -7462,6 +7488,8 @@
         badge.textContent = '×' + (n.count || 1);
       } else if (n.type === 'import') {
         badge.textContent = fmtNum(n.rate || 0) + '/min';
+      } else if (n.type === 'awesome') {
+        badge.textContent = 'AWESOME Sink';
       } else {
         badge.textContent = 'Storage';
       }
@@ -7469,7 +7497,7 @@
       var b = buildingOf(n);
       var pic = document.createElement('img');
       pic.className = 'cn-icon';
-      pic.src = iconOf(b || (n.type === 'import' && isFluid(n.item) ? 'buffer' : 'storage'));
+      pic.src = iconOf(b || (n.type === 'import' && isFluid(n.item) ? 'buffer' : n.type === 'awesome' ? 'sink' : 'storage'));
       pic.alt = '';
       pic.draggable = false;
       body.appendChild(pic);
@@ -7479,6 +7507,11 @@
         fromCap.className = 'cn-caption cn-from';
         fromCap.textContent = n.from ? 'from ' + (from ? factoryLabel(from) : 'a deleted factory') : 'from elsewhere';
         body.appendChild(fromCap);
+      } else if (n.type === 'awesome') {
+        var pts = document.createElement('span');
+        pts.className = 'cn-caption';
+        pts.textContent = fmtNum(st.points || 0) + ' points/min';
+        body.appendChild(pts);
       } else if (n.type === 'resource' && n.item !== 'Desc_Water_C') {
         var cap = document.createElement('span');
         cap.className = 'cn-caption';
@@ -7761,6 +7794,7 @@
       var uses = r ? r.in.map(function (q) { return q[0]; }) : [fixed];
       return a.every(function (i) { return !isFluid(i); }) && a.some(function (i) { return uses.indexOf(i) >= 0; });
     }
+    if (inn.node.type === 'awesome' && a.some(isFluid)) return false;
     // Into a splitter, merger or Storage: anything that can share its line.
     var b = slotItems(inn.node, 'in', inn.k);
     if (!b.length) { var b1 = slotItem(inn.node, 'in', inn.k); if (b1) b = [b1]; }
@@ -7918,6 +7952,9 @@
       items.push({ label: 'Splitter', note: 'Shares evenly', icon: iconOf('splitter'), run: make('splitter') });
       items.push({ label: 'Smart Splitter', note: 'One item, or Any or Overflow, per output', icon: iconOf('splitter'), run: make('smart') });
       items.push({ label: 'Programmable Splitter', note: 'Several items per output', icon: iconOf('splitter'), run: make('programmable') });
+      if (!(item ? isFluid(item) : mixed.some(isFluid))) {
+        items.push({ label: 'AWESOME Sink', note: 'Sinks it for points', icon: iconOf('sink'), run: make('awesome') });
+      }
     } else {
       items.push({ label: 'Merger', note: 'Joins evenly', icon: iconOf('merger'), run: make('merger') });
       items.push({ label: 'Priority Merger', note: 'Top input first', icon: iconOf('merger'), run: make('priority') });
@@ -7970,7 +8007,7 @@
       head.className = 'problem-head';
       if (n) {
         var icon = document.createElement('img');
-        icon.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type));
+        icon.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type === 'awesome' ? 'sink' : n.type));
         icon.alt = '';
         head.appendChild(icon);
       }
@@ -8100,7 +8137,7 @@
     var img = document.createElement('img');
     img.className = 'insp-icon';
     img.alt = '';
-    img.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type));
+    img.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type === 'awesome' ? 'sink' : n.type));
     var title = document.createElement('span');
     title.className = 'sum-group-name';
     title.textContent = n.item ? itemName(n.item) : partName(n);
@@ -8467,6 +8504,7 @@
     } else {
       note(n.type === 'merger' && n.priority ? 'Joins up to three lines into one, its top input first: when the line out is full, the others back up.'
         : n.type === 'merger' ? 'Joins up to three lines into one. Different items make a mixed belt.'
+        : n.type === 'awesome' ? 'Sinks whatever solids reach it for FICSIT points: ' + fmtNum(st.points || 0) + ' points/min. From a splitter, it only takes what the other branches leave.'
         : 'Collects whatever reaches it. From a splitter, it only takes what the other branches leave.');
     }
     inspectorEl.appendChild(box);
@@ -8499,7 +8537,9 @@
     });
     var byItem = {};
     Object.keys(net).forEach(function (id) {
-      if (mainOf[id] && net[id] > 1e-4) byItem[id] = net[id];
+      // (What goes into an AWESOME Sink is a spare, not an output.)
+      var left = net[id] - ((f.sunk && f.sunk[id]) || 0);
+      if (mainOf[id] && left > 1e-4) byItem[id] = left;
     });
     // An output Build couldn't make here, brought in instead, is still one.
     state.custom.nodes.forEach(function (n) {
@@ -8620,11 +8660,25 @@
     solved = null;
     if (state.picker === 'optimise') {
       plan.pins = {};
-      solved = OPTIMISE.solveOptimised(DATA, plan, { goal: state.goal, allowed: recipeAllowed, built: canBuild });
+      solved = OPTIMISE.solveOptimised(DATA, plan, { goal: state.goal, allowed: recipeAllowed, built: canBuild, useFluids: true });
     }
     if (!solved) {
       plan.recipes = buildablePlan(true).recipes;
       solved = SOLVER.solve(DATA, plan);
+      // Fluids left over can't be sunk, and would back the steps up. Keeping
+      // every recipe picked, standard recipes are added to use them up
+      // (Heavy Oil Residue into Petroleum Coke for the AWESOME Sink, say).
+      var wet = Object.keys(solved.items || {}).some(function (id) { return solved.items[id].surplus > 1e-6 && isFluid(id); });
+      if (wet && !solved.error) {
+        var pins = {};
+        Object.keys(solved.recipes).forEach(function (rid) {
+          var it = solved.recipes[rid].item;
+          (pins[it] = pins[it] || {})[rid] = 1;
+        });
+        var tidy = OPTIMISE.solveOptimised(DATA, { targets: targets, imports: plan.imports, caps: {}, pins: pins, outMult: outMult },
+          { goal: 'resources', allowed: function () { return false; }, built: canBuild, useFluids: true });
+        if (tidy && !tidy.error && !Object.keys(tidy.items).some(function (id) { return tidy.items[id].surplus > 1e-6 && isFluid(id); })) solved = tidy;
+      }
     }
     layoutSloops = sloopsWas;
     autoToCustom();
@@ -8823,16 +8877,20 @@
     });
     // Outputs and spares into Storage.
     var end = last + 1;
-    function collect(id, rate) {
-      var s = node({ type: 'sink' });
+    function collect(id, rate, type) {
+      var s = node({ type: type || 'sink' });
       take(id, s, 0, rate);
       place(end, s);
     }
     Object.keys(solved.targets).forEach(function (id) { if (solved.targets[id] > EPS) collect(id, solved.targets[id]); });
-    // A spare byproduct nothing else uses stays at its output; one that
-    // shares a line with a user needs Storage to take the rest.
+    // Spare byproducts: solids into an AWESOME Sink, as you'd build it. A
+    // fluid can't be sunk: one sharing a line with a user goes to Storage
+    // for the rest; one nothing uses stays at its output, which says so.
     Object.keys(solved.items).forEach(function (id) {
-      if (solved.items[id].surplus > EPS && cons[id] && cons[id].length) collect(id, solved.items[id].surplus);
+      var e = solved.items[id];
+      if (!(e.surplus > EPS)) return;
+      if (!isFluid(id)) collect(id, e.surplus, 'awesome');
+      else if (cons[id] && cons[id].length) collect(id, e.surplus);
     });
 
     // Lines, first as pairs of producer and consumer for each item: which
@@ -8895,7 +8953,7 @@
     for (var sweep = 0; sweep < nodes.length + 2; sweep++) {
       var shifted = false;
       nodes.forEach(function (n) {
-        if (n.type === 'sink') return;
+        if (isEnd(n)) return;
         var outs = outTo.get(n) || [];
         if (!outs.length) return;
         var lim = Math.min.apply(null, outs.map(function (m) { return colOf.get(m); })) - 1;

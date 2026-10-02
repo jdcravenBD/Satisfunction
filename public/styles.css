@@ -3022,3 +3022,7 @@ body:not(.model-canvas) #world .node * { cursor: default; }
 }
 .rule-add:hover { border-style: solid; color: var(--ink); }
 .rule-none { font-size: 12px; color: var(--ink-faint); margin-right: 2px; }
+
+/* An AWESOME Sink: an end for spares, quieter than Storage's green. */
+.cnode.cnode-awesome { background: var(--panel-2); border-color: var(--card-dash); border-style: dashed; }
+.cnode-awesome .cn-count { font-size: 11px; }

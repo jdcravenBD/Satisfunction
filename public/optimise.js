@@ -39,6 +39,20 @@
    * Returns { status, counts: { recipeId: machines }, maxRate, unbounded }.
    */
   function optimise(data, plan, opts) {
+    // Fluids can't be sunk or left on a belt: with useFluids, every fluid
+    // made has to be used up (or packaged). If no plan can, fluids are let
+    // over after all, and the plan says so.
+    if (opts.useFluids) {
+      var strict = optimiseOnce(data, plan, opts);
+      if (strict.status === 'optimal') return strict;
+      var loose = optimiseOnce(data, plan, Object.assign({}, opts, { useFluids: false }));
+      loose.fluidsLeft = true;
+      return loose;
+    }
+    return optimiseOnce(data, plan, opts);
+  }
+
+  function optimiseOnce(data, plan, opts) {
     var res = attempt(data, plan, opts, true);
     // Things gathered by hand (power slugs, leaves, creature parts) or given
     // off by generators (Nuclear Waste) are held back first. If a chain can't
@@ -114,18 +128,39 @@
     var items = {};
     var recipes = {};
     var queue = wanted.slice();
-    while (queue.length) {
-      var id = queue.shift();
-      if (items[id] === true) continue;
-      items[id] = true;
-      if (data.items[id].raw || imports[id]) continue;
-      (producers[id] || []).forEach(function (rid) {
-        if (recipes[rid]) return;
-        recipes[rid] = true;
-        var r = data.recipes[rid];
-        r.in.forEach(function (p) { queue.push(p[0]); });
-        r.out.forEach(function (p) { items[p[0]] = items[p[0]] || 'side'; });
+    function take(rid) {
+      recipes[rid] = true;
+      var r = data.recipes[rid];
+      r.in.forEach(function (p) { queue.push(p[0]); });
+      r.out.forEach(function (p) { items[p[0]] = items[p[0]] || 'side'; });
+    }
+    function reach() {
+      while (queue.length) {
+        var id = queue.shift();
+        if (items[id] === true) continue;
+        items[id] = true;
+        if (data.items[id].raw || imports[id]) continue;
+        (producers[id] || []).forEach(function (rid) { if (!recipes[rid]) take(rid); });
+      }
+    }
+    reach();
+    // Fluids that have to be used up bring in the recipes that could use
+    // them (Dark Matter Residue into crystals, fuel into packages to sink).
+    if (opts.useFluids) {
+      var users = {};
+      Object.keys(data.recipes).forEach(function (rid) {
+        if (!usable(rid)) return;
+        data.recipes[rid].in.forEach(function (p) { (users[p[0]] = users[p[0]] || []).push(rid); });
       });
+      for (var grow = 0; grow < 30; grow++) {
+        var added = false;
+        Object.keys(items).forEach(function (id) {
+          if (data.items[id].form === 'solid') return;
+          (users[id] || []).forEach(function (rid) { if (!recipes[rid]) { take(rid); added = true; } });
+        });
+        reach();
+        if (!added) break;
+      }
     }
 
     // Variables: recipes, supply for whatever comes from outside (raw
@@ -170,7 +205,8 @@
       if (uOf[id] != null) a[uOf[id]] = 1;
       if (sOf[id] != null) a[sOf[id]] = 1;
       if (tVar >= 0 && maxItems.indexOf(id) >= 0) a[tVar] = -1;
-      rows.push({ a: a, op: '>=', b: (fixed[id] || 0) * norm });
+      var exact = opts.useFluids && data.items[id].form !== 'solid';
+      rows.push({ a: a, op: exact ? '=' : '>=', b: (fixed[id] || 0) * norm });
     });
     capped.forEach(function (id) {
       var a = {};
