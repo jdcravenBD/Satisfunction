@@ -1,0 +1,5 @@
+# The app's modules import each other by plain name, so they must never be
+# served stale: the browser checks each one again on every load (a 304 if
+# nothing changed).
+/js/*
+  Cache-Control: no-cache

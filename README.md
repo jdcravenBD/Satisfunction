@@ -118,9 +118,10 @@ This finds a Steam or Epic install on its own; pass a path to use a different
   are pushed forward from the resources: each step takes what it needs (or,
   left on Auto, grows to use what it's given).
 - The Item and Machine views solve the model's own plan (its outputs, inputs
-  and recipes) and lay it out: `app.js` places the graph in columns, cutting
-  line crossings, and builds the Machine view from it: machine lines,
-  manifolds or balancer trees, and belt routing between columns.
+  and recipes) and lay it out: `js/layout.js` places the graph in columns,
+  cutting line crossings, and `js/machines.js` builds the Machine view from
+  it: machine lines, manifolds or balancer trees, and belt routing between
+  columns.
 
 None of the solving code touches the DOM, so it also runs under Node.
 
@@ -130,7 +131,19 @@ None of the solving code touches the DOM, so it also runs under Node.
 public/
   index.html
   styles.css
-  app.js           canvas, views, panels, saves
+  js/              the app, as ES modules (no build step); main.js starts it
+    core.js        the plan's state, game-data helpers, numbers
+    store.js       saves and factories in localStorage
+    history.js     undo and redo
+    model.js       model cards: slots, splitter rules, line items
+    flow.js        how items flow through the model
+    cards.js       drawing model cards and lines
+    inspector.js   the Details page
+    build.js       Optimize and Build
+    solve.js       the model worked out into a plan for the views
+    layout.js      Item view layout
+    machines.js    Machine view
+    …              canvas, menus, panel, palette, notes, options, tips
   solver.js        rates and flows
   lp.js            linear program solver
   optimise.js      recipe optimiser
