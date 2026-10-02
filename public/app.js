@@ -992,8 +992,9 @@
       var r = solved.recipes[rid];
       add({ key: 'r:' + rid, kind: 'recipe', rid: rid, item: r.item, count: r.count });
     });
-    // A resource drawn from several nodes shows each node as a block of its
-    // own, all running at the same share of what they can give.
+    // A resource drawn from several nodes shows one block for each kind of
+    // node (purity and miner), saying how many there are, all running at the
+    // same share of what they can give.
     var rawParts = {};
     Object.keys(solved.items).forEach(function (id) {
       var e = solved.items[id];
@@ -1003,10 +1004,18 @@
         add({ key: 'raw:' + id, kind: 'raw', item: id, rate: e.supplied });
         return;
       }
-      rawParts[id] = info.nodeList.map(function (nd, i) {
-        var share = nd.rate / info.capacity;
+      var kinds = [];
+      var byKind = {};
+      info.nodeList.forEach(function (nd, i) {
+        var k = nd.purity + '|' + nd.extractor;
+        if (!byKind[k]) { byKind[k] = { slot: i, count: 0, cap: 0 }; kinds.push(byKind[k]); }
+        byKind[k].count++;
+        byKind[k].cap += nd.rate;
+      });
+      rawParts[id] = kinds.map(function (g, i) {
+        var share = g.cap / info.capacity;
         var key = i ? 'raw:' + id + '#' + i : 'raw:' + id;
-        add({ key: key, kind: 'raw', item: id, rate: e.supplied * share, slot: i });
+        add({ key: key, kind: 'raw', item: id, rate: e.supplied * share, slot: g.slot, nodes: g.count, cap: g.cap });
         return { key: key, share: share };
       });
     });
@@ -1460,7 +1469,7 @@
       if (it.raw) {
         var info = supplyInfo(n.item);
         var nd = info && info.nodeList && n.slot != null ? info.nodeList[n.slot] : null;
-        label = nd ? nodeLabel(n.item, nd) : supplyLabel(n.item, info);
+        label = nd ? (n.nodes > 1 ? n.nodes + ' × ' : '') + nodeLabel(n.item, nd) : supplyLabel(n.item, info);
         menu = openSupplyMenu;
         recipeBtn.title = 'Purity and miner';
         if (!info || !info.purity) {
@@ -1469,7 +1478,7 @@
           recipeBtn.title = '';
         }
         if (entry && entry.cap != null) {
-          if (nd && info.nodeList.length > 1) note('Uses ' + fmtNum(n.rate) + ' of ' + rateText(n.item, nd.rate));
+          if (nd && info.nodeList.length > (n.nodes || 1)) note('Uses ' + fmtNum(n.rate) + ' of ' + rateText(n.item, n.cap || nd.rate));
           else note('Uses ' + fmtNum(entry.supplied) + ' of ' + rateText(n.item, entry.cap));
           // What's true of the resource as a whole goes on its first block.
           if (!n.slot && entry.short > EPS) {
@@ -1492,10 +1501,6 @@
             addResourceNode(n.item, nd);
           });
           el.appendChild(more);
-        }
-        if (readOnly && n.kind === 'raw') {
-          note('Set its node purity in Model to place its ' +
-            (isFluid(n.item) ? 'extractors' : 'miners'));
         }
       } else if (state.imports[n.item]) {
         label = 'Imported';
@@ -1608,7 +1613,7 @@
         var info = supplyInfo(n.item);
         var nd = info && info.nodeList && n.slot != null ? info.nodeList[n.slot] : null;
         if (nd) {
-          add(nodeLabel(n.item, nd) + ' · gives up to ' + rateText(n.item, nd.rate));
+          add((n.nodes > 1 ? n.nodes + ' × ' : '') + nodeLabel(n.item, nd) + ' · gives up to ' + rateText(n.item, n.cap || nd.rate));
         } else if (info) {
           add(supplyLabel(n.item, info));
         }
