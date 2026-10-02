@@ -172,13 +172,32 @@ function clockSlider(k, onSet) {
   return wrap;
 }
 
-/** The selected card's settings and rates. */
+// What several selected cards don't agree on.
+var MIXED = { mixed: true };
+
+// How a card's kind is counted, one and several.
+var KIND_NAMES = {
+  recipe: ['machine', 'machines'], resource: ['resource', 'resources'], import: ['input', 'inputs'],
+  sink: ['storage', 'storage'], awesome: ['AWESOME Sink', 'AWESOME Sinks'],
+  splitter: ['splitter', 'splitters'], merger: ['merger', 'mergers']
+};
+
+/**
+ * The selected card's settings and rates. With several selected, the
+ * settings they all have, set for all of them at once.
+ */
 function renderInspector() {
   inspectorEl.innerHTML = '';
   if (state.build !== 'custom' || !flow) return;
   var sel = selectedParts();
-  if (sel.length !== 1) return;
+  if (!sel.length) return;
   var n = sel[0];
+  var many = sel.length > 1;
+  // One value if every selected card agrees, MIXED if not.
+  function same(f) {
+    var v = f(sel[0]);
+    return sel.every(function (x) { return f(x) === v; }) ? v : MIXED;
+  }
   var st = flow.nodes[n.id] || { ins: [], outs: [] };
   var box = document.createElement('div');
   box.className = 'sum-group inspector';
@@ -187,11 +206,26 @@ function renderInspector() {
   var img = document.createElement('img');
   img.className = 'insp-icon';
   img.alt = '';
-  img.src = iconOf(n.item || (n.type === 'sink' ? 'storage' : n.type === 'awesome' ? 'sink' : n.type));
+  var cardIcon = function (x) { return x.item || (x.type === 'sink' ? 'storage' : x.type === 'awesome' ? 'sink' : x.type); };
+  var icon = same(cardIcon);
+  if (icon !== MIXED) img.src = iconOf(icon);
   var title = document.createElement('span');
   title.className = 'sum-group-name';
-  title.textContent = n.item ? itemName(n.item) : partName(n);
-  head.appendChild(img);
+  if (many) {
+    var counts = {};
+    sel.forEach(function (x) { counts[x.type] = (counts[x.type] || 0) + 1; });
+    title.textContent = sel.length + ' selected';
+    var kinds = document.createElement('span');
+    kinds.className = 'insp-kinds';
+    kinds.textContent = Object.keys(counts).map(function (t) {
+      var names = KIND_NAMES[t] || [t, t];
+      return counts[t] + ' ' + names[counts[t] > 1 ? 1 : 0];
+    }).join(' · ');
+    title.appendChild(kinds);
+  } else {
+    title.textContent = n.item ? itemName(n.item) : partName(n);
+  }
+  if (icon !== MIXED) head.appendChild(img);
   head.appendChild(title);
   box.appendChild(head);
 
@@ -211,7 +245,7 @@ function renderInspector() {
     var b = document.createElement('button');
     b.type = 'button';
     b.className = 'insp-drop';
-    var cur = options.filter(function (o) { return o.value === value; })[0] || options[0];
+    var cur = value === MIXED ? { label: 'Mixed' } : options.filter(function (o) { return o.value === value; })[0] || options[0];
     if (cur && cur.icon) {
       var ic = document.createElement('img');
       ic.src = cur.icon;
@@ -257,12 +291,11 @@ function renderInspector() {
     box.appendChild(p);
   }
 
-  if (n.type === 'recipe') {
-    var r = nodeRecipe(n);
-    var rids = (producersOf[n.item] || []).filter(function (rid) {
-      return (canBuild(rid) && recipeAllowed(rid)) || rid === n.recipe;
-    });
-    field('Recipe', select(rids.map(function (rid) {
+  // The recipes that make an item, for the Recipe menu.
+  function recipeOptions(item, keep) {
+    return (producersOf[item] || []).filter(function (rid) {
+      return (canBuild(rid) && recipeAllowed(rid)) || keep(rid);
+    }).map(function (rid) {
       var q = DATA.recipes[rid];
       var per = SOLVER.perMinute(q);
       var side = function (list) {
@@ -272,21 +305,205 @@ function renderInspector() {
         value: rid, label: q.name, tag: q.alt ? 'ALT' : '', icon: iconOf(q.machine),
         note: machineName(rid) + ' · ' + side(q.in) + ' → ' + side(q.out)
       };
-    }), n.recipe, function (v) {
-      // Lines on slots the new recipe doesn't have come off.
-      n.recipe = v;
-      var s = slotsOf(n);
-      state.custom.links = state.custom.links.filter(function (l) {
-        if (l.to === n.id) {
-          if (l.tk >= s.ins.length) return false;
-          var brings = slotItems(nodeById(l.from), 'out', l.fk);
-          if (!brings.length) return true;
-          if (isFluid(s.ins[l.tk])) return brings.length === 1 && brings[0] === s.ins[l.tk];
-          return brings.some(function (i) { return s.ins.indexOf(i) >= 0 && !isFluid(i); });
-        }
-        if (l.from === n.id) return l.fk < s.outs.length;
-        return true;
+    });
+  }
+  // A card's new recipe; lines on slots the new recipe doesn't have come off.
+  function swapRecipe(c, v) {
+    c.recipe = v;
+    var s = slotsOf(c);
+    state.custom.links = state.custom.links.filter(function (l) {
+      if (l.to === c.id) {
+        if (l.tk >= s.ins.length) return false;
+        var brings = slotItems(nodeById(l.from), 'out', l.fk);
+        if (!brings.length) return true;
+        if (isFluid(s.ins[l.tk])) return brings.length === 1 && brings[0] === s.ins[l.tk];
+        return brings.some(function (i) { return s.ins.indexOf(i) >= 0 && !isFluid(i); });
+      }
+      if (l.from === c.id) return l.fk < s.outs.length;
+      return true;
+    });
+  }
+  // One card, three splitters: switching keeps the lines.
+  function splitterKind(c) { return c.programmable ? 'programmable' : c.priority ? 'smart' : 'splitter'; }
+  var SPLITTER_KINDS = [
+    { value: 'splitter', label: 'Splitter', note: 'Shares evenly', icon: iconOf('splitter') },
+    { value: 'smart', label: 'Smart Splitter', note: 'One rule per output', icon: iconOf('splitter') },
+    { value: 'programmable', label: 'Programmable Splitter', note: 'Several rules per output', icon: iconOf('splitter') }
+  ];
+  function setSplitterKind(c, v) {
+    if (v === splitterKind(c)) return;
+    delete c.priority;
+    delete c.programmable;
+    // A Smart Splitter keeps one rule per output.
+    if (c.rules && v === 'smart') c.rules = c.rules.map(function (list) { return list.slice(0, 1); });
+    if (v === 'smart') c.priority = true;
+    if (v === 'programmable') c.programmable = true;
+    if (v === 'splitter') delete c.rules;
+  }
+  // A row of buttons acting as one choice; `on` is the chosen value, or
+  // MIXED for none of them lit.
+  function segOf(choices, on, onPick) {
+    var seg = document.createElement('div');
+    seg.className = 'seg insp-seg';
+    choices.forEach(function (c) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'seg-btn' + (c[0] === on ? ' on' : '');
+      b.textContent = c[1];
+      b.addEventListener('click', function () { onPick(c[0]); });
+      seg.appendChild(b);
+    });
+    return seg;
+  }
+  // Which floor they're built on: the Machine view draws each floor on its
+  // own. With several, the buttons move them all a floor together.
+  function floorField(list) {
+    var fl = document.createElement('div');
+    fl.className = 'insp-field';
+    var fll = document.createElement('span');
+    fll.className = 'insp-label';
+    fll.textContent = 'Floor';
+    fl.appendChild(fll);
+    var step = document.createElement('div');
+    step.className = 'insp-stepper';
+    var floors = list.map(floorOf);
+    var lo = Math.min.apply(null, floors);
+    var hi = Math.max.apply(null, floors);
+    var move = function (d) {
+      list.forEach(function (c) {
+        var v = clamp(floorOf(c) + d, 1, MAX_FLOOR);
+        if (v > 1) c.floor = v; else delete c.floor;
       });
+      changed();
+    };
+    [['−', -1, hi <= 1, 'Down a floor'], null, ['+', 1, lo >= MAX_FLOOR, 'Up a floor']].forEach(function (b) {
+      if (!b) {
+        var val = document.createElement('span');
+        val.className = 'insp-step-val';
+        val.textContent = lo === hi ? 'Floor ' + lo : 'Floors ' + lo + '–' + hi;
+        step.appendChild(val);
+        return;
+      }
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'insp-step-btn';
+      btn.textContent = b[0];
+      btn.disabled = b[2];
+      btn.setAttribute('aria-label', b[3]);
+      btn.addEventListener('click', function () { move(b[1]); });
+      step.appendChild(btn);
+    });
+    fl.appendChild(step);
+    box.appendChild(fl);
+  }
+
+  if (many) {
+    renderShared();
+    inspectorEl.appendChild(box);
+    return;
+  }
+
+  /** The settings every selected card has, each set for all of them. */
+  function renderShared() {
+    var type = same(function (x) { return x.type; });
+    if (type === 'recipe') {
+      var item = same(function (x) { return x.item; });
+      if (item !== MIXED) {
+        field('Recipe', select(recipeOptions(item, function (rid) {
+          return sel.some(function (x) { return x.recipe === rid; });
+        }), same(function (x) { return x.recipe; }), function (v) {
+          sel.forEach(function (x) { swapRecipe(x, v); });
+          changed();
+        }));
+      }
+      field('Production', segOf([['auto', 'Auto'], ['set', 'Set']], same(function (x) { return x.set ? 'set' : 'auto'; }), function (v) {
+        sel.forEach(function (x) {
+          if (v === 'set' && !x.set) {
+            x.set = true;
+            x.count = Number((((flow.nodes[x.id] || {}).count) || 1).toFixed(4)) || 1;
+          } else if (v === 'auto') {
+            x.set = false;
+            delete x.count;
+          }
+        });
+        changed();
+      }));
+      var own = same(function (x) { return x.clock ? 'own' : 'auto'; });
+      field('Clock speed', segOf([['auto', 'Auto'], ['own', 'Custom']], own, function (v) {
+        sel.forEach(function (x) {
+          if (v === 'own' && !x.clock) x.clock = 1;
+          else if (v === 'auto') delete x.clock;
+        });
+        changed();
+      }));
+      if (own === 'own') {
+        var k = same(function (x) { return x.clock; });
+        box.appendChild(clockSlider(k === MIXED ? n.clock : k, function (v) {
+          sel.forEach(function (x) { x.clock = v; });
+          changed();
+        }));
+        if (k === MIXED) note('Their clock speeds differ: setting one sets them all.');
+      }
+      // Somersloops, when they're all the same kind of building.
+      var slots = same(function (x) { var r = nodeRecipe(x); return r ? DATA.machines[r.machine].sloops || 0 : 0; });
+      if (slots !== MIXED && slots > 0) {
+        var choices = [];
+        for (var sv = 0; sv <= slots; sv++) choices.push([sv, sv ? String(sv) : 'None']);
+        field('Somersloops', segOf(choices, same(function (x) { return x.sloops || 0; }), function (v) {
+          sel.forEach(function (x) { if (v) x.sloops = v; else delete x.sloops; });
+          changed();
+        }));
+      }
+    } else if (type === 'resource') {
+      if (!sel.some(function (x) { return isFluid(x.item); })) {
+        field('Miner', select(MINERS.filter(function (m) {
+          return DATA.extractors[m] && (hasBuilding(m) || sel.some(function (x) { return x.miner === m; }));
+        }).map(function (m) {
+          return { value: m, label: DATA.extractors[m].name, icon: iconOf(m) };
+        }), same(extractorOf), function (v) {
+          sel.forEach(function (x) { x.miner = v; });
+          state.defaultMiner = v;
+          changed();
+        }));
+      }
+      if (!sel.some(function (x) { return x.item === 'Desc_Water_C'; })) {
+        field('Purity', select(SOLVER.PURITIES.map(function (q) { return { value: q, label: titleCase(q) }; }),
+          same(function (x) { return x.purity || 'normal'; }), function (v) {
+            sel.forEach(function (x) { x.purity = v; });
+            changed();
+          }));
+      }
+      var cnt = same(function (x) { return x.count || 1; });
+      var ni = number(cnt === MIXED ? '' : cnt, 1, 1, function (v) {
+        if (!(v >= 1)) return;
+        sel.forEach(function (x) { x.count = clamp(Math.round(v), 1, MAX_NODES); });
+        changed();
+      });
+      if (cnt === MIXED) ni.placeholder = 'Mixed';
+      field(sel.every(function (x) { return x.item === 'Desc_Water_C'; }) ? 'Extractors' : 'Nodes', ni);
+      var rk = same(function (x) { return x.clock || 1; });
+      field('Clock speed', document.createElement('span'));
+      box.appendChild(clockSlider(rk === MIXED ? n.clock || 1 : rk, function (v) {
+        sel.forEach(function (x) { x.clock = v; });
+        changed();
+      }));
+      if (rk === MIXED) note('Their clock speeds differ: setting one sets them all.');
+    } else if (type === 'splitter') {
+      field('Type', select(SPLITTER_KINDS, same(splitterKind), function (v) {
+        sel.forEach(function (x) { setSplitterKind(x, v); });
+        changed();
+      }));
+    }
+    if (sel.every(hasFloor)) floorField(sel);
+    if (box.children.length < 2) {
+      note('These don’t share any settings. Select cards of one kind (or machines, resources and inputs, for their floor) to change them together.');
+    }
+  }
+
+  if (n.type === 'recipe') {
+    var r = nodeRecipe(n);
+    field('Recipe', select(recipeOptions(n.item, function (rid) { return rid === n.recipe; }), n.recipe, function (v) {
+      swapRecipe(n, v);
       changed();
     }));
     // Auto, or Set: a count, or a rate of the item it's for.
@@ -447,21 +664,10 @@ function renderInspector() {
     }));
     field(itemName(n.item) + '/min', number(n.rate || 0, 0, 1, function (v) { n.rate = clamp(v || 0, 0, MAX_RATE); changed(); }));
   } else if (n.type === 'splitter') {
-    // One card, three splitters: switching keeps the lines.
-    var kind = n.programmable ? 'programmable' : n.priority ? 'smart' : 'splitter';
-    field('Type', select([
-      { value: 'splitter', label: 'Splitter', note: 'Shares evenly', icon: iconOf('splitter') },
-      { value: 'smart', label: 'Smart Splitter', note: 'One rule per output', icon: iconOf('splitter') },
-      { value: 'programmable', label: 'Programmable Splitter', note: 'Several rules per output', icon: iconOf('splitter') }
-    ], kind, function (v) {
+    var kind = splitterKind(n);
+    field('Type', select(SPLITTER_KINDS, kind, function (v) {
       if (v === kind) return;
-      delete n.priority;
-      delete n.programmable;
-      // A Smart Splitter keeps one rule per output.
-      if (n.rules && v === 'smart') n.rules = n.rules.map(function (list) { return list.slice(0, 1); });
-      if (v === 'smart') n.priority = true;
-      if (v === 'programmable') n.programmable = true;
-      if (v === 'splitter') delete n.rules;
+      setSplitterKind(n, v);
       changed();
     }));
     if (!isRuled(n)) {
@@ -557,41 +763,7 @@ function renderInspector() {
       : n.type === 'awesome' ? 'Sinks whatever solids reach it for FICSIT points: ' + fmtNum(st.points || 0) + ' points/min. From a splitter, it only takes what the other branches leave.'
       : 'Collects whatever reaches it. From a splitter, it only takes what the other branches leave.');
   }
-  // Which floor it's built on: the Machine view draws each floor on its own.
-  if (hasFloor(n)) {
-    var fl = document.createElement('div');
-    fl.className = 'insp-field';
-    var fll = document.createElement('span');
-    fll.className = 'insp-label';
-    fll.textContent = 'Floor';
-    fl.appendChild(fll);
-    var step = document.createElement('div');
-    step.className = 'insp-stepper';
-    var at = floorOf(n);
-    var setFloor = function (v) {
-      if (v > 1) n.floor = v; else delete n.floor;
-      changed();
-    };
-    [['−', at - 1, at <= 1, 'Down a floor'], null, ['+', at + 1, at >= MAX_FLOOR, 'Up a floor']].forEach(function (b) {
-      if (!b) {
-        var val = document.createElement('span');
-        val.className = 'insp-step-val';
-        val.textContent = 'Floor ' + at;
-        step.appendChild(val);
-        return;
-      }
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'insp-step-btn';
-      btn.textContent = b[0];
-      btn.disabled = b[2];
-      btn.setAttribute('aria-label', b[3]);
-      btn.addEventListener('click', function () { setFloor(b[1]); });
-      step.appendChild(btn);
-    });
-    fl.appendChild(step);
-    box.appendChild(fl);
-  }
+  if (hasFloor(n)) floorField([n]);
   inspectorEl.appendChild(box);
 }
 

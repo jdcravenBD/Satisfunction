@@ -3126,3 +3126,12 @@ body:not(.model-canvas) #world .node * { cursor: default; }
   cursor: pointer;
 }
 .floor-pick:hover { background: var(--btn-hover); }
+
+/* Several cards selected: what they are, under the count. */
+.insp-kinds {
+  display: block;
+  margin-top: 1px;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  font-weight: 400;
+}
