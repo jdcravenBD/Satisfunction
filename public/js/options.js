@@ -8,9 +8,9 @@ import { recompute } from './solve.js';
 import { hideHoverInfo } from './nodes.js';
 import { renderWires } from './wires.js';
 import { clearSelection } from './canvas.js';
-import { closeAll } from './menus.js';
+import { closeAll, openCtx } from './menus.js';
 import { refreshRecipeControls } from './recipes.js';
-import { palette } from './model.js';
+import { floorsUsed, palette } from './model.js';
 import { setTool, toolsEl } from './notes.js';
 
 /* ------------------------------------------------------ view and clocks */
@@ -20,6 +20,7 @@ import { setTool, toolsEl } from './notes.js';
 // out from the model and not edited directly. One switch holds all three.
 var viewSeg = document.getElementById('view-seg');
 var balanceSeg = document.getElementById('balance');
+var floorPick = document.getElementById('floor-pick');
 
 function currentView() { return state.build === 'custom' ? 'model' : state.mode; }
 
@@ -36,6 +37,11 @@ function refreshModeSeg() {
   balanceSeg.querySelectorAll('.seg-btn').forEach(function (b) {
     b.classList.toggle('on', b.dataset.balance === state.balance);
   });
+  // A building with floors: all of them, or one at a time.
+  var floors = floorsUsed();
+  floorPick.hidden = !machinesOn || floors.length < 2;
+  document.getElementById('floor-pick-text').textContent =
+    floors.indexOf(state.floorShown) >= 0 ? 'Floor ' + state.floorShown : 'All floors';
   document.getElementById('view-note').hidden = model;
   document.getElementById('view-note-text').textContent = state.custom.nodes.length
     ? (machinesOn ? 'Viewing your model, laid out for you · edit it in Model'
@@ -88,6 +94,22 @@ balanceSeg.addEventListener('click', function (e) {
   refreshModeSeg();
   recompute();
   fitView();
+});
+
+floorPick.addEventListener('click', function () {
+  var r = floorPick.getBoundingClientRect();
+  var floors = floorsUsed();
+  var shown = floors.indexOf(state.floorShown) >= 0 ? state.floorShown : 0;
+  function show(f) {
+    state.floorShown = f;
+    refreshModeSeg();
+    recompute();
+    fitView();
+  }
+  openCtx(r.left, r.bottom + 4, [{ label: 'All floors', note: 'Stacked, the top floor highest', on: !shown, run: function () { show(0); } }]
+    .concat(floors.map(function (f) {
+      return { label: 'Floor ' + f, on: f === shown, run: function () { show(f); } };
+    })), false, Math.max(r.width, 180));
 });
 
 var clockSeg = document.getElementById('clock-seg');

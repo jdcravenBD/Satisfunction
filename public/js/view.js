@@ -54,7 +54,10 @@ function usableWidth() {
 
 /** Frames the whole plan in whatever part of the canvas is visible. */
 function fitView() {
-  var nodes = state.build === 'custom' ? customBoxes() : graph.nodes;
+  var nodes = state.build === 'custom' ? customBoxes() : graph.nodes.concat((graph.bands || []).map(function (b) {
+    // The Machine view's floors, names and all.
+    return { x: b.left, y: b.top, w: b.right - b.left, h: b.bottom - b.top };
+  }));
   if (!nodes.length) {
     state.view = { x: 60, y: 40, s: 1 };
     applyView();

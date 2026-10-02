@@ -7,6 +7,7 @@ import { DATA, EPS, clockLabel, clockSetting, extractorsFor, fmtNum, graph, isFl
 import { buildNode } from './nodes.js';
 import { edgeId, relate, setRelated, svg, wires } from './wires.js';
 import { inkEl } from './notes.js';
+import { floorOf, flow } from './model.js';
 
 /* ---------------------------------------------------------- machine view */
 
@@ -85,7 +86,7 @@ function buildMachineGraph() {
    * line within the fastest tier allowed. Each machine carries its own
    * belt load, since miners on different purities differ.
    */
-  function addLines(baseKey, spec) {
+  function addLines(baseKey, spec, floor, keyBase) {
     var chunks = [];
     var cur = [];
     var load = {};
@@ -113,14 +114,24 @@ function buildMachineGraph() {
     function made(list) {
       return list.reduce(function (s, m) { return s + (m.load[spec.item] || 0); }, 0);
     }
-    var total = made(spec.machines);
-    linesOf[baseKey] = chunks.map(function (chunk, i) {
-      var key = chunks.length > 1 ? baseKey + '#' + i : baseKey;
+    var list = linesOf[baseKey] || (linesOf[baseKey] = []);
+    chunks.forEach(function (chunk, i) {
+      var key = (keyBase || baseKey) + (chunks.length > 1 ? '#' + i : '');
       add({
         key: key, kind: 'line', item: spec.item, name: spec.name, size: spec.size,
-        ins: spec.ins.slice(), outs: spec.outs.slice(), machines: chunk
+        ins: spec.ins.slice(), outs: spec.outs.slice(), machines: chunk, floor: floor
       });
-      return { key: key, share: total > EPS ? made(chunk) / total : 1 / chunks.length };
+      list.push({ key: key, made: made(chunk) });
+    });
+  }
+  /** Each line's share of its step, once all of the step's lines are in. */
+  function shareLines() {
+    Object.keys(linesOf).forEach(function (k) {
+      var list = linesOf[k];
+      var total = list.reduce(function (t, l) { return t + (l.made || 0); }, 0);
+      list.forEach(function (l) {
+        if (l.share == null) l.share = total > EPS ? l.made / total : 1 / list.length;
+      });
     });
   }
 
@@ -134,15 +145,19 @@ function buildMachineGraph() {
     var s = solved.recipes[rid];
     var spec = DATA.machines[r.machine];
     var k = 60 / r.time;
-    addLines('r:' + rid, {
-      item: s.item, name: spec.name, size: spec.size,
-      ins: r.in.map(function (p) { return p[0]; }),
-      outs: r.out.map(function (p) { return p[0]; }),
-      machines: recipeClocks(rid, s.count).map(function (c) {
-        var load = {};
-        r.in.concat(r.out).forEach(function (p) { load[p[0]] = (load[p[0]] || 0) + p[1] * k * c; });
-        return { clock: clockSetting(c), product: itemName(s.item), pre: '', sub: clockLabel(c), load: load };
-      })
+    var parts = floorParts(function (n) { return n.type === 'recipe' && n.recipe === rid; },
+      function (n, st) { return st.count || 0; });
+    parts.forEach(function (fp) {
+      addLines('r:' + rid, {
+        item: s.item, name: spec.name, size: spec.size,
+        ins: r.in.map(function (p) { return p[0]; }),
+        outs: r.out.map(function (p) { return p[0]; }),
+        machines: recipeClocks(rid, s.count * fp.part).map(function (c) {
+          var load = {};
+          r.in.concat(r.out).forEach(function (p) { load[p[0]] = (load[p[0]] || 0) + p[1] * k * c; });
+          return { clock: clockSetting(c), product: itemName(s.item), pre: '', sub: clockLabel(c), load: load };
+        })
+      }, fp.floor, parts.length > 1 ? 'r:' + rid + '@' + fp.floor : null);
     });
   });
 
@@ -152,24 +167,39 @@ function buildMachineGraph() {
       var ex = DATA.items[id].raw ? extractorsFor(id, e.supplied) : null;
       if (ex) {
         var spec = DATA.extractors[ex.info.extractor];
-        addLines('raw:' + id, {
-          item: id, name: spec.name, size: spec.size, ins: [], outs: [id],
-          machines: ex.list.map(function (m) {
-            var rate = m.rate * m.clock;
-            var load = {};
-            load[id] = rate;
-            return {
-              clock: clockSetting(m.clock),
-              name: DATA.extractors[m.extractor].name,
-              product: itemName(id),
-              pre: m.purity ? titleCase(m.purity) : '',
-              sub: clockLabel(m.clock),
-              load: load
-            };
-          })
+        var miners = ex.list.map(function (m) {
+          var rate = m.rate * m.clock;
+          var load = {};
+          load[id] = rate;
+          return {
+            clock: clockSetting(m.clock),
+            name: DATA.extractors[m.extractor].name,
+            product: itemName(id),
+            pre: m.purity ? titleCase(m.purity) : '',
+            sub: clockLabel(m.clock),
+            load: load
+          };
+        });
+        var rparts = floorParts(function (n) { return n.type === 'resource' && n.item === id; },
+          function (n, st) { return st.run || 0; });
+        // Miners go to each floor in turn until it has its share.
+        var given = 0;
+        rparts.forEach(function (fp, i) {
+          var mine = [];
+          var quota = e.supplied * fp.part;
+          var got = 0;
+          while (given < miners.length && (i === rparts.length - 1 || got < quota - 1e-6)) {
+            got += miners[given].load[id];
+            mine.push(miners[given++]);
+          }
+          if (!mine.length) return;
+          addLines('raw:' + id, { item: id, name: spec.name, size: spec.size, ins: [], outs: [id], machines: mine },
+            fp.floor, rparts.length > 1 ? 'raw:' + id + '@' + fp.floor : null);
         });
       } else {
-        endpoint({ key: 'raw:' + id, kind: 'raw', item: id, rate: e.supplied });
+        endpoint({ key: 'raw:' + id, kind: 'raw', item: id, rate: e.supplied,
+          floor: floorParts(function (n) { return (n.type === 'import' || n.type === 'resource') && n.item === id; },
+            function (n, st) { return n.type === 'import' ? n.rate || 0 : st.run || 0; }).sort(function (a, b) { return b.part - a.part; })[0].floor });
       }
     }
     if (e.surplus > EPS) endpoint({ key: 'spare:' + id, kind: 'spare', item: id, rate: e.surplus });
@@ -180,6 +210,7 @@ function buildMachineGraph() {
     if (rate > EPS) endpoint({ key: 'out:' + id, kind: 'output', item: id, rate: rate });
   });
 
+  shareLines();
   function isEndpoint(key) { return byKey[key].kind !== 'line'; }
 
   /** Joins belts on mergers (three in each, chained past that); returns the last. */
@@ -290,7 +321,87 @@ function buildMachineGraph() {
     });
   });
 
-  setGraph({ nodes: nodes, edges: edges, byKey: byKey });
+  // Splitters, mergers and storage stand where their belts come from;
+  // something brought in, where it's going.
+  function nearest(n, up) {
+    var seen = {};
+    var queue = [n];
+    seen[n.key] = true;
+    while (queue.length) {
+      var q = queue.shift();
+      if (q !== n && q.floor != null) return q.floor;
+      (up ? q.inn : q.out).forEach(function (e) {
+        var o = byKey[up ? e.from : e.to];
+        if (!seen[o.key]) { seen[o.key] = true; queue.push(o); }
+      });
+    }
+    return null;
+  }
+  function isPart(n) { return n.kind === 'splitter' || n.kind === 'merger'; }
+  nodes.forEach(function (n) { if (n.floor == null && n.kind === 'raw') n.floor = nearest(n, false); });
+  nodes.forEach(function (n) { if (n.floor == null && !isPart(n)) n.floor = nearest(n, true); });
+  // A splitter whose belts all go to one floor stands on that floor, so one
+  // lift takes the whole belt there; a merger whose belts all come from one
+  // floor, likewise. Otherwise a splitter stands where its belt comes from,
+  // and a merger where its belt goes.
+  var settling = {};
+  function settle(n) {
+    if (n.floor != null) return n.floor;
+    if (settling[n.key]) return null;
+    settling[n.key] = true;
+    var split = n.kind === 'splitter';
+    var far = (split ? n.out.map(function (e) { return byKey[e.to]; }) : n.inn.map(function (e) { return byKey[e.from]; })).map(settle);
+    var near = (split ? n.inn.map(function (e) { return byKey[e.from]; }) : n.out.map(function (e) { return byKey[e.to]; })).map(settle);
+    settling[n.key] = false;
+    var f = far.length && far.every(function (x) { return x != null && x === far[0]; }) ? far[0]
+      : near.concat(far).filter(function (x) { return x != null; })[0];
+    if (f != null) n.floor = f;
+    return f == null ? null : f;
+  }
+  nodes.forEach(function (n) { if (isPart(n)) settle(n); });
+  nodes.forEach(function (n) { if (n.floor == null) n.floor = nearest(n, false); });
+  nodes.forEach(function (n) { if (n.floor == null) n.floor = 1; });
+  var floors = nodes.map(function (n) { return n.floor; })
+    .filter(function (f, i, all) { return all.indexOf(f) === i; })
+    .sort(function (a, b) { return a - b; });
+
+  // A belt from one floor to another ends at a lift there, and leaves the
+  // lift on the other floor.
+  if (floors.length > 1) {
+    edges.slice().forEach(function (e) {
+      var a = byKey[e.from];
+      var b = byKey[e.to];
+      if (a.floor === b.floor) return;
+      var leave = add({ key: 'lift:' + seq++, kind: 'lift', item: e.item, rate: e.rate, floor: a.floor, to: b.floor });
+      var arrive = add({ key: 'lift:' + seq++, kind: 'lift', item: e.item, rate: e.rate, floor: b.floor, from: a.floor });
+      b.inn.splice(b.inn.indexOf(e), 1);
+      e.to = leave.key;
+      leave.inn.push(e);
+      link(arrive.key, b.key, e.item, e.rate);
+    });
+  }
+
+  setGraph({ nodes: nodes, edges: edges, byKey: byKey, floors: floors });
+}
+
+/**
+ * How the model shares something between floors: by `weigh` over the cards
+ * `match` picks, as [{ floor, part }], lowest floor first. With no cards
+ * to go by, one part on no floor in particular.
+ */
+function floorParts(match, weigh) {
+  var w = {};
+  var total = 0;
+  state.custom.nodes.forEach(function (n) {
+    if (!match(n)) return;
+    var v = weigh(n, (flow && flow.nodes[n.id]) || {});
+    if (!(v > EPS)) return;
+    w[floorOf(n)] = (w[floorOf(n)] || 0) + v;
+    total += v;
+  });
+  var list = Object.keys(w).map(function (f) { return { floor: Number(f), part: w[f] / total }; })
+    .sort(function (a, b) { return a.floor - b.floor; });
+  return list.length ? list : [{ floor: null, part: 1 }];
 }
 
 /**
@@ -682,6 +793,12 @@ function mountMachineNodes() {
       // Room above and below for belts leaving or joining at the sides.
       n.part = size;
       n.h = size + 2 * px(STUB_M + 1);
+    } else if (n.kind === 'lift') {
+      n.el = liftShape(n);
+      world.appendChild(n.el);
+      n.w = LIFT_W;
+      n.h = Math.max(n.el.offsetHeight, snap(px(TRACK_M) * 2));
+      n.el.style.height = n.h + 'px';
     } else if (n.kind === 'output' || n.kind === 'spare') {
       // One building per belt that arrives: a container takes one belt.
       var b = storageFor(n);
@@ -705,6 +822,35 @@ function mountMachineNodes() {
       n.el.style.height = n.h + 'px';
     }
   });
+}
+
+/**
+ * Where a belt changes floor: a Conveyor Lift (or a pipe straight up or
+ * down), drawn as a card on each floor saying where it goes or comes from.
+ */
+var LIFT_W = 128;
+function liftShape(n) {
+  var going = n.to != null;
+  var other = going ? n.to : n.from;
+  var up = going ? other > n.floor : other < n.floor;
+  var el = document.createElement('div');
+  el.className = 'node endpoint lift ' + (going ? 'leave' : 'arrive');
+  el.style.width = LIFT_W + 'px';
+  var head = document.createElement('div');
+  head.className = 'n-title';
+  var arrow = document.createElement('span');
+  arrow.className = 'lift-arrow';
+  arrow.textContent = up ? '↑' : '↓';
+  head.appendChild(arrow);
+  head.appendChild(document.createTextNode((going ? 'To' : 'From') + ' Floor ' + other));
+  el.appendChild(head);
+  var what = document.createElement('div');
+  what.className = 'n-rate';
+  what.textContent = itemName(n.item);
+  el.appendChild(what);
+  el.setAttribute('aria-label', (isFluid(n.item) ? 'Pipe ' : 'Conveyor Lift ') + (up ? 'up ' : 'down ') +
+    (going ? 'to' : 'from') + ' Floor ' + other + ', ' + itemName(n.item));
+  return el;
 }
 
 /**
@@ -1445,6 +1591,20 @@ function renderMachineView() {
   labelsEl.innerHTML = '';
   setRelated({});
   var byKey = graph.byKey;
+
+  (graph.bands || []).forEach(function (b) {
+    var band = document.createElement('div');
+    band.className = 'machine floor-band';
+    band.style.left = b.left + 'px';
+    band.style.top = b.top + 'px';
+    band.style.width = b.right - b.left + 'px';
+    band.style.height = b.bottom - b.top + 'px';
+    var name = document.createElement('span');
+    name.className = 'floor-name';
+    name.textContent = 'Floor ' + b.floor;
+    band.appendChild(name);
+    world.insertBefore(band, world.firstChild);
+  });
 
   // Belts between lines first, so the lines' own belts sit over them.
   graph.edges.forEach(function (e) {

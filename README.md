@@ -38,6 +38,9 @@ size.
   split to fit the fastest tier you've unlocked. Long manifolds fold into
   compact blocks, and belts that skip several steps run on a bus above or
   below the factory.
+- **Floors:** give machines, resources and inputs a floor (in Details, or
+  right-click) and the Machine view stacks the floors like the building,
+  with a lift wherever a belt goes up or down. Show every floor, or one.
 - **Inputs from elsewhere:** "+ Add input" under Inputs, or right-click a
   machine and "Bring in instead", swaps what made an item for an Import.
 - **Resources per factory:** switch off any resource under Recipes and

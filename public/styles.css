@@ -3054,3 +3054,75 @@ body:not(.model-canvas) #world .node * { cursor: default; }
 .hover-tip.show { opacity: 1; visibility: visible; transition: opacity .12s ease; }
 /* Line labels let their icons be pointed at, and nothing else. */
 #labels .fl-icon { pointer-events: auto; }
+
+/* ---------- floors ---------- */
+
+/* A card's floor, once the model has more than one: a tag off its top left. */
+.cn-floor {
+  position: absolute;
+  top: -19px;
+  left: 0;
+  padding: 0 6px;
+  border-radius: 4px 4px 0 0;
+  background: rgba(var(--tint), .08);
+  color: var(--ink-dim);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The inspector's floor: down, which, up. */
+.insp-stepper { display: flex; align-items: center; gap: 6px; }
+.insp-step-btn {
+  width: 28px; height: 26px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: rgba(var(--tint), .05);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.insp-step-btn:hover:not(:disabled) { background: var(--btn-hover); border-color: var(--edge-hi); }
+.insp-step-btn:disabled { opacity: .35; cursor: default; }
+.insp-step-val { min-width: 58px; text-align: center; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* Machine view: each floor in a band of its own, named at the top. */
+.machine.floor-band {
+  z-index: 0;
+  border: 1px dashed var(--edge-hi);
+  border-radius: 14px;
+  background: rgba(var(--tint), .025);
+  pointer-events: none;
+}
+.floor-name {
+  position: absolute;
+  top: 10px;
+  left: 16px;
+  color: var(--ink-dim);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+/* Where a belt goes up or down to another floor. */
+#world .node.lift, #world .node.lift:hover { border: 1px dashed var(--edge-hi); background: var(--panel-2); }
+.node.lift .n-title { display: flex; align-items: center; gap: 5px; color: var(--ink); }
+.node.lift .n-rate { color: var(--ink-dim); }
+.lift-arrow { color: var(--accent-ink); font-weight: 700; }
+
+/* The Machine view's floor picker, beside Manifold / Balancer. */
+.floor-pick {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.floor-pick:hover { background: var(--btn-hover); }

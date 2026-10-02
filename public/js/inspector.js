@@ -7,8 +7,8 @@ import { changed } from './history.js';
 import { openCtx, openItemPicker } from './menus.js';
 import { group, row } from './panel.js';
 import { factoryLabel } from './factories.js';
-import { RULE_NAMES, extractorOf, flow, iconOf, isRuled, nodeById, nodeRecipe, partName,
-  resourceCap, rulesOf, sloopsOf, slotItems, slotsOf } from './model.js';
+import { MAX_FLOOR, RULE_NAMES, extractorOf, floorOf, flow, hasFloor, iconOf, isRuled, nodeById,
+  nodeRecipe, partName, resourceCap, rulesOf, sloopsOf, slotItems, slotsOf } from './model.js';
 import { factoryById, factoryOutputs, otherFactories, requestsOf } from './links.js';
 import { selectedParts } from './palette.js';
 import { focusPart } from './cards.js';
@@ -556,6 +556,41 @@ function renderInspector() {
       : n.type === 'merger' ? 'Joins up to three lines into one. Different items make a mixed belt.'
       : n.type === 'awesome' ? 'Sinks whatever solids reach it for FICSIT points: ' + fmtNum(st.points || 0) + ' points/min. From a splitter, it only takes what the other branches leave.'
       : 'Collects whatever reaches it. From a splitter, it only takes what the other branches leave.');
+  }
+  // Which floor it's built on: the Machine view draws each floor on its own.
+  if (hasFloor(n)) {
+    var fl = document.createElement('div');
+    fl.className = 'insp-field';
+    var fll = document.createElement('span');
+    fll.className = 'insp-label';
+    fll.textContent = 'Floor';
+    fl.appendChild(fll);
+    var step = document.createElement('div');
+    step.className = 'insp-stepper';
+    var at = floorOf(n);
+    var setFloor = function (v) {
+      if (v > 1) n.floor = v; else delete n.floor;
+      changed();
+    };
+    [['−', at - 1, at <= 1, 'Down a floor'], null, ['+', at + 1, at >= MAX_FLOOR, 'Up a floor']].forEach(function (b) {
+      if (!b) {
+        var val = document.createElement('span');
+        val.className = 'insp-step-val';
+        val.textContent = 'Floor ' + at;
+        step.appendChild(val);
+        return;
+      }
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'insp-step-btn';
+      btn.textContent = b[0];
+      btn.disabled = b[2];
+      btn.setAttribute('aria-label', b[3]);
+      btn.addEventListener('click', function () { setFloor(b[1]); });
+      step.appendChild(btn);
+    });
+    fl.appendChild(step);
+    box.appendChild(fl);
   }
   inspectorEl.appendChild(box);
 }

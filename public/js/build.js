@@ -10,7 +10,7 @@ import { askConfirm } from './menus.js';
 import { renderBreakdown } from './panel.js';
 import { refreshEmptyHint } from './factories.js';
 import { refreshOptNote } from './recipes.js';
-import { extractorOf, flow, isEnd, isLogistic, nodeById, nodeRecipe, nodeSize, resourceCap,
+import { extractorOf, floorOf, flow, hasFloor, isEnd, isLogistic, nodeById, nodeRecipe, nodeSize, resourceCap,
   setFlow, sloopsOf, slotAt, slotsOf } from './model.js';
 import { customFlow } from './flow.js';
 import { renderInk, renderNotes } from './notes.js';
@@ -147,6 +147,12 @@ function buildModel() {
     if (nodeRecipe(n) && n.clock) clockWas[n.recipe] = n.clock;
     if (nodeRecipe(n) && n.sloops) sloopsWas[n.recipe] = n.sloops;
   });
+  // So do floors, and those of resources and inputs with their items.
+  var floorKey = function (n) { return n.type === 'recipe' ? 'r:' + n.recipe : n.type + ':' + n.item; };
+  var floorWas = {};
+  state.custom.nodes.forEach(function (n) {
+    if (hasFloor(n) && floorOf(n) > 1 && !floorWas[floorKey(n)]) floorWas[floorKey(n)] = floorOf(n);
+  });
   // How the model mines each resource, kept for the new nodes.
   var how = {};
   state.custom.nodes.forEach(function (n) {
@@ -209,6 +215,7 @@ function buildModel() {
   });
   state.custom.nodes.forEach(function (n) {
     if (nodeRecipe(n) && clockWas[n.recipe]) n.clock = clockWas[n.recipe];
+    if (hasFloor(n) && floorWas[floorKey(n)]) n.floor = floorWas[floorKey(n)];
   });
   state.pins = {};
   keyAfterRender = true;

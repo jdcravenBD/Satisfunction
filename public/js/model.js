@@ -44,6 +44,20 @@ var PROBLEM_ICON = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden=
 function isLogistic(n) { return n.type === 'splitter' || n.type === 'merger'; }
 /** Where a line can end: Storage, or an AWESOME Sink. */
 function isEnd(n) { return n.type === 'sink' || n.type === 'awesome'; }
+/**
+ * Which floor a card's machines stand on, for the Machine view. Machines,
+ * resources and inputs have one; splitters, mergers and storage go wherever
+ * their belts take them.
+ */
+var MAX_FLOOR = 50;
+function hasFloor(n) { return n.type === 'recipe' || n.type === 'resource' || n.type === 'import'; }
+function floorOf(n) { return hasFloor(n) && n.floor > 1 ? n.floor : 1; }
+/** The floors the model's cards are on, lowest first. */
+function floorsUsed() {
+  var seen = {};
+  state.custom.nodes.forEach(function (n) { if (hasFloor(n)) seen[floorOf(n)] = true; });
+  return Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
+}
 /** AWESOME Sink points for an item a minute: what it's worth, solids only. */
 function sinkPoints(id, rate) { return isFluid(id) ? 0 : (DATA.items[id].sink || 0) * rate; }
 
@@ -282,7 +296,7 @@ function vscale(v, f) { var o = {}; for (var i in v) o[i] = v[i] * f; return o; 
 function setLineCache(v) { lineCache = v; return v; }
 function setFlow(v) { flow = v; return v; }
 
-export { PROBLEM_ICON, RULE_NAMES, STRIP, STRIP_LOGI, buildingOf, customHint, extractorOf, flow,
-  iconOf, isEnd, isLogistic, isRuled, lineSets, linkOn, mixable, nodeById, nodeRecipe, nodeSize,
+export { MAX_FLOOR, PROBLEM_ICON, RULE_NAMES, STRIP, STRIP_LOGI, buildingOf, customHint, extractorOf, flow,
+  floorOf, floorsUsed, hasFloor, iconOf, isEnd, isLogistic, isRuled, lineSets, linkOn, mixable, nodeById, nodeRecipe, nodeSize,
   palette, partName, resourceCap, routeOf, rulesOf, setFlow, setLineCache, sinkPoints, sloopsOf,
   slotAt, slotItem, slotItems, slotsOf, vscale, vsum, vtotal };

@@ -10,7 +10,8 @@ import { svg, wirePath, wires } from './wires.js';
 import { applySelection, clearSelection, dragMenuSkip, selectOnly, selected } from './canvas.js';
 import { closeAll, openCtx } from './menus.js';
 import { factoryLabel } from './factories.js';
-import { PROBLEM_ICON, STRIP, STRIP_LOGI, buildingOf, extractorOf, flow, iconOf, isLogistic,
+import { MAX_FLOOR, PROBLEM_ICON, STRIP, STRIP_LOGI, buildingOf, extractorOf, floorOf, floorsUsed,
+  flow, hasFloor, iconOf, isLogistic,
   linkOn, mixable, nodeById, nodeRecipe, nodeSize, partName, sloopsOf, slotAt, slotItem,
   slotItems, slotsOf } from './model.js';
 import { factoryById, factoryOutputs, otherFactories, requestsOf } from './links.js';
@@ -180,6 +181,14 @@ function cardEl(n) {
     el.appendChild(col);
   });
 
+  // Once the model has more than one floor, each card says which it's on.
+  if (hasFloor(n) && floorsUsed().length > 1) {
+    var fl = document.createElement('span');
+    fl.className = 'cn-floor';
+    fl.textContent = 'Floor ' + floorOf(n);
+    el.appendChild(fl);
+  }
+
   // Something wrong: a flag off the top right corner. Hovering it says what.
   var mine = flow ? flow.problems.filter(function (pr) { return pr.part === n.id; }) : [];
   if (mine.length) {
@@ -213,6 +222,7 @@ function cardEl(n) {
     closeAll();
     if (!selected[n.id]) selectOnly(n.id);
     var list = selectedParts();
+    var floored = list.filter(hasFloor);
     openCtx(e.clientX, e.clientY, [
       { head: list.length > 1 ? list.length + ' selected' : (n.item ? itemName(n.item) : partName(n)) },
       { label: 'Cut', kbd: 'Ctrl+X', run: function () { copyParts(list); removeParts(list, []); } },
@@ -222,7 +232,10 @@ function cardEl(n) {
       '-'
     ].concat([
       { label: list.length > 1 ? 'Remove these' : 'Remove', kbd: 'Del', run: function () { removeParts(list, selectedLinks()); } }
-    ].concat(list.length === 1 && nodeRecipe(n) ? [
+    ].concat(floored.length ? [
+      '-',
+      { label: 'Floor', note: floorNote(floored), run: function () { openFloorMenu(e.clientX, e.clientY, floored); } }
+    ] : []).concat(list.length === 1 && nodeRecipe(n) ? [
       '-',
       { label: 'Bring in instead', note: 'An Import in its place, and what fed it goes', run: function () {
         var fresh = !!state.optKey && state.optKey === planKey();
@@ -234,6 +247,33 @@ function cardEl(n) {
     ] : [])));
   });
   return el;
+}
+
+/** Which floor some cards are on, for a menu's second line. */
+function floorNote(list) {
+  var at = list.map(floorOf).filter(function (f, i, all) { return all.indexOf(f) === i; });
+  return at.length === 1 ? 'On Floor ' + at[0] : 'On Floors ' + at.sort(function (a, b) { return a - b; }).join(', ');
+}
+
+/** Moves cards to a floor: any in use, or the one above the highest. */
+function openFloorMenu(x, y, list) {
+  var used = floorsUsed();
+  var top = Math.min(MAX_FLOOR, Math.max(used[used.length - 1] || 1, 1) + 1);
+  var same = list.every(function (n) { return floorOf(n) === floorOf(list[0]); }) ? floorOf(list[0]) : 0;
+  var items = [{ head: 'Move to floor' }];
+  for (var f = 1; f <= top; f++) {
+    (function (f) {
+      items.push({
+        label: 'Floor ' + f, on: f === same,
+        note: used.indexOf(f) < 0 ? 'New' : '',
+        run: function () {
+          list.forEach(function (n) { if (f > 1) n.floor = f; else delete n.floor; });
+          changed();
+        }
+      });
+    })(f);
+  }
+  openCtx(x, y, items);
 }
 
 /** What a card's input or output is, and how much goes through it. */

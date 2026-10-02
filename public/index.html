@@ -6,12 +6,12 @@
 <title>Satisfunction</title>
 <!-- The theme picked in Settings, applied before anything is drawn. -->
 <script>try { if (localStorage.getItem('satisfunction.theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}</script>
-<link rel="icon" href="favicon.svg?v=60" type="image/svg+xml">
-<link rel="icon" href="favicon-32.png?v=60" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon.svg?v=61" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=61" type="image/png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=60">
+<link rel="stylesheet" href="styles.css?v=61">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
   <header class="bar">
     <div class="bar-left">
       <div class="brand">
-        <img class="mark-img" src="favicon.svg?v=60" alt="" width="20" height="20">
+        <img class="mark-img" src="favicon.svg?v=61" alt="" width="20" height="20">
         <strong>SATISFUNCTION</strong>
         <span class="sub">Production Planner</span>
       </div>
@@ -203,6 +203,11 @@
       <button type="button" class="seg-btn" data-balance="manifold" title="One belt runs past every machine, with a splitter at each">Manifold</button>
       <button type="button" class="seg-btn" data-balance="balancer" title="A tree of splitters gives every machine exactly the same share">Balancer</button>
     </div>
+    <!-- Which floor the Machine view shows, once the model has more than one. -->
+    <button type="button" class="vo-float floor-pick" id="floor-pick" hidden>
+      <span id="floor-pick-text">All floors</span>
+      <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <button type="button" id="view-opts-btn" class="btn icon" title="Display options" aria-haspopup="true" aria-expanded="false">
       <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
         <path d="M3 5.5h14M3 10h14M3 14.5h14"/>
@@ -434,11 +439,11 @@
 
 <!-- ?v= is bumped whenever these files change, so a browser never mixes an old
      copy of one with a new copy of another. -->
-<script src="data.js?v=60"></script>
-<script src="solver.js?v=60"></script>
-<script src="lp.js?v=60"></script>
-<script src="optimise.js?v=60"></script>
-<script src="examples.js?v=60"></script>
+<script src="data.js?v=61"></script>
+<script src="solver.js?v=61"></script>
+<script src="lp.js?v=61"></script>
+<script src="optimise.js?v=61"></script>
+<script src="examples.js?v=61"></script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

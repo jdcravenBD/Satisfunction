@@ -2,7 +2,7 @@
 
 import { DATA, EPS, SOLVER, blocked, buildablePlan, buildingName, currentCaps, errorEl, graph,
   itemName, setGraph, setSolved, solved, state, supplyInfo, world } from './core.js';
-import { layout } from './layout.js';
+import { layout, layoutFloors } from './layout.js';
 import { hideHoverInfo, mountNodes } from './nodes.js';
 import { buildMachineGraph, mountMachineNodes, place, renderMachineView } from './machines.js';
 import { renderWires } from './wires.js';
@@ -70,7 +70,7 @@ function recompute() {
   if (state.mode === 'machines') {
     buildMachineGraph();
     mountMachineNodes();
-    layout();
+    layoutFloors();
     renderMachineView();
   } else {
     world.querySelectorAll('.machine, .part, .cnode, .cnote').forEach(function (el) { el.remove(); });

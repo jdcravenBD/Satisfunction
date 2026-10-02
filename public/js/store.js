@@ -2,7 +2,7 @@
 
 import { BUILDINGS, DATA, DEFAULTS, KEY, SOLVER, clamp, state, unlockable } from './core.js';
 import { scheduleCommit } from './history.js';
-import { RULE_NAMES, isRuled, slotsOf } from './model.js';
+import { MAX_FLOOR, RULE_NAMES, hasFloor, isRuled, slotsOf } from './model.js';
 
 /* ---------------------------------------------------------------- store */
 
@@ -17,7 +17,7 @@ import { RULE_NAMES, isRuled, slotsOf } from './model.js';
 var STORE_KEY = 'satisfunction.saves.v1';
 var PROGRESS = ['unlocked', 'altsSet', 'unavailable', 'belt', 'pipe', 'defaultMiner'];
 var FACTORY = ['targets', 'recipes', 'imports', 'supply', 'clock', 'picker', 'goal',
-  'pins', 'view', 'mode', 'balance', 'build', 'custom', 'optKey', 'modelled', 'noUse'];
+  'pins', 'view', 'mode', 'balance', 'floorShown', 'build', 'custom', 'optKey', 'modelled', 'noUse'];
 var store = null;  // { active, saves: [{ id, name, active, progress, factories: [{ id, name, plan }] }], prefs }
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -149,6 +149,8 @@ function readCustom(c) {
     } else if (n.type !== 'sink' && n.type !== 'awesome') {
       return;
     }
+    // The floor its machines stand on (1 unless set).
+    if (hasFloor(q) && Number(n.floor) > 1) q.floor = clamp(Math.round(Number(n.floor)), 2, MAX_FLOOR);
     out.nodes.push(q);
     byId[q.id] = q;
   });
@@ -244,6 +246,7 @@ function adopt(data) {
   if (data.view && isFinite(data.view.s)) state.view = data.view;
   if (data.mode === 'machines' || data.mode === 'items') state.mode = data.mode;
   if (data.balance === 'balancer' || data.balance === 'manifold') state.balance = data.balance;
+  state.floorShown = data.floorShown > 0 ? Math.round(data.floorShown) : 0;
   if (['details', 'overview', 'power'].indexOf(data.page) >= 0) state.page = data.page;
   state.folds = {};
   Object.keys(data.folds || {}).forEach(function (k) {

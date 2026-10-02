@@ -51,6 +51,7 @@ var state = {
   show: { products: true, rates: true, clocks: true, short: false, lines: 'curved' }, // what the canvas labels
   page: 'details', // the plan panel's page: 'details', 'overview' or 'power'
   balance: 'manifold', // machine view inputs: 'manifold' or 'balancer'
+  floorShown: 0, // machine view: the one floor shown, or 0 for every floor
   build: 'custom', // 'custom': the Model canvas; 'auto': one of its views (Item or Machine)
   optKey: null,  // planKey() when the model was last optimized or built
   noUse: [],     // resources this factory doesn't use (Optimize does without them)

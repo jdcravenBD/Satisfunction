@@ -1,7 +1,7 @@
 /* Satisfunction — Item view layout: the plan's steps in columns, ordered to cross as little as
    possible. */
 
-import { COL_GAP, ROW_GAP, graph, itemName, pins, state } from './core.js';
+import { COL_GAP, ROW_GAP, graph, itemName, pins, setGraph, state } from './core.js';
 import { routeMachineView } from './machines.js';
 
 /* -------------------------------------------------------------- layout */
@@ -318,4 +318,63 @@ function layout() {
   });
 }
 
-export { layout };
+/**
+ * The Machine view, a floor at a time: each floor is laid out on its own,
+ * then they're stacked like the building, the top floor highest, each in a
+ * band with its name. With one floor picked, only that one shows.
+ */
+var FLOOR_GAP = 96;     // between one floor's band and the next
+var FLOOR_HEAD = 40;    // room at the top of a band for its name
+var FLOOR_PAD = 24;     // round the edge of a band
+function layoutFloors() {
+  var full = graph;
+  var floors = full.floors || [];
+  if (floors.length < 2) {
+    layout();
+    return;
+  }
+  var shown = floors.indexOf(state.floorShown) >= 0 ? [state.floorShown] : floors.slice().reverse();
+  var bands = [];
+  var keep = { nodes: [], edges: [], byKey: {} };
+  var y = 0;
+  shown.forEach(function (f) {
+    var nodes = full.nodes.filter(function (n) { return n.floor === f; });
+    if (!nodes.length) return;
+    var byKey = {};
+    nodes.forEach(function (n) { byKey[n.key] = n; });
+    // Belts never cross floors here: those that did now end at lifts.
+    var edges = full.edges.filter(function (e) { return byKey[e.from]; });
+    setGraph({ nodes: nodes, edges: edges, byKey: byKey });
+    layout();
+    var box = { top: Infinity, bottom: -Infinity, left: Infinity, right: -Infinity };
+    function grow(x0, y0, x1, y1) {
+      box.left = Math.min(box.left, x0);
+      box.right = Math.max(box.right, x1);
+      box.top = Math.min(box.top, y0);
+      box.bottom = Math.max(box.bottom, y1);
+    }
+    nodes.forEach(function (n) { grow(n.x, n.y, n.x + n.w, n.y + n.h); });
+    edges.forEach(function (e) { (e.route || []).forEach(function (p) { grow(p[0], p[1], p[0], p[1]); }); });
+    var dy = y + FLOOR_PAD + FLOOR_HEAD - box.top;
+    nodes.forEach(function (n) { n.y += dy; n.cy += dy; });
+    edges.forEach(function (e) {
+      if (e.route) e.route = e.route.map(function (p) { return [p[0], p[1] + dy]; });
+    });
+    bands.push({ floor: f, top: y, bottom: box.bottom + dy + FLOOR_PAD, left: box.left - FLOOR_PAD, right: box.right + FLOOR_PAD });
+    y = box.bottom + dy + FLOOR_PAD + FLOOR_GAP;
+    keep.nodes = keep.nodes.concat(nodes);
+    keep.edges = keep.edges.concat(edges);
+    Object.assign(keep.byKey, byKey);
+  });
+  // Every band as wide as the widest, so the floors line up.
+  var left = Math.min.apply(null, bands.map(function (b) { return b.left; }));
+  var right = Math.max.apply(null, bands.map(function (b) { return b.right; }));
+  bands.forEach(function (b) { b.left = left; b.right = right; });
+  // Cards for floors not shown were made anyway; they go.
+  full.nodes.forEach(function (n) { if (!keep.byKey[n.key] && n.el) n.el.remove(); });
+  keep.floors = floors;
+  keep.bands = bands;
+  setGraph(keep);
+}
+
+export { layout, layoutFloors };
