@@ -3030,3 +3030,27 @@ body:not(.model-canvas) #world .node * { cursor: default; }
 /* Resources a factory may use: a ticked list with each resource's icon. */
 .res-list .row-icon { width: 18px; height: 18px; margin-right: 8px; }
 .res-check:not(.on) .row-icon { opacity: .4; }
+
+/* ---------- item tips ---------- */
+
+/* An item's name (and rate), a moment after the pointer settles on its icon. */
+.hover-tip {
+  position: fixed;
+  z-index: 90;
+  max-width: 320px;
+  padding: 4px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, calc(.5 * var(--shade)));
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .12s ease, visibility 0s linear .12s;
+}
+.hover-tip.show { opacity: 1; visibility: visible; transition: opacity .12s ease; }
+/* Line labels let their icons be pointed at, and nothing else. */
+#labels .fl-icon { pointer-events: auto; }

@@ -4825,7 +4825,7 @@
     var raws = Object.keys(solved.items)
       .filter(function (id) { return solved.items[id].supplied > EPS; })
       .sort(function (a, b) { return solved.items[b].supplied - solved.items[a].supplied; });
-    if (raws.length) {
+    if (raws.length || solved.custom) {
       inputsBox.appendChild(group('Inputs', 'from outside', raws.map(function (id) {
         var it = DATA.items[id];
         var e = solved.items[id];
@@ -4838,6 +4838,15 @@
         return row(itemName(id), note, rateText(id, e.supplied),
           function () { focusOn('raw:' + id); }, short);
       }), 'inputs'));
+      // Something made elsewhere, brought in here instead.
+      if (solved.custom) {
+        var addIn = document.createElement('button');
+        addIn.type = 'button';
+        addIn.className = 'add-target add-input';
+        addIn.textContent = '+ Add input';
+        addIn.addEventListener('click', function () { openItemPicker(addIn, addModelInput); });
+        inputsBox.lastChild.appendChild(addIn);
+      }
     }
 
     // Every building, ticked if the user has it: what the plan uses shows
@@ -7546,6 +7555,11 @@
       pic.src = iconOf(b || (n.type === 'import' && isFluid(n.item) ? 'buffer' : n.type === 'awesome' ? 'sink' : 'storage'));
       pic.alt = '';
       pic.draggable = false;
+      var r0 = nodeRecipe(n);
+      pic.dataset.tip = r0 ? DATA.machines[r0.machine].name + ' · ' + r0.name + (r0.alt ? ' (alternate)' : '')
+        : n.type === 'resource' ? (DATA.extractors[extractorOf(n)] ? DATA.extractors[extractorOf(n)].name + ' on ' : '') + itemName(n.item)
+        : n.type === 'import' ? itemName(n.item) + ', brought in'
+        : partName(n);
       body.appendChild(pic);
       if (n.type === 'import') {
         var from = n.from && factoryById(n.from);
@@ -7613,6 +7627,7 @@
         }
         slot.setAttribute('aria-label', (shown ? itemName(shown) : mix.length > 1 ? 'Mixed: ' + mix.map(itemName).join(', ') : 'Any item') +
           (side[0] === 'in' ? ' in' : ' out'));
+        slot.dataset.tip = slotTip(n, st, side[0], k, shown, mix);
         slot.addEventListener('pointerdown', function (e) { dragFromSlot(n, side[0], k, e); });
         col.appendChild(slot);
         // Where the chain ends, what comes out, just past the card's edge
@@ -7670,11 +7685,38 @@
         { label: 'Copy', kbd: 'Ctrl+C', run: function () { copyParts(list); } },
         // Pasting goes where you right-click empty canvas.
         { label: 'Paste', kbd: 'Ctrl+V', disabled: true, run: function () {} },
-        '-',
+        '-'
+      ].concat([
         { label: list.length > 1 ? 'Remove these' : 'Remove', kbd: 'Del', run: function () { removeParts(list, selectedLinks()); } }
-      ]);
+      ].concat(list.length === 1 && nodeRecipe(n) ? [
+        '-',
+        { label: 'Bring in instead', note: 'An Import in its place, and what fed it goes', run: function () {
+          var fresh = !!state.optKey && state.optKey === planKey();
+          var im = bringIn(n);
+          if (im && fresh && buildModel()) { clearSelection(); changed(); return; }
+          if (im) selectOnly(im.id);
+          changed();
+        } }
+      ] : [])));
     });
     return el;
+  }
+
+  /** What a card's input or output is, and how much goes through it. */
+  function slotTip(n, st, side, k, shown, mix) {
+    var r = nodeRecipe(n);
+    if (shown && r && side === 'in') {
+      var want = Math.abs(SOLVER.perMinute(r)[shown] || 0) * (st.count || 0);
+      return itemName(shown) + ' · gets ' + rateText(shown, (st.got && st.got[shown]) || 0).replace('/min', '') + ' of ' + rateText(shown, want);
+    }
+    if (shown && side === 'out' && !isLogistic(n)) return itemName(shown) + ' · ' + rateText(shown, st.outs[k] || 0);
+    var l = linkOn(n, side, k);
+    var f = l && flow && flow.links[l.id];
+    if (mix.length > 1) {
+      return mix.map(function (i) { return itemName(i) + (f && f.items[i] ? ' ' + rateText(i, f.items[i]) : ''); }).join(' · ');
+    }
+    if (shown) return itemName(shown) + (f ? ' · ' + rateText(shown, f.total) : '');
+    return side === 'in' ? 'Any item in' : 'Any item out';
   }
 
   /** Moves a card (and the rest of the selection, if it's in it). */
@@ -7769,6 +7811,7 @@
             mi.className = 'fl-icon';
             mi.src = iconOf(i);
             mi.alt = itemName(i);
+            mi.dataset.tip = itemName(i) + ' · ' + rateText(i, f.items[i]);
             if (j) label.appendChild(document.createTextNode('  '));
             label.appendChild(mi);
             var mb = document.createElement('b');
@@ -7784,6 +7827,7 @@
             icon.className = 'fl-icon';
             icon.src = iconOf(one);
             icon.alt = '';
+            icon.dataset.tip = itemName(one);
             label.appendChild(icon);
           }
           var bold = document.createElement('b');
@@ -8807,6 +8851,63 @@
    * away; otherwise its step is placed to the right of everything, set to
    * make the usual starting rate, for Optimize (or you) to feed.
    */
+  /**
+   * A step's main item brought in instead: an Import card at the rate it
+   * makes, taking over its lines out, and the step goes, with anything
+   * upstream that only fed what's going.
+   */
+  function bringIn(n) {
+    var r = nodeRecipe(n);
+    if (!r) return null;
+    var item = n.item || r.out[0][0];
+    var k = Math.max(0, slotsOf(n).outs.indexOf(item));
+    var st = flow && flow.nodes[n.id];
+    var per = (SOLVER.perMinute(r)[item] || 0) * (1 + sloopsOf(n).boost);
+    var rate = ((st && st.count) || n.count || 1) * per;
+    var size = nodeSize({ type: 'import' });
+    var im = {
+      id: 'n' + uid(), type: 'import', item: item, rate: Number(rate.toFixed(4)) || 60,
+      x: Math.round(n.x + nodeSize(n).w - size.w), y: Math.round(slotAt(n, 'out', k).y - size.h / 2)
+    };
+    var links = state.custom.links;
+    var gone = {};
+    gone[n.id] = true;
+    for (var grew = true; grew;) {
+      grew = false;
+      state.custom.nodes.forEach(function (m) {
+        if (gone[m.id]) return;
+        var outs = links.filter(function (l) { return l.from === m.id; });
+        if (outs.length && outs.every(function (l) { return gone[l.to]; })) { gone[m.id] = true; grew = true; }
+      });
+    }
+    state.custom.links = links.filter(function (l) {
+      if (l.from === n.id && l.fk === k && !gone[l.to]) { l.from = im.id; l.fk = 0; return true; }
+      return !gone[l.from] && !gone[l.to];
+    });
+    state.custom.nodes = state.custom.nodes.filter(function (m) { return !gone[m.id]; }).concat([im]);
+    return im;
+  }
+
+  /** "+ Add input": steps making it are swapped for an Import; else a new Import card. */
+  function addModelInput(id) {
+    var fresh = !!state.optKey && state.optKey === planKey();
+    var makers = state.custom.nodes.filter(function (n) { return nodeRecipe(n) && (n.item || nodeRecipe(n).out[0][0]) === id; });
+    var made = makers.map(bringIn).filter(Boolean);
+    if (!made.length) {
+      var left = Infinity, top = Infinity;
+      customBoxes().forEach(function (b) { left = Math.min(left, b.x); top = Math.min(top, b.y); });
+      var im = { id: 'n' + uid(), type: 'import', item: id, rate: 60, x: isFinite(left) ? left - 280 : 0, y: isFinite(top) ? top : 0 };
+      state.custom.nodes.push(im);
+      made = [im];
+    }
+    clearSelection();
+    // A model as Optimize or Build left it is rebuilt around the import
+    // (nothing done by hand to lose); otherwise Reoptimize offers to.
+    if (fresh && made[0].type === 'import' && buildModel()) { changed(); return; }
+    made.forEach(function (m) { selected[m.id] = true; });
+    changed();
+  }
+
   function addModelOutput(id) {
     if (!state.custom.nodes.length) {
       state.targets = [{ item: id, rate: NEW_TARGET_RATE }];
@@ -9330,6 +9431,43 @@
     ]);
     ctx.style.left = Math.max(8, r.right - ctx.offsetWidth) + 'px';
   });
+
+  /* ------------------------------------------------------------ item tips */
+
+  // Hovering an item's icon a moment names it (and what's going through it):
+  // the app's own small box, never the browser's tooltip.
+  var tipEl = document.createElement('div');
+  tipEl.className = 'hover-tip';
+  tipEl.setAttribute('role', 'tooltip');
+  document.body.appendChild(tipEl);
+  var tipTimer = null, tipFor = null;
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tipFor = null;
+    tipEl.classList.remove('show');
+  }
+  document.addEventListener('mouseover', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (t === tipFor) return;
+    hideTip();
+    if (!t || !t.dataset.tip) return;
+    tipFor = t;
+    tipTimer = setTimeout(function () {
+      if (!document.body.contains(t)) return;
+      tipEl.textContent = t.dataset.tip;
+      var r = t.getBoundingClientRect();
+      tipEl.style.left = '0px';
+      tipEl.style.top = '0px';
+      tipEl.classList.add('show');
+      var w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+      var below = r.bottom + 8 + h < window.innerHeight;
+      tipEl.style.left = Math.round(clamp(r.left + r.width / 2 - w / 2, 8, window.innerWidth - w - 8)) + 'px';
+      tipEl.style.top = Math.round(below ? r.bottom + 8 : r.top - h - 8) + 'px';
+    }, 600);
+  });
+  document.addEventListener('pointerdown', hideTip, true);
+  window.addEventListener('wheel', hideTip, { passive: true });
+  window.addEventListener('blur', hideTip);
 
   /* ------------------------------------------------------------- settings */
 
