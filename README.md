@@ -155,7 +155,23 @@ public/
   examples.js      starter plans
 tools/
   extract-data.mjs builds data.js from the game's Docs JSON
+  build-offline.mjs builds the one-file offline version into dist/
 ```
+
+## Offline and self-hosting
+
+- **One file, no install:** download `satisfunction-offline.html` from the
+  [Offline version release](https://github.com/jdcravenBD/Satisfunction/releases/tag/offline)
+  and open it in your browser. Everything is inside it (icons, game data),
+  so it needs no server and no internet. Its saves live in that browser,
+  separate from the website's; Export and Import move them across. The
+  release is rebuilt on every update.
+- **Build that file yourself:** `npm run offline` (Node only, no packages
+  needed) writes it to `dist/`.
+- **Host your own copy:** `public/` is the whole site, static files with no
+  build step. Serve it with anything, for example `npx serve public` or
+  `python -m http.server -d public`. Opening `public/index.html` straight
+  from disk won't work: browsers only load the app's modules from a server.
 
 ## Deploying
 

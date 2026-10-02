@@ -1,0 +1,35 @@
+# Builds the offline version (one HTML file) on every push to main and
+# publishes it as the "offline" release, replacing the last one. Free for a
+# public repo; nothing to install.
+name: Offline version
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: offline
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/build-offline.mjs
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete offline --cleanup-tag --yes || true
+          gh release create offline dist/satisfunction-offline.html \
+            --title "Offline version" \
+            --notes "Satisfunction in one file. Download satisfunction-offline.html and open it in your browser: no install, no server, no internet. Saves stay in that browser, separate from satisfunction.io's (use Export and Import to move them). Rebuilt on every update." \
+            --latest

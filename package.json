@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "wrangler pages dev",
     "deploy": "wrangler pages deploy",
-    "data": "node tools/extract-data.mjs"
+    "data": "node tools/extract-data.mjs",
+    "offline": "node tools/build-offline.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

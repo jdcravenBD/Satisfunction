@@ -34,7 +34,8 @@ var CARD_TOP = 28;   // room above the slots for the count
 var STRIP = 36;      // the inputs' and outputs' strips down the card's sides
 var STRIP_LOGI = 20; // the same on a splitter or merger
 
-function iconOf(id) { return 'icons/' + id + '.png'; }
+// The offline file carries its icons inside it (see tools/build-offline.mjs).
+function iconOf(id) { return (window.SF_ICONS && window.SF_ICONS[id]) || 'icons/' + id + '.png'; }
 
 // A rounded diamond with "!" in it, as on the Machines view's note.
 var PROBLEM_ICON = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
